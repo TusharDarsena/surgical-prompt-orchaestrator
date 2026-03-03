@@ -16,6 +16,7 @@ from models.thesis import (
     SynopsisCreateRequest, SynopsisUpdateRequest,
     ChapterCreateRequest, SubtopicCreateRequest, SubtopicUpdateRequest,
 )
+from typing import Union
 from services import storage
 
 router = APIRouter(prefix="/thesis", tags=["Thesis Context"])
@@ -51,6 +52,18 @@ def update_synopsis(req: SynopsisUpdateRequest):
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     existing.update(updates)
     return storage.write_synopsis(existing)
+
+
+@router.put("/synopsis", summary="Upsert thesis synopsis (create or replace)")
+def upsert_synopsis(req: SynopsisCreateRequest):
+    """
+    Idempotent upsert — creates the synopsis if it doesn't exist, or
+    replaces it in full if it does. The frontend does not need to know
+    which state currently applies.
+    """
+    data = req.model_dump()
+    data["updated_at"] = datetime.utcnow().isoformat()
+    return storage.write_synopsis(data)
 
 
 # --- Chapters ---
