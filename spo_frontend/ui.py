@@ -141,6 +141,41 @@ def render_outline_import_form(key_suffix: str) -> None:
         "Upload outline JSON", type="json", key=f"ch_outline_upload_{key_suffix}"
     )
 
+    # Parse and preview as soon as file is uploaded — don't wait for chapter_id
+    if not uploaded:
+        return
+
+    try:
+        raw = __import__("json").load(uploaded)
+    except ValueError as e:
+        st.error(f"Invalid JSON: {e}")
+        return
+
+    # Unwrap chapter-name wrapper (e.g. {"Chapter 1: ...": {...}})
+    if raw and not any(k[0].isdigit() for k in raw.keys()):
+        first_key = next(iter(raw))
+        outline_data = raw[first_key]
+        detected_title = first_key
+    else:
+        outline_data = raw
+        detected_title = None
+
+    subtopics = list(flatten_chapter_outline(outline_data))
+
+    # Show the subtopic list immediately — this is what was missing
+    with st.expander(f"✅ {len(subtopics)} subtopics detected — review before importing", expanded=True):
+        for s in subtopics:
+            st.markdown(f"- `{s['number']}` {s['title']}")
+    if detected_title:
+        st.caption(f"Chapter title detected from key: *{detected_title}*")
+
+    st.divider()
+
+    # Now require chapter_id to proceed to import
+    if not ch_id:
+        st.info("Enter a chapter_id above to proceed with import.", icon="👆")
+        return
+
     if not (uploaded and ch_id):
         return
 

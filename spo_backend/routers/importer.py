@@ -15,8 +15,8 @@ JSON schemas are documented in /prompts/ — use those prompts with Claude
 to generate the JSONs from your actual documents.
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Body
+from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
 from datetime import datetime
 from services import storage
@@ -172,6 +172,86 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport):
 # SOURCE.JSON SCHEMA
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _normalize_source_chapter(ch: dict) -> dict:
+    """
+    Maps alternative field names from NotebookLM output to SPO's canonical schema.
+    This makes the importer tolerant of reasonable field name variants so that
+    minor differences in what NotebookLM produces don't cause import failures.
+
+    Canonical field         ← Accepted alternatives
+    ─────────────────────────────────────────────────
+    file_name               ← file, filename, pdf, pdf_name
+    title                   ← chapter_title, name, section_title
+    label                   ← (auto-generated from file_name or title if missing)
+    time_period_covered     ← time_period, period, historical_period
+    notable_authors_cited   ← citations, cited_authors, authors_cited, scholars
+    key_claims              ← claims, main_claims, arguments
+    themes                  ← theme, tags, keywords
+    limitations             ← limitation, constraints, cannot_support
+    """
+    c = dict(ch)  # don't mutate original
+
+    # file_name
+    for alt in ("file", "filename", "pdf", "pdf_name"):
+        if alt in c and "file_name" not in c:
+            c["file_name"] = c.pop(alt)
+            break
+
+    # title
+    for alt in ("chapter_title", "name", "section_title"):
+        if alt in c and "title" not in c:
+            c["title"] = c.pop(alt)
+            break
+
+    # label — auto-generate if absent
+    if "label" not in c or not c["label"]:
+        fname = c.get("file_name", "")
+        title = c.get("title", "")
+        # Use stem of filename, or truncated title
+        if fname:
+            stem = fname.replace(".pdf", "").replace("_", " ").title()
+            c["label"] = stem[:30]
+        elif title:
+            c["label"] = title[:30]
+        else:
+            c["label"] = "Unlabelled"
+
+    # time_period_covered
+    for alt in ("time_period", "period", "historical_period"):
+        if alt in c and "time_period_covered" not in c:
+            c["time_period_covered"] = c.pop(alt)
+            break
+
+    # notable_authors_cited
+    for alt in ("citations", "cited_authors", "authors_cited", "scholars"):
+        if alt in c and "notable_authors_cited" not in c:
+            c["notable_authors_cited"] = c.pop(alt)
+            break
+
+    # key_claims
+    for alt in ("claims", "main_claims", "arguments"):
+        if alt in c and "key_claims" not in c:
+            c["key_claims"] = c.pop(alt)
+            break
+
+    # themes — also accept a single string (split on comma)
+    for alt in ("theme", "tags", "keywords"):
+        if alt in c and "themes" not in c:
+            c["themes"] = c.pop(alt)
+            break
+    if isinstance(c.get("themes"), str):
+        c["themes"] = [t.strip() for t in c["themes"].split(",") if t.strip()]
+
+    # limitations — also accept list (join to string)
+    for alt in ("limitation", "constraints", "cannot_support"):
+        if alt in c and "limitations" not in c:
+            c["limitations"] = c.pop(alt)
+            break
+    if isinstance(c.get("limitations"), list):
+        c["limitations"] = " ".join(c["limitations"])
+
+    return c
+
 class SourceChapterImport(BaseModel):
     """One chapter/section of the external work."""
     label: str = Field(
@@ -240,18 +320,24 @@ class SourceImport(BaseModel):
 
 
 @router.post("/source", summary="Import source.json — creates group + all sources + index cards in one upload")
-def import_source(data: SourceImport):
+def import_source(data: dict = Body(...)):
     """
     Imports a complete external work:
       1 SourceGroup + N Sources + N IndexCards in one request.
 
-    Workflow:
-      1. Upload PDF chapters to NotebookLM
-      2. Use the extraction prompt (/prompts/generate_source_json.txt) to get source.json
-      3. Review and correct key_claims and limitations
-      4. POST here
+    Accepts raw dict, normalizes alternative field names from NotebookLM
+    output via _normalize_source_chapter(), then validates with Pydantic.
     """
     import uuid
+
+    # Normalize chapter fields before Pydantic validation
+    if "chapters" in data:
+        data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
+
+    try:
+        data = SourceImport(**data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
 
     valid_types = {"thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"}
     if data.source_type not in valid_types:

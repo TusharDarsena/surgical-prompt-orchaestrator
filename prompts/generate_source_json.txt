@@ -1,60 +1,33 @@
-I am attaching PDF chapters from an academic work I am using as a source in my thesis.
+You are a research assistant. Read the uploaded PDF and return ONLY a JSON object — no preamble, no explanation, no markdown fences.
 
-Your job is to extract structured index cards from each chapter — one entry per chapter.
-These index cards will be read by an LLM (not by me directly) to generate writing
-blueprints. They must be precise enough that the LLM can judge:
-  (a) what specific arguments this source supports
-  (b) what arguments this source CANNOT support
+The JSON must follow this exact structure:
 
-Rules for key_claims:
-- 2–5 claims per chapter. Specific and falsifiable.
-- BAD: "Discusses the role of women in Indian literature."
-- GOOD: "Argues that pre-1947 Bankimchandra novels construct female characters as
-  nationalist symbols, systematically erasing their individual subjectivity."
-- Every claim must be something this chapter actually argues — not paraphrase of
-  topics covered.
-
-Rules for limitations:
-- What can this chapter NOT support? What argument would be a stretch?
-- BAD: "Does not cover everything."
-- GOOD: "Covers only Bengali literary tradition. Cannot support claims about
-  pan-Indian feminist movement or Hindi/Urdu literary history."
-
-Rules for themes:
-- 3–6 tags per chapter. snake_case. Specific to this work.
-- e.g. nationalist_idealization, representational_gap, partition_trauma
-
-For relevant_subtopics: leave as empty array []. I will fill this manually.
-
-Output ONLY valid JSON. No explanation. No markdown fences.
-
-Required schema:
 {
   "title": "Full title of the work",
-  "author": "Author name(s)",
-  "year": 2003,
+  "author": "Author name",
+  "year": null,
   "source_type": "thesis_chapter",
-  "institution_or_publisher": "e.g. JNU or Oxford University Press",
-  "description": "1–2 sentences on why this work is relevant to the thesis.",
-  "work_summary": "2–3 sentences on the work's overall argument.",
   "chapters": [
     {
-      "label": "Sharma Ch.2",
-      "title": "Full chapter title",
-      "page_range": "45-89",
-      "file_name": "sharma_2003_ch2.pdf",
+      "file": "filename.pdf",
+      "chapter_title": "Title of this chapter or section",
       "key_claims": [
-        "Specific claim 1",
+        "Specific claim 1 this chapter makes",
         "Specific claim 2"
       ],
-      "themes": ["theme_one", "theme_two"],
-      "time_period_covered": "1880-1947",
-      "relevant_subtopics": [],
-      "limitations": "Specific description of what this chapter cannot support.",
-      "notable_authors_cited": ["Chatterjee P.", "Bose M."]
+      "themes": ["snake_case_theme_1", "snake_case_theme_2"],
+      "limitations": "What arguments this chapter cannot support",
+      "time_period": "e.g. 1947–1980",
+      "citations": ["Author A", "Author B"]
     }
   ]
 }
 
-source_type must be one of:
-  thesis_chapter, book_chapter, journal_article, book, report, other
+Rules:
+- key_claims: 2–5 claims. Be specific. Bad: "Discusses women in literature." Good: "Argues that pre-1947 male authors constructed female characters as nationalist symbols, erasing individual agency."
+- themes: snake_case tags only. e.g. nationalist_idealization, partition_trauma
+- limitations: what this chapter cannot support. If unclear, write null.
+- time_period: historical period discussed in the text, not publication date.
+- citations: scholars or authors the chapter cites or engages with directly.
+- If you cannot determine title, author, or year from the text, use null.
+- One entry in "chapters" per uploaded PDF.
