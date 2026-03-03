@@ -169,29 +169,37 @@ with tab_import:
     if uploaded_src:
         try:
             src_data = json.load(uploaded_src)
-            with st.expander("Preview", expanded=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"**{src_data.get('author', '?')} ({src_data.get('year', '?')})** — {src_data.get('title', '?')}")
-                    st.caption(f"Type: {src_data.get('source_type', '?')}")
-                    if src_data.get("description"):
-                        st.markdown(f"*{src_data['description']}*")
-                with col2:
-                    chapters_preview = src_data.get("chapters", [])
-                    st.markdown(f"**{len(chapters_preview)} document(s) to import:**")
-                    for ch in chapters_preview:
-                        card_ok = bool(ch.get("key_claims"))
-                        badge = "✅" if card_ok else "⚠️ no claims"
-                        fname = f" · `{ch.get('file_name')}`" if ch.get("file_name") else ""
-                        st.markdown(f"- `{ch.get('label', '?')}` {badge}{fname} — {ch.get('title', '')}")
-            if st.button("Import Source JSON", type="primary", use_container_width=True, key="do_import_src"):
-                result = api.import_source(src_data)
-                if result:
-                    ui.success(
-                        f"Imported: {result.get('title')} — "
-                        f"{result.get('sources_created')} sources, all indexed."
-                    )
-                    st.rerun()
+            missing = ui.validate_json_schema(src_data, ["title", "author", "source_type", "chapters"])
+            if missing:
+                st.error(
+                    f"**Schema mismatch** — missing required fields: `{'`, `'.join(missing)}`\n\n"
+                    "SPO expects a `source.json` with `title`, `author`, `source_type`, and `chapters` (list). "
+                    "Generate one using `prompts/generate_source_json.txt` with NotebookLM."
+                )
+            else:
+                with st.expander("Preview", expanded=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**{src_data.get('author', '?')} ({src_data.get('year', '?')})** — {src_data.get('title', '?')}")
+                        st.caption(f"Type: {src_data.get('source_type', '?')}")
+                        if src_data.get("description"):
+                            st.markdown(f"*{src_data['description']}*")
+                    with col2:
+                        chapters_preview = src_data.get("chapters", [])
+                        st.markdown(f"**{len(chapters_preview)} document(s) to import:**")
+                        for ch in chapters_preview:
+                            card_ok = bool(ch.get("key_claims"))
+                            badge = "✅" if card_ok else "⚠️ no claims"
+                            fname = f" · `{ch.get('file_name')}`" if ch.get("file_name") else ""
+                            st.markdown(f"- `{ch.get('label', '?')}` {badge}{fname} — {ch.get('title', '')}")
+                if st.button("Import Source JSON", type="primary", use_container_width=True, key="do_import_src"):
+                    result = api.import_source(src_data)
+                    if result:
+                        ui.success(
+                            f"Imported: {result.get('title')} — "
+                            f"{result.get('sources_created')} sources, all indexed."
+                        )
+                        st.rerun()
         except json.JSONDecodeError as e:
             st.error(f"Invalid JSON: {e}")
 

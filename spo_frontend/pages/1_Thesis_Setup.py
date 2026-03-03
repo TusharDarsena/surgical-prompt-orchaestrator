@@ -123,21 +123,26 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("2 — Chapters & Subtopics")
 
-tab_ch_import, tab_ch_manual = st.tabs([
-    "📥 Import chapterization.json  *(recommended)*",
+tab_ch_import, tab_ch_outline, tab_ch_manual = st.tabs([
+    "📥 Import chapterization.json  *(LLM-generated)*",
+    "📋 Import my chapter outline",
     "✏️ Manual form"
 ])
 
+
+
 with tab_ch_import:
     st.caption(
-        "Generate chapterization.json per chapter using `prompts/generate_chapterization_json.txt`. "
-        "Select which chapter_id to import into."
+        "For a fully structured import, first generate chapterization.json using "
+        "`prompts/generate_chapterization_json.txt` (paste into Claude with your outline). "
+        "Then upload the result here."
     )
 
     ch_id_input = st.text_input(
         "Target chapter_id",
         placeholder="chapter_01",
-        help="e.g. chapter_01, chapter_02. Must match the number in the JSON."
+        key="ch_id_structured",
+        help="e.g. chapter_01, chapter_02. Must be unique per chapter."
     )
 
     uploaded_ch = st.file_uploader("Upload chapterization.json", type="json", key="ch_upload")
@@ -145,30 +150,46 @@ with tab_ch_import:
     if uploaded_ch and ch_id_input:
         try:
             ch_data = json.load(uploaded_ch)
-            with st.expander("Preview", expanded=True):
-                st.markdown(f"**Chapter {ch_data.get('number')}: {ch_data.get('title')}**")
-                st.markdown(f"**Goal:** {ch_data.get('goal', '—')}")
-                arc = ch_data.get("chapter_arc", "")
-                arc_words = len(arc.split())
-                arc_color = "green" if 150 <= arc_words <= 220 else "orange"
-                st.markdown(f"**Arc ({arc_words} words):**")
-                st.info(arc)
-                if arc_words < 150:
-                    st.warning("Arc is under 150 words — consider expanding it.")
-                st.markdown(f"**Subtopics ({len(ch_data.get('subtopics', []))}):**")
-                for sub in ch_data.get("subtopics", []):
-                    st.markdown(f"- `{sub['number']}` {sub['title']}")
 
-            if st.button("Import Chapter JSON", type="primary", use_container_width=True):
-                result = api.post(f"/import/chapterization/{ch_id_input}", ch_data)
-                if result:
-                    ui.success(
-                        f"Chapter {ch_data.get('number')} imported. "
-                        f"{result.get('subtopics_created')} subtopics created."
-                    )
-                    st.rerun()
+            # Schema validation
+            missing = [f for f in ("number", "title", "goal", "chapter_arc", "subtopics")
+                       if not ch_data.get(f)]
+            if missing:
+                st.error(
+                    f"**Schema mismatch** — this file is missing required fields: `{'`, `'.join(missing)}`\n\n"
+                    "SPO expects a structured chapterization.json, not a raw outline. "
+                    "Use the **📋 Import my chapter outline** tab to import a freeform outline directly, "
+                    "or generate the correct JSON by pasting your outline into Claude with "
+                    "`prompts/generate_chapterization_json.txt`."
+                )
+            else:
+                with st.expander("Preview", expanded=True):
+                    st.markdown(f"**Chapter {ch_data.get('number')}: {ch_data.get('title')}**")
+                    st.markdown(f"**Goal:** {ch_data.get('goal', '—')}")
+                    arc = ch_data.get("chapter_arc", "")
+                    arc_words = len(arc.split())
+                    st.markdown(f"**Arc ({arc_words} words):**")
+                    st.info(arc or "—")
+                    if arc_words < 150:
+                        st.warning("Arc is under 150 words — consider expanding it.")
+                    st.markdown(f"**Subtopics ({len(ch_data.get('subtopics', []))}):**")
+                    for sub in ch_data.get("subtopics", []):
+                        st.markdown(f"- `{sub['number']}` {sub['title']}")
+
+                if st.button("Import Chapter JSON", type="primary", use_container_width=True, key="do_import_ch"):
+                    result = api.post(f"/import/chapterization/{ch_id_input}", ch_data)
+                    if result:
+                        api.list_chapters.clear()
+                        ui.success(
+                            f"Chapter {ch_data.get('number')} imported. "
+                            f"{result.get('subtopics_created')} subtopics created."
+                        )
+                        st.rerun()
         except json.JSONDecodeError as e:
             st.error(f"Invalid JSON: {e}")
+
+with tab_ch_outline:
+    ui.render_outline_import_form(key_suffix="thesis_setup")
 
 with tab_ch_manual:
     st.caption("Manual chapter and subtopic entry — for corrections or small additions.")
