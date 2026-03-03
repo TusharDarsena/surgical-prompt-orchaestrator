@@ -3,6 +3,7 @@ Page: Source Library
 Manage external sources — groups, individual PDFs, index cards, and notes.
 """
 
+import json
 import streamlit as st
 import api
 import ui
@@ -146,10 +147,56 @@ def _render_index_card_form(group_id: str, source_id: str, has_card: bool):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ADD SOURCE GROUP
+# ADD SOURCE GROUP — two paths: JSON import (recommended) or manual form
 # ══════════════════════════════════════════════════════════════════════════════
 
-with st.expander("➕ Register a New Work (thesis, book, article, etc.)", expanded=False):
+tab_import, tab_manual = st.tabs([
+    "📥 Import source.json  *(recommended)*",
+    "✏️ Register manually"
+])
+
+with tab_import:
+    st.caption(
+        "Generate source.json by uploading PDF chapters to NotebookLM and using "
+        "`prompts/generate_source_json.txt`. One JSON = 1 group + all sources + all index cards."
+    )
+    st.info(
+        "**SPO stores metadata only.** The actual PDFs go to NotebookLM, not here. "
+        "The `file_name` field in each chapter entry is the PDF name you will upload to NotebookLM.",
+        icon="ℹ️"
+    )
+    uploaded_src = st.file_uploader("Upload source.json", type="json", key="src_json_upload")
+    if uploaded_src:
+        try:
+            src_data = json.load(uploaded_src)
+            with st.expander("Preview", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**{src_data.get('author', '?')} ({src_data.get('year', '?')})** — {src_data.get('title', '?')}")
+                    st.caption(f"Type: {src_data.get('source_type', '?')}")
+                    if src_data.get("description"):
+                        st.markdown(f"*{src_data['description']}*")
+                with col2:
+                    chapters_preview = src_data.get("chapters", [])
+                    st.markdown(f"**{len(chapters_preview)} document(s) to import:**")
+                    for ch in chapters_preview:
+                        card_ok = bool(ch.get("key_claims"))
+                        badge = "✅" if card_ok else "⚠️ no claims"
+                        fname = f" · `{ch.get('file_name')}`" if ch.get("file_name") else ""
+                        st.markdown(f"- `{ch.get('label', '?')}` {badge}{fname} — {ch.get('title', '')}")
+            if st.button("Import Source JSON", type="primary", use_container_width=True, key="do_import_src"):
+                result = api.import_source(src_data)
+                if result:
+                    ui.success(
+                        f"Imported: {result.get('title')} — "
+                        f"{result.get('sources_created')} sources, all indexed."
+                    )
+                    st.rerun()
+        except json.JSONDecodeError as e:
+            st.error(f"Invalid JSON: {e}")
+
+with tab_manual:
+    st.caption("Use this to register a work field-by-field, or to patch metadata after a JSON import.")
     with st.form("new_group_form"):
         col1, col2, col3 = st.columns([3, 2, 1])
         with col1:
@@ -199,16 +246,43 @@ for group in groups:
     label = f"**{group['author']} ({group.get('year', '?')})** — {group['title']}  |  {status}"
 
     with st.expander(label, expanded=False):
-        col_meta, col_del = st.columns([5, 1])
+        col_meta, col_edit, col_del = st.columns([4, 1, 1])
         with col_meta:
             st.caption(f"Type: {group.get('source_type', '?')} · {group.get('institution_or_publisher', '')}")
             if group.get("description"):
                 st.markdown(f"*{group['description']}*")
+        with col_edit:
+            if st.button("✏️ Edit", key=f"edit_grp_btn_{g_id}"):
+                st.session_state[f"editing_grp_{g_id}"] = True
         with col_del:
-            if st.button("🗑️ Delete Work", key=f"del_grp_{g_id}"):
+            if st.button("🗑️ Delete", key=f"del_grp_{g_id}"):
                 api.delete_source_group(g_id)
                 ui.success("Deleted.")
                 st.rerun()
+
+        # Inline group edit form
+        if st.session_state.get(f"editing_grp_{g_id}"):
+            with st.form(f"edit_grp_form_{g_id}"):
+                st.markdown("**Edit Work Metadata**")
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    e_desc = st.text_area("Description", value=group.get("description", "") or "", height=80)
+                with ec2:
+                    e_inst = st.text_input("Institution / Publisher", value=group.get("institution_or_publisher", "") or "")
+                ef1, ef2 = st.columns(2)
+                with ef1:
+                    if st.form_submit_button("Save", use_container_width=True, type="primary"):
+                        api.update_source_group(g_id, {
+                            "description": e_desc or None,
+                            "institution_or_publisher": e_inst or None,
+                        })
+                        st.session_state[f"editing_grp_{g_id}"] = False
+                        ui.success("Updated.")
+                        st.rerun()
+                with ef2:
+                    if st.form_submit_button("Cancel", use_container_width=True):
+                        st.session_state[f"editing_grp_{g_id}"] = False
+                        st.rerun()
 
         _render_notes_section("source_group", g_id, f"grp_{g_id}")
 
@@ -219,6 +293,7 @@ for group in groups:
 
         with st.form(f"add_src_{g_id}"):
             st.markdown("**Add a Document (chapter / PDF)**")
+            st.caption("SPO stores metadata only — the PDF itself goes to NotebookLM, not here.")
             ac1, ac2 = st.columns([1, 3])
             with ac1:
                 s_label = st.text_input(
@@ -232,7 +307,10 @@ for group in groups:
                     "Full Title / Section", key=f"st_{g_id}",
                     placeholder="Chapter 2: The Nationalist Imagination"
                 )
-                s_file = st.text_input("File name", placeholder="sharma_2003_ch2.pdf", key=f"sf_{g_id}")
+                s_file = st.text_input(
+                    "File name (for NotebookLM upload reference)",
+                    placeholder="sharma_2003_ch2.pdf", key=f"sf_{g_id}"
+                )
 
             if st.form_submit_button("Add Document", use_container_width=True):
                 if not s_label or not s_title:
@@ -258,11 +336,42 @@ for group in groups:
                 src_label = f"`{src.get('label', s_id)}`  {card_badge}  — {src.get('title', '')}"
 
                 with st.expander(src_label, expanded=False):
-                    sc1, sc2 = st.columns([5, 1])
+                    sc1, sc2, sc3 = st.columns([4, 1, 1])
                     with sc2:
+                        if st.button("✏️ Edit", key=f"edit_src_btn_{s_id}"):
+                            st.session_state[f"editing_src_{s_id}"] = True
+                    with sc3:
                         if st.button("🗑️ Delete", key=f"del_src_{s_id}"):
                             api.delete_source(g_id, s_id)
                             st.rerun()
+
+                    # Inline source edit form
+                    if st.session_state.get(f"editing_src_{s_id}"):
+                        with st.form(f"edit_src_form_{s_id}"):
+                            st.markdown("**Edit Document**")
+                            se1, se2 = st.columns(2)
+                            with se1:
+                                e_lbl = st.text_input("Label", value=src.get("label", ""))
+                                e_pages = st.text_input("Page Range", value=src.get("page_range", "") or "")
+                            with se2:
+                                e_stitle = st.text_input("Title", value=src.get("title", ""))
+                                e_file = st.text_input("File name", value=src.get("file_name", "") or "")
+                            sb1, sb2 = st.columns(2)
+                            with sb1:
+                                if st.form_submit_button("Save", use_container_width=True, type="primary"):
+                                    api.update_source(g_id, s_id, {
+                                        "label": e_lbl or None,
+                                        "title": e_stitle or None,
+                                        "page_range": e_pages or None,
+                                        "file_name": e_file or None,
+                                    })
+                                    st.session_state[f"editing_src_{s_id}"] = False
+                                    ui.success("Source updated.")
+                                    st.rerun()
+                            with sb2:
+                                if st.form_submit_button("Cancel", use_container_width=True):
+                                    st.session_state[f"editing_src_{s_id}"] = False
+                                    st.rerun()
 
                     _render_notes_section("source", s_id, f"src_{s_id}")
 

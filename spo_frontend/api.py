@@ -1,4 +1,5 @@
 """
+
 API client for SPO backend.
 All HTTP calls go through here — pages never call requests directly.
 BASE_URL can be overridden with SPO_API_URL env var.
@@ -166,6 +167,14 @@ def create_source_group(data: dict):
     return result
 
 
+def update_source_group(group_id: str, data: dict):
+    result = _handle(requests.patch(_url(f"/sources/groups/{group_id}"), json=data))
+    if result is not None:
+        get_source_group.clear(group_id)
+        list_source_groups.clear()
+    return result
+
+
 def delete_source_group(group_id: str):
     result = _handle(requests.delete(_url(f"/sources/groups/{group_id}")))
     if result is not None:
@@ -189,11 +198,26 @@ def create_source(group_id: str, data: dict):
     return result
 
 
+def update_source(group_id: str, source_id: str, data: dict):
+    result = _handle(requests.patch(_url(f"/sources/groups/{group_id}/sources/{source_id}"), json=data))
+    if result is not None:
+        list_sources.clear(group_id)
+    return result
+
+
 def delete_source(group_id: str, source_id: str):
     result = _handle(requests.delete(_url(f"/sources/groups/{group_id}/sources/{source_id}")))
     if result is not None:
         list_sources.clear(group_id)
         list_source_groups.clear()
+    return result
+
+
+def import_source(data: dict):
+    """POST /import/source — creates group + all sources + index cards from source.json in one call."""
+    result = _handle(requests.post(_url("/import/source"), json=data))
+    if result is not None:
+        list_source_groups.clear()  # a new group was created
     return result
 
 

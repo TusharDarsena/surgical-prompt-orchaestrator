@@ -16,7 +16,6 @@ from models.thesis import (
     SynopsisCreateRequest, SynopsisUpdateRequest,
     ChapterCreateRequest, SubtopicCreateRequest, SubtopicUpdateRequest,
 )
-from typing import Union
 from services import storage
 
 router = APIRouter(prefix="/thesis", tags=["Thesis Context"])

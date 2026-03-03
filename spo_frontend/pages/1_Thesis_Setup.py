@@ -214,13 +214,44 @@ else:
         label = f"Ch.{chapter['number']} — {chapter['title']}  |  {arc_badge}  |  {len(subtopics)} subtopics"
 
         with st.expander(label, expanded=False):
-            col1, col2 = st.columns([5, 1])
+            col1, col2, col3 = st.columns([5, 1, 1])
             with col1:
                 st.markdown(f"**Goal:** {chapter['goal']}")
             with col2:
+                if st.button("✏️", key=f"edit_ch_btn_{ch_id}", help="Edit chapter"):
+                    st.session_state[f"editing_ch_{ch_id}"] = True
+            with col3:
                 if st.button("🗑️", key=f"del_ch_{ch_id}", help="Delete chapter"):
                     api.delete_chapter(ch_id)
                     st.rerun()
+
+            # Inline chapter edit form
+            if st.session_state.get(f"editing_ch_{ch_id}"):
+                with st.form(f"edit_ch_form_{ch_id}"):
+                    st.markdown("**Edit Chapter**")
+                    e_title = st.text_input("Title", value=chapter.get("title", ""))
+                    e_goal = st.text_area("Goal", value=chapter.get("goal", ""), height=100)
+                    e_arc = st.text_area(
+                        "Chapter Arc",
+                        value=chapter.get("chapter_arc", "") or "",
+                        height=150,
+                        help="150–200 words. How all subtopics connect argumentatively."
+                    )
+                    eb1, eb2 = st.columns(2)
+                    with eb1:
+                        if st.form_submit_button("Save", use_container_width=True, type="primary"):
+                            api.update_chapter(ch_id, {
+                                "title": e_title,
+                                "goal": e_goal,
+                                "chapter_arc": e_arc or None,
+                            })
+                            st.session_state[f"editing_ch_{ch_id}"] = False
+                            ui.success("Chapter updated.")
+                            st.rerun()
+                    with eb2:
+                        if st.form_submit_button("Cancel", use_container_width=True):
+                            st.session_state[f"editing_ch_{ch_id}"] = False
+                            st.rerun()
 
             if has_arc:
                 with st.expander("View chapter arc"):
