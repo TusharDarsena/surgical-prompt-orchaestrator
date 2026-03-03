@@ -201,27 +201,37 @@ def _render_prompt(payload: dict, include_previous_section: bool) -> str:
         "SECTION 1: THESIS CONTEXT",
         "=" * 60,
         "",
-        f"THESIS: {synopsis['title']}",
-        f"AUTHOR: {synopsis['author']}",
+        f"THESIS: {synopsis.get('title', '')}",
+        f"RESEARCHER: {synopsis.get('researcher') or synopsis.get('author', '')}",
         "",
-        "CENTRAL ARGUMENT:",
-        synopsis["central_argument"],
+        "CORE ARGUMENT:",
+        synopsis.get("core_argument") or synopsis.get("central_argument", ""),
         "",
     ]
 
-    if synopsis.get("theoretical_frameworks"):
-        L += [
-            "THEORETICAL FRAMEWORKS:",
-            ", ".join(synopsis["theoretical_frameworks"]),
-            "",
-        ]
+    # Pull frameworks from methodology object
+    methodology = synopsis.get("methodology") or {}
+    frameworks = methodology.get("theoretical_frameworks", []) if isinstance(methodology, dict) else []
+    if frameworks:
+        L += ["THEORETICAL FRAMEWORKS:", ", ".join(frameworks), ""]
 
     if synopsis.get("temporal_scope"):
         L += [f"TEMPORAL SCOPE: {synopsis['temporal_scope']}", ""]
 
-    if synopsis.get("scope_and_limits"):
-        L += ["SCOPE AND LIMITS:", synopsis["scope_and_limits"], ""]
+    if synopsis.get("research_gap"):
+        L += [
+            "RESEARCH GAP THIS THESIS FILLS:",
+            synopsis["research_gap"],
+            "(The Task.md must position arguments as contributing to filling this gap.)",
+            "",
+        ]
 
+    if synopsis.get("central_themes"):
+        themes = synopsis["central_themes"]
+        # Show first 4 — enough thematic vocabulary without bloating the prompt
+        L += [f"CENTRAL THEMES: {' · '.join(themes[:4])}", ""]
+
+        
     # ── Section 2: Chapter Arc (NEW) ───────────────────────────────────────────
     L += [
         "=" * 60,

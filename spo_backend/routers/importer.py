@@ -30,55 +30,60 @@ router = APIRouter(prefix="/import", tags=["JSON Import"])
 
 class ThesisImport(BaseModel):
     """
-    Schema for thesis.json.
-    Generate this by giving Claude your synopsis document with the prompt
-    in /prompts/generate_thesis_json.txt
+    Matches the preferred thesis.json schema exactly.
+    The JSON uses core_argument (not central_argument) and
+    nests theoretical_frameworks inside methodology.
     """
+    # Identity
+    document_type: Optional[str] = None
     title: str
-    author: str
-    field: str
+    institution: Optional[str] = None
+    researcher: Optional[str] = None
+    author: Optional[str] = None
+    year: Optional[int] = None
+    degree: Optional[str] = None
+    field: Optional[str] = None
 
-    # ── Injected into Architect prompts ────────────────────────────────────────
-    central_argument: str = Field(
-        ...,
-        description="2–4 sentences. The single claim the thesis argues and proves."
-    )
-    theoretical_frameworks: list[str] = Field(
-        ...,
-        description="e.g. ['Postcolonial feminism', 'New Historicism']"
-    )
-    temporal_scope: Optional[str] = Field(
-        None,
-        description="Time period covered. e.g. '1947–1990'"
-    )
-
-    # ── Reference only ─────────────────────────────────────────────────────────
-    research_questions: list[str] = Field(default_factory=list)
-    objectives: list[str] = Field(default_factory=list)
-    methodology: Optional[str] = None
-    key_authors: list[str] = Field(default_factory=list)
+    # Injected into prompts
+    research_question: Optional[str] = None
+    core_argument: str
+    temporal_scope: Optional[str] = None
+    research_gap: Optional[str] = None
     central_themes: list[str] = Field(default_factory=list)
-    chapter_structure_overview: Optional[str] = None
+    methodology: Optional[dict] = None
+
+    # Reference only
+    objectives: list[str] = Field(default_factory=list)
+    key_authors_and_works: list[dict] = Field(default_factory=list)
+    other_authors_mentioned: list[str] = Field(default_factory=list)
+    theoretical_positions: Optional[dict] = None
+    chapter_structure: list[dict] = Field(default_factory=list)
+    expected_outcome: Optional[str] = None
+    significance: Optional[dict] = None
+    key_literature_review_findings: list[dict] = Field(default_factory=list)
     scope_and_limits: Optional[str] = None
 
 
-@router.post("/thesis", summary="Import thesis.json — replaces synopsis form")
+
+@router.post("/thesis", summary="Import thesis.json")
 def import_thesis(data: ThesisImport):
-    """
-    Upload your thesis.json to set up the thesis synopsis.
-    Overwrites any existing synopsis.
-    """
     record = data.model_dump()
     record["updated_at"] = datetime.utcnow().isoformat()
     storage.write_synopsis(record)
+    
+    frameworks = []
+    if data.methodology and isinstance(data.methodology, dict):
+        frameworks = data.methodology.get("theoretical_frameworks", [])
+    
     return {
         "imported": "thesis",
         "title": data.title,
-        "injected_fields": ["central_argument", "theoretical_frameworks", "temporal_scope"],
-        "reference_only_fields": [
-            "research_questions", "objectives", "methodology",
-            "key_authors", "central_themes", "chapter_structure_overview", "scope_and_limits"
-        ]
+        "author": data.researcher or data.author,
+        "injected_into_prompts": [
+            "core_argument", "temporal_scope", "research_gap",
+            "central_themes", "methodology.theoretical_frameworks"
+        ],
+        "theoretical_frameworks_found": frameworks,
     }
 
 
