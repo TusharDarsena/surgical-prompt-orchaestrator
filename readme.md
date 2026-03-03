@@ -227,9 +227,96 @@ Use notes for everything else — raw reading impressions, copied passages, idea
 
 ---
 
+# SPO — Architecture Changes
+
+## What Changed and Why
+
+### 1. Synopsis setup — form replaced by JSON upload
+
+**Old:** POST /thesis/synopsis with 6 fields (title, author, field, theoretical framework, central argument, scope and limits).
+
+**New:** POST /import/thesis accepts a full thesis.json. The JSON is richer — it carries research question, objectives, methodology, key authors, central themes, chapter structure overview, and more. SPO stores the whole thing. Only the core_argument, theoretical_frameworks, and temporal_scope are injected into architect prompts. The rest is stored for reference.
+
+**Why:** A 6-field form cannot express a 19-page synopsis. The JSON is prepared once using an LLM to compress your synopsis document, reviewed by you, then uploaded.
+
+---
+
+### 2. Chapter setup — form replaced by chapterization.json
+
+**Old:** POST /thesis/chapters + POST /thesis/chapters/{id}/subtopics, filled manually field by field.
+
+**New:** POST /import/chapterization/{chapter_id} accepts a single chapterization.json containing two things:
+- Topics and subtopics (number, title, goal, position_in_argument)
+- A chapter arc (150–200 words describing how all subtopics connect argumentatively)
+
+**Why:** The chapter arc is a new concept not present in the old architecture. Without it, Claude generating Task.md for any subtopic has no map of where the chapter's argument is going — it fills that gap with AI fluff. The arc constrains Claude to the specific argumentative role each subtopic must play.
+
+The chapter arc is injected into every architect prompt for that chapter alongside the synopsis layer.
+
+---
+
+### 3. Source setup — form replaced by source.json
+
+**Old:** POST /sources/groups → then POST /sources/groups/{id}/sources → then POST /sources/.../index-card, one at a time.
+
+**New:** POST /import/source accepts a single source.json per external work. The JSON contains:
+- Top-level metadata and a summary of the whole work
+- One section per chapter with key claims, themes, limitations, and relevant_subtopics tags
+
+A source.json for a 6-chapter thesis becomes 1 SourceGroup + 6 Sources + 6 IndexCards in one upload.
+
+**Why:** The old flow was too slow. Index cards prepared manually from scratch are also low quality. The new flow: upload source PDFs chapter by chapter to NotebookLM → extract structured summaries → review and correct → import to SPO. NotebookLM is used for extraction (grounded in the actual document), not generation.
+
+---
+
+### 4. New field on Chapter model — chapter_arc
+
+The Chapter model gains a `chapter_arc` text field. This is populated by the chapterization.json import. It is injected into the architect prompt as a new Section 2 (between thesis context and subtopic goal).
+
+---
+
+### 5. Architect prompt — one new section added
+
+**Old sections:** Thesis Context → Previous Section → Source Profiles → Instructions
+
+**New sections:** Thesis Context → **Chapter Arc** → Current Subtopic → Previous Section → Source Profiles → Instructions
+
+The chapter arc section tells Claude how all subtopics of this chapter connect and what specific argumentative role the current subtopic must play. This is the primary mechanism for preventing generic Task.md output.
+
+---
+
+### 6. _gather_payload and _render_prompt — changes required
+
+**_gather_payload:** Must additionally load the chapter_arc from the chapter record and include it in the payload dict.
+
+**_render_prompt:** Must render the chapter arc as a new section between thesis context and subtopic. The arc text is injected with explicit framing — Claude is told this is the argumentative map of the chapter and that the current subtopic must stay within its designated role.
+
+---
+
+## New Endpoints Required
+
+```
+POST /import/thesis
+POST /import/chapterization/{chapter_id}
+POST /import/source
+GET  /import/status
+```
+
+Old form-based endpoints remain for manual patches and corrections but are no longer the primary setup path.
+
+---
+
+## What Is Unchanged
+
+- The two-prompt workflow (Architect → NotebookLM)
+- Task blueprint storage and approval flow (tasks.py)
+- Consistency chain (consistency.py)
+- Notes (notes.py)
+- Storage layer structure (storage.py) — new fields slot in without restructuring
+- NotebookLM prompt compiler (_render_notebooklm_prompt) — no changes needed
+
 ## Future Extensions
 
-- Streamlit UI — visual interface over these endpoints
 - Book ingestion helper — paste chapter text, get suggested index card fields
 - Theme explorer — which themes are covered/gaps in your source library
 - Export — compile full chapter context as a single document

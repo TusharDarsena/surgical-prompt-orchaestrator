@@ -17,17 +17,74 @@ Output ONLY valid JSON. No explanation before or after. No markdown fences.
 
 Required schema:
 {
-  "title": "Full thesis title",
-  "author": "Author name",
-  "field": "Discipline / sub-field",
-  "central_argument": "2–4 sentences. The single claim the thesis argues and proves. Must be specific.",
-  "theoretical_frameworks": ["Framework 1", "Framework 2"],
-  "temporal_scope": "e.g. 1947–1990, or null",
-  "research_questions": ["Question 1", "Question 2"],
-  "objectives": ["Objective 1", "Objective 2"],
-  "methodology": "Brief description of method. e.g. 'Close reading + archival research + postcolonial critique'",
-  "key_authors": ["Scholar A", "Scholar B"],
-  "central_themes": ["theme_one", "theme_two"],
-  "chapter_structure_overview": "2–3 sentences. How the chapters build the argument sequentially.",
-  "scope_and_limits": "What the thesis explicitly covers and does NOT cover."
+  "document_type": "",
+  "title": "",
+  "institution": "",
+  "researcher": "",
+  "year": "",
+  "degree": "",
+
+  "research_question": "",
+
+  "core_argument": "",
+
+  "temporal_scope": "",
+
+  "research_gap": "",
+
+  "objectives": [],
+
+  "methodology": {
+    "approach": "",
+    "primary_method": "",
+    "supporting_methods": [],
+    "theoretical_frameworks": [],
+    "data_sources": {
+      "primary": "",
+      "secondary": ""
+    }
+  },
+
+  "key_authors_and_works": [
+    {
+      "author": "",
+      "work": "",
+      "year": "",
+      "theme": ""
+    }
+  ],
+
+  "other_authors_mentioned": [],
+
+  "central_themes": [],
+
+  "theoretical_positions": {
+    "feminism_in_india": "",
+    "postcolonial_feminism": "",
+    "literature_as_agent": ""
+  },
+
+  "chapter_structure": [
+    {
+      "chapter": "",
+      "title": "",
+      "focus": ""
+    }
+  ],
+
+  "expected_outcome": "",
+
+  "significance": {
+    "academic": "",
+    "practical": "",
+    "contemporary": ""
+  },
+
+  "key_literature_review_findings": [
+    {
+      "author": "",
+      "finding": ""
+    }
+  ]
 }
+
