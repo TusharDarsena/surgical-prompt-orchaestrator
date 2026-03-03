@@ -1,37 +1,27 @@
 """
-SPO Backend — Surgical Prompt Orchestrator
-==========================================
-FastAPI backend for the SPO system.
-
-Core principle: This app is a PROMPT STITCHING ENGINE.
-It does NOT call any AI APIs. It manages your thesis structure, source library,
-and consistency chain so you can generate perfect prompts to paste into
-Claude (for Task.md) and NotebookLM (for writing).
-
-Run with:
+SPO Backend — Surgical Prompt Orchestrator v0.3.0
+Run from the spo_backend directory:
     uvicorn main:app --reload --port 8000
-
-Docs at: http://localhost:8000/docs
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import thesis, sources, consistency, notes, compiler, tasks
+from routers import thesis, sources, consistency, notes, tasks, compiler, import_
 
 app = FastAPI(
     title="SPO — Surgical Prompt Orchestrator",
     description=(
-        "Backend for managing thesis context, source library (with index cards), "
-        "and consistency chain. Generates structured data for Architect Mega-Prompts "
-        "and NotebookLM handoffs."
+        "Prompt stitching engine for academic writing. "
+        "v0.3: JSON import path (thesis.json, chapterization.json, source.json) "
+        "+ chapter arc injected into Architect prompts."
     ),
-    version="0.1.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Streamlit will run locally
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,23 +33,15 @@ app.include_router(consistency.router)
 app.include_router(notes.router)
 app.include_router(tasks.router)
 app.include_router(compiler.router)
+app.include_router(import_.router)
 
 
 @app.get("/", tags=["Health"])
 def root():
-    return {
-        "status": "running",
-        "system": "SPO — Surgical Prompt Orchestrator",
-        "docs": "/docs",
-        "principle": "Prompt stitching engine. No AI calls. No database. Just structured JSON on disk.",
-    }
-
-
-@app.get("/health", tags=["Health"])
-def health():
     from services.storage import DATA_DIR
     return {
-        "status": "ok",
+        "status": "running",
+        "version": "0.3.0",
         "data_dir": str(DATA_DIR),
-        "data_dir_exists": DATA_DIR.exists(),
+        "docs": "http://localhost:8000/docs",
     }

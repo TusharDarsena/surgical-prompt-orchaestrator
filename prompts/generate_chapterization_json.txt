@@ -1,0 +1,39 @@
+I am attaching a chapter outline / plan for Chapter [NUMBER]: [TITLE] of my thesis.
+
+Your job is to convert it into a structured JSON for use by an LLM system that
+generates writing blueprints (Task.md files) for each subtopic.
+
+The most important field is chapter_arc. This is the argumentative map of the
+entire chapter — how all the subtopics connect, build on each other, and together
+prove the chapter's goal. Every Task.md generated for any subtopic of this chapter
+will be constrained by this arc. It must be specific to THIS chapter, not generic.
+
+Rules:
+- chapter_arc: 150–200 words. Describe the argumentative movement, not a table of contents.
+  Show HOW the subtopics build on each other. What does Subtopic 1 establish that
+  Subtopic 2 depends on? What does the chapter achieve by the final subtopic that
+  it could not achieve without the sequence? Be concrete.
+- goal: what this chapter must prove for the thesis argument. 2–3 sentences.
+- subtopics: extract all subtopics. Number them exactly as in the outline.
+- position_in_argument: for each subtopic, one sentence on its specific role within
+  the chapter arc. e.g. "Establishes the pre-existing literary norm that subsequent
+  subtopics show feminist writers consciously rejected."
+- If information is not in the document, use null. Do not invent.
+
+Output ONLY valid JSON. No explanation. No markdown fences.
+
+Required schema:
+{
+  "number": 1,
+  "title": "Full chapter title",
+  "goal": "What this chapter must prove. 2–3 sentences.",
+  "chapter_arc": "150–200 words describing the argumentative movement across all subtopics.",
+  "subtopics": [
+    {
+      "number": "1.1",
+      "title": "Full subtopic title",
+      "goal": "What this subtopic must argue or establish. 1–2 sentences.",
+      "position_in_argument": "Its specific role within the chapter arc. 1 sentence."
+    }
+  ]
+}

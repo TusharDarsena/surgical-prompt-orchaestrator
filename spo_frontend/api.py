@@ -31,6 +31,11 @@ def _handle(resp: requests.Response) -> dict | list | None:
         return None
 
 
+def post(path: str, data: dict):
+    """Generic POST — used by JSON import endpoints."""
+    return _handle(requests.post(_url(path), json=data))
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 def health():
@@ -38,6 +43,10 @@ def health():
         return requests.get(_url("/health"), timeout=3).json()
     except Exception:
         return None
+
+
+def import_status():
+    return _handle(requests.get(_url("/import/status")))
 
 
 # ── Synopsis ───────────────────────────────────────────────────────────────────
@@ -85,15 +94,21 @@ def add_subtopic(chapter_id: str, data: dict):
 
 
 def update_subtopic(chapter_id: str, subtopic_id: str, data: dict):
-    return _handle(requests.patch(_url(f"/thesis/chapters/{chapter_id}/subtopics/{subtopic_id}"), json=data))
+    return _handle(requests.patch(
+        _url(f"/thesis/chapters/{chapter_id}/subtopics/{subtopic_id}"), json=data
+    ))
 
 
 def delete_subtopic(chapter_id: str, subtopic_id: str):
-    return _handle(requests.delete(_url(f"/thesis/chapters/{chapter_id}/subtopics/{subtopic_id}")))
+    return _handle(requests.delete(
+        _url(f"/thesis/chapters/{chapter_id}/subtopics/{subtopic_id}")
+    ))
 
 
 def get_suggested_sources(chapter_id: str, subtopic_id: str):
-    return _handle(requests.get(_url(f"/thesis/chapters/{chapter_id}/subtopics/{subtopic_id}/suggested-sources"))) or {}
+    return _handle(requests.get(
+        _url(f"/thesis/chapters/{chapter_id}/subtopics/{subtopic_id}/suggested-sources")
+    )) or {}
 
 
 # ── Source Groups ──────────────────────────────────────────────────────────────
@@ -145,7 +160,9 @@ def save_index_card(group_id: str, source_id: str, data: dict, exists: bool):
 
 
 def delete_index_card(group_id: str, source_id: str):
-    return _handle(requests.delete(_url(f"/sources/groups/{group_id}/sources/{source_id}/index-card")))
+    return _handle(requests.delete(
+        _url(f"/sources/groups/{group_id}/sources/{source_id}/index-card")
+    ))
 
 
 # ── Notes ──────────────────────────────────────────────────────────────────────
@@ -194,7 +211,13 @@ def save_consistency_summary(chapter_id: str, subtopic_id: str, data: dict):
 
 
 def get_previous_summary(chapter_id: str, subtopic_id: str):
-    return _handle(requests.get(_url(f"/consistency/{chapter_id}/previous-for/{subtopic_id}"))) or {}
+    return _handle(requests.get(
+        _url(f"/consistency/{chapter_id}/previous-for/{subtopic_id}")
+    )) or {}
+
+
+def delete_consistency_summary(chapter_id: str, subtopic_id: str):
+    return _handle(requests.delete(_url(f"/consistency/{chapter_id}/{subtopic_id}")))
 
 
 # ── Compiler ───────────────────────────────────────────────────────────────────
@@ -206,7 +229,10 @@ def compile_architect_prompt(chapter_id: str, subtopic_id: str, include_previous
     ))
 
 
-def compile_notebooklm_prompt(chapter_id: str, subtopic_id: str, word_count: int = None, style_notes: str = None):
+def compile_notebooklm_prompt(
+    chapter_id: str, subtopic_id: str,
+    word_count: int = None, style_notes: str = None
+):
     params = {}
     if word_count:
         params["word_count"] = word_count
@@ -216,7 +242,3 @@ def compile_notebooklm_prompt(chapter_id: str, subtopic_id: str, word_count: int
         _url(f"/compile/notebooklm-prompt/{chapter_id}/{subtopic_id}"),
         params=params
     ))
-
-
-def delete_consistency_summary(chapter_id: str, subtopic_id: str):
-    return _handle(requests.delete(_url(f"/consistency/{chapter_id}/{subtopic_id}")))

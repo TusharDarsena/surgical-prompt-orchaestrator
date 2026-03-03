@@ -1,0 +1,33 @@
+Read the thesis synopsis document I am attaching.
+
+Your job is to compress it into a structured JSON for use by an LLM system.
+The JSON must capture everything an LLM needs to understand this thesis's
+argument — without padding, restatement, or academic filler.
+
+Rules:
+- Cut through to the actual argument. Do not preserve vague academic phrasing.
+- Every field must contain specific, concrete information. No "this thesis explores..."
+- If a field cannot be filled from the document, use null. Do not invent.
+- The central_argument must be a specific claim, not a description of what the thesis does.
+- theoretical_frameworks: name them precisely, e.g. "Postcolonial feminism" not "feminist theory"
+- key_authors: only scholars whose work is central to the thesis's argument
+- central_themes: 4–6 tags, snake_case, specific to this thesis
+
+Output ONLY valid JSON. No explanation before or after. No markdown fences.
+
+Required schema:
+{
+  "title": "Full thesis title",
+  "author": "Author name",
+  "field": "Discipline / sub-field",
+  "central_argument": "2–4 sentences. The single claim the thesis argues and proves. Must be specific.",
+  "theoretical_frameworks": ["Framework 1", "Framework 2"],
+  "temporal_scope": "e.g. 1947–1990, or null",
+  "research_questions": ["Question 1", "Question 2"],
+  "objectives": ["Objective 1", "Objective 2"],
+  "methodology": "Brief description of method. e.g. 'Close reading + archival research + postcolonial critique'",
+  "key_authors": ["Scholar A", "Scholar B"],
+  "central_themes": ["theme_one", "theme_two"],
+  "chapter_structure_overview": "2–3 sentences. How the chapters build the argument sequentially.",
+  "scope_and_limits": "What the thesis explicitly covers and does NOT cover."
+}

@@ -1,122 +1,241 @@
 """
 Page: Thesis Setup
-Manage your own thesis — synopsis, chapters, and subtopics.
+Two paths:
+  Primary  — JSON import (faster, richer, recommended for initial setup)
+  Fallback — Manual forms (for patches and corrections)
 """
 
+import json
 import streamlit as st
 import api
 import ui
 
 st.set_page_config(page_title="Thesis Setup · SPO", page_icon="📚", layout="wide")
-ui.page_header("📚 Thesis Setup", "Define your thesis structure — the big picture injected into every prompt.")
+ui.page_header("📚 Thesis Setup", "Set up your thesis structure — synopsis, chapters, subtopics.")
+
+# ── Import status banner ───────────────────────────────────────────────────────
+synopsis = api.get_synopsis()
+chapters = api.list_chapters()
+chapters_without_arc = [c for c in chapters if not c.get("chapter_arc")]
+
+if synopsis and chapters and not chapters_without_arc:
+    st.success(
+        f"Setup complete. {len(chapters)} chapters · "
+        f"{sum(len(c.get('subtopics',[])) for c in chapters)} subtopics · "
+        "All chapter arcs set.",
+        icon="✅"
+    )
+elif synopsis:
+    missing = []
+    if chapters_without_arc:
+        missing.append(f"{len(chapters_without_arc)} chapter(s) missing arc")
+    if not chapters:
+        missing.append("no chapters imported")
+    st.warning(f"Partially set up: {' · '.join(missing)}", icon="⚠️")
+else:
+    st.info("Start by importing your thesis.json below.", icon="👇")
+
+st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SYNOPSIS
 # ══════════════════════════════════════════════════════════════════════════════
-st.subheader("Thesis Synopsis")
-st.caption("Written once. Injected into every Architect Mega-Prompt. The spine of all Task.md generation.")
+st.subheader("1 — Thesis Synopsis")
 
-synopsis = api.get_synopsis()
+tab_import, tab_manual = st.tabs(["📥 Import thesis.json  *(recommended)*", "✏️ Manual form"])
 
-with st.form("synopsis_form"):
-    col1, col2 = st.columns(2)
-    with col1:
-        title = st.text_input("Thesis Title", value=synopsis.get("title", "") if synopsis else "")
-        author = st.text_input("Author", value=synopsis.get("author", "") if synopsis else "")
-    with col2:
-        field = st.text_input("Field / Discipline", value=synopsis.get("field", "") if synopsis else "",
-                               placeholder="e.g. Indian English Literature")
-        framework = st.text_input("Theoretical Framework", value=synopsis.get("theoretical_framework", "") if synopsis else "",
-                                   placeholder="e.g. Postcolonial feminism")
-
-    central_argument = st.text_area(
-        "Central Argument ★",
-        value=synopsis.get("central_argument", "") if synopsis else "",
-        height=120,
-        placeholder="The single core argument of your entire thesis. 2–4 sentences. This is what the whole thesis is trying to prove.",
-        help="This is the most important field. Every Task.md Claude generates will be anchored to this."
+with tab_import:
+    st.caption(
+        "Generate thesis.json by giving Claude your synopsis document with the prompt "
+        "in `prompts/generate_thesis_json.txt`. Review the JSON, then upload here."
     )
-    scope = st.text_area(
-        "Scope and Limits",
-        value=synopsis.get("scope_and_limits", "") if synopsis else "",
-        height=80,
-        placeholder="What the thesis explicitly covers and does NOT cover.",
-    )
+    uploaded = st.file_uploader("Upload thesis.json", type="json", key="thesis_upload")
+    if uploaded:
+        try:
+            data = json.load(uploaded)
+            with st.expander("Preview parsed data", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**Title:** {data.get('title', '—')}")
+                    st.markdown(f"**Author:** {data.get('author', '—')}")
+                    st.markdown(f"**Field:** {data.get('field', '—')}")
+                    st.markdown(f"**Temporal scope:** {data.get('temporal_scope', '—')}")
+                with col2:
+                    st.markdown(f"**Frameworks:** {', '.join(data.get('theoretical_frameworks', []))}")
+                    st.markdown(f"**Themes:** {', '.join(data.get('central_themes', []))}")
+                st.markdown("**Central argument:**")
+                st.info(data.get("central_argument", "—"))
 
-    if st.form_submit_button("Save Synopsis", use_container_width=True, type="primary"):
-        if not all([title, author, field, central_argument]):
-            st.error("Title, Author, Field, and Central Argument are required.")
-        else:
-            result = api.save_synopsis({
-                "title": title, "author": author, "field": field,
-                "central_argument": central_argument,
-                "theoretical_framework": framework or None,
-                "scope_and_limits": scope or None,
-            })
-            if result:
-                ui.success("Synopsis saved.")
-                st.rerun()
+            if st.button("Import Thesis JSON", type="primary", use_container_width=True):
+                result = api.post("/import/thesis", data)
+                if result:
+                    ui.success("Thesis imported.")
+                    st.rerun()
+        except json.JSONDecodeError as e:
+            st.error(f"Invalid JSON: {e}")
+
+with tab_manual:
+    st.caption("Use this to create or patch the synopsis field by field.")
+    with st.form("synopsis_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            title = st.text_input("Title", value=synopsis.get("title", "") if synopsis else "")
+            author = st.text_input("Author", value=synopsis.get("author", "") if synopsis else "")
+            field = st.text_input("Field", value=synopsis.get("field", "") if synopsis else "")
+        with col2:
+            temporal = st.text_input(
+                "Temporal Scope",
+                value=synopsis.get("temporal_scope", "") if synopsis else "",
+                placeholder="e.g. 1947–1990"
+            )
+            frameworks_raw = st.text_input(
+                "Theoretical Frameworks (comma-separated)",
+                value=", ".join(synopsis.get("theoretical_frameworks", [])) if synopsis else "",
+            )
+        central_argument = st.text_area(
+            "Central Argument ★", height=120,
+            value=synopsis.get("central_argument", "") if synopsis else "",
+            placeholder="The single core argument. 2–4 sentences. Specific claim, not description."
+        )
+        scope = st.text_area(
+            "Scope and Limits", height=80,
+            value=synopsis.get("scope_and_limits", "") if synopsis else ""
+        )
+        if st.form_submit_button("Save Synopsis", use_container_width=True, type="primary"):
+            if not all([title, author, field, central_argument]):
+                st.error("Title, Author, Field, and Central Argument are required.")
+            else:
+                result = api.save_synopsis({
+                    "title": title, "author": author, "field": field,
+                    "central_argument": central_argument,
+                    "theoretical_frameworks": [f.strip() for f in frameworks_raw.split(",") if f.strip()],
+                    "temporal_scope": temporal or None,
+                    "scope_and_limits": scope or None,
+                })
+                if result:
+                    ui.success("Synopsis saved.")
+                    st.rerun()
 
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CHAPTERS
 # ══════════════════════════════════════════════════════════════════════════════
-st.subheader("Chapters & Subtopics")
-st.caption("Each chapter needs a goal. Each subtopic is one NotebookLM writing session.")
+st.subheader("2 — Chapters & Subtopics")
 
-chapters = api.list_chapters()
+tab_ch_import, tab_ch_manual = st.tabs([
+    "📥 Import chapterization.json  *(recommended)*",
+    "✏️ Manual form"
+])
 
-# Add new chapter
-with st.expander("➕ Add Chapter", expanded=not chapters):
-    with st.form("add_chapter_form"):
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            ch_num = st.number_input("Number", min_value=1, max_value=20, value=len(chapters) + 1, step=1)
-        with col2:
-            ch_title = st.text_input("Chapter Title", placeholder="e.g. Historical Background of Indian Women's Writing")
-        ch_goal = st.text_area(
-            "Chapter Goal ★",
-            height=100,
-            placeholder="What must this chapter prove? How does it serve the thesis argument? 3–5 sentences.",
-            help="Injected alongside the synopsis when Claude generates Task.md."
-        )
-        if st.form_submit_button("Add Chapter", use_container_width=True):
-            if not ch_title or not ch_goal:
-                st.error("Title and Goal are required.")
-            else:
-                result = api.create_chapter({"number": int(ch_num), "title": ch_title, "goal": ch_goal})
+with tab_ch_import:
+    st.caption(
+        "Generate chapterization.json per chapter using `prompts/generate_chapterization_json.txt`. "
+        "Select which chapter_id to import into."
+    )
+
+    ch_id_input = st.text_input(
+        "Target chapter_id",
+        placeholder="chapter_01",
+        help="e.g. chapter_01, chapter_02. Must match the number in the JSON."
+    )
+
+    uploaded_ch = st.file_uploader("Upload chapterization.json", type="json", key="ch_upload")
+
+    if uploaded_ch and ch_id_input:
+        try:
+            ch_data = json.load(uploaded_ch)
+            with st.expander("Preview", expanded=True):
+                st.markdown(f"**Chapter {ch_data.get('number')}: {ch_data.get('title')}**")
+                st.markdown(f"**Goal:** {ch_data.get('goal', '—')}")
+                arc = ch_data.get("chapter_arc", "")
+                arc_words = len(arc.split())
+                arc_color = "green" if 150 <= arc_words <= 220 else "orange"
+                st.markdown(f"**Arc ({arc_words} words):**")
+                st.info(arc)
+                if arc_words < 150:
+                    st.warning("Arc is under 150 words — consider expanding it.")
+                st.markdown(f"**Subtopics ({len(ch_data.get('subtopics', []))}):**")
+                for sub in ch_data.get("subtopics", []):
+                    st.markdown(f"- `{sub['number']}` {sub['title']}")
+
+            if st.button("Import Chapter JSON", type="primary", use_container_width=True):
+                result = api.post(f"/import/chapterization/{ch_id_input}", ch_data)
                 if result:
-                    ui.success(f"Chapter {ch_num} added.")
+                    ui.success(
+                        f"Chapter {ch_data.get('number')} imported. "
+                        f"{result.get('subtopics_created')} subtopics created."
+                    )
                     st.rerun()
+        except json.JSONDecodeError as e:
+            st.error(f"Invalid JSON: {e}")
+
+with tab_ch_manual:
+    st.caption("Manual chapter and subtopic entry — for corrections or small additions.")
+
+    with st.expander("➕ Add Chapter", expanded=not chapters):
+        with st.form("add_chapter_form"):
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                ch_num = st.number_input("Number", min_value=1, max_value=20,
+                                          value=len(chapters) + 1, step=1)
+            with col2:
+                ch_title = st.text_input("Chapter Title")
+            ch_goal = st.text_area("Chapter Goal ★", height=100,
+                                    placeholder="What must this chapter prove?")
+            ch_arc = st.text_area(
+                "Chapter Arc (optional — add via JSON import for best results)",
+                height=120,
+                placeholder="150–200 words. How all subtopics connect argumentatively."
+            )
+            if st.form_submit_button("Add Chapter", use_container_width=True):
+                if not ch_title or not ch_goal:
+                    st.error("Title and Goal are required.")
+                else:
+                    result = api.create_chapter({
+                        "number": int(ch_num), "title": ch_title,
+                        "goal": ch_goal, "chapter_arc": ch_arc or None
+                    })
+                    if result:
+                        ui.success(f"Chapter {ch_num} added.")
+                        st.rerun()
 
 st.divider()
 
-# Display chapters with subtopics
+# ── Chapter list with arc status ───────────────────────────────────────────────
 if not chapters:
-    ui.info("No chapters yet. Add your first chapter above.")
+    ui.info("No chapters yet.")
 else:
     for chapter in sorted(chapters, key=lambda c: c.get("number", 0)):
         ch_id = chapter["chapter_id"]
         subtopics = chapter.get("subtopics", [])
-        label = f"Ch.{chapter['number']} — {chapter['title']}  ({len(subtopics)} subtopics)"
+        has_arc = bool(chapter.get("chapter_arc"))
+        arc_badge = "✅ Arc" if has_arc else "⚠️ No arc"
+        label = f"Ch.{chapter['number']} — {chapter['title']}  |  {arc_badge}  |  {len(subtopics)} subtopics"
 
         with st.expander(label, expanded=False):
-            # Chapter goal display + delete
             col1, col2 = st.columns([5, 1])
             with col1:
                 st.markdown(f"**Goal:** {chapter['goal']}")
             with col2:
-                if st.button("🗑️ Delete Chapter", key=f"del_ch_{ch_id}"):
+                if st.button("🗑️", key=f"del_ch_{ch_id}", help="Delete chapter"):
                     api.delete_chapter(ch_id)
-                    ui.success("Chapter deleted.")
                     st.rerun()
+
+            if has_arc:
+                with st.expander("View chapter arc"):
+                    st.markdown(chapter["chapter_arc"])
+            else:
+                st.warning(
+                    "No chapter arc. Import chapterization.json for this chapter "
+                    "or add it manually via the form above.",
+                    icon="⚠️"
+                )
 
             st.divider()
 
-            # Subtopics table
             if subtopics:
-                st.markdown("**Subtopics**")
+                st.markdown("**Subtopics:**")
                 for sub in subtopics:
                     sub_id = sub["subtopic_id"]
                     sc1, sc2, sc3 = st.columns([1, 5, 1])
@@ -126,36 +245,30 @@ else:
                         st.markdown(f"**{sub['title']}**")
                         st.caption(sub.get("goal", ""))
                         if sub.get("position_in_argument"):
-                            st.caption(f"*Position: {sub['position_in_argument']}*")
+                            st.caption(f"*{sub['position_in_argument']}*")
                     with sc3:
-                        if st.button("🗑️", key=f"del_sub_{ch_id}_{sub_id}", help="Delete subtopic"):
+                        if st.button("🗑️", key=f"del_sub_{ch_id}_{sub_id}"):
                             api.delete_subtopic(ch_id, sub_id)
                             st.rerun()
                 st.divider()
 
-            # Add subtopic form
+            # Add subtopic manually
             with st.form(f"add_sub_{ch_id}"):
-                st.markdown("**Add Subtopic**")
+                st.markdown("**Add Subtopic Manually**")
                 sc1, sc2 = st.columns([1, 4])
                 with sc1:
-                    sub_num = st.text_input("Number", placeholder="1.3.2", key=f"subnum_{ch_id}")
+                    sub_num = st.text_input("Number", placeholder="1.3.2", key=f"sn_{ch_id}")
                 with sc2:
-                    sub_title = st.text_input("Title", key=f"subtitle_{ch_id}")
-                sub_goal = st.text_area("Goal ★", height=80,
-                                         placeholder="What must this subtopic argue or establish?",
-                                         key=f"subgoal_{ch_id}")
-                sub_pos = st.text_input("Position in Argument (optional)",
-                                         placeholder="e.g. Establishes the historical gap the chapter fills",
-                                         key=f"subpos_{ch_id}")
-                if st.form_submit_button("Add Subtopic", use_container_width=True):
+                    sub_title = st.text_input("Title", key=f"st_{ch_id}")
+                sub_goal = st.text_area("Goal ★", height=80, key=f"sg_{ch_id}")
+                sub_pos = st.text_input("Position in Argument", key=f"sp_{ch_id}")
+                if st.form_submit_button("Add Subtopic"):
                     if not sub_num or not sub_title or not sub_goal:
                         st.error("Number, Title and Goal are required.")
                     else:
                         result = api.add_subtopic(ch_id, {
-                            "number": sub_num,
-                            "title": sub_title,
-                            "goal": sub_goal,
-                            "position_in_argument": sub_pos or None,
+                            "number": sub_num, "title": sub_title,
+                            "goal": sub_goal, "position_in_argument": sub_pos or None,
                         })
                         if result:
                             ui.success(f"Subtopic {sub_num} added.")
