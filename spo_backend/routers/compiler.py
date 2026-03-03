@@ -506,3 +506,215 @@ def _collect_warnings(payload: dict) -> list[str]:
             )
 
     return warnings
+
+
+# ── NotebookLM Prompt Compiler ─────────────────────────────────────────────────
+
+class NotebookLMRequest(BaseModel):
+    word_count: Optional[int] = None
+    academic_style_notes: Optional[str] = None
+
+
+@router.get(
+    "/notebooklm-prompt/{chapter_id}/{subtopic_id}",
+    response_model=dict,
+    summary="Compile NotebookLM prompt from approved Task.md"
+)
+def compile_notebooklm_prompt_get(
+    chapter_id: str,
+    subtopic_id: str,
+    word_count: Optional[int] = Query(default=None),
+    academic_style_notes: Optional[str] = Query(default=None),
+):
+    """
+    Compiles the final prompt to paste into NotebookLM.
+    Requires an approved Task.md to be saved first via POST /tasks/{chapter_id}/{subtopic_id}.
+
+    What to do with the output:
+      1. Upload the relevant PDFs to NotebookLM
+      2. Copy the 'prompt' value
+      3. Paste into NotebookLM chat
+      4. After approving the draft, save consistency summary via POST /consistency/...
+    """
+    return _build_notebooklm_response(chapter_id, subtopic_id, word_count, academic_style_notes)
+
+
+@router.post(
+    "/notebooklm-prompt/{chapter_id}/{subtopic_id}",
+    response_model=dict,
+    summary="Compile NotebookLM prompt (with style overrides)"
+)
+def compile_notebooklm_prompt_post(
+    chapter_id: str,
+    subtopic_id: str,
+    req: NotebookLMRequest,
+):
+    return _build_notebooklm_response(
+        chapter_id, subtopic_id, req.word_count, req.academic_style_notes
+    )
+
+
+def _build_notebooklm_response(
+    chapter_id: str,
+    subtopic_id: str,
+    word_count: Optional[int],
+    academic_style_notes: Optional[str],
+) -> dict:
+    # Load Task.md blueprint
+    blueprint = storage.read_task_blueprint(chapter_id, subtopic_id)
+    if not blueprint:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"No approved Task.md found for subtopic '{subtopic_id}'. "
+                "Complete the Architect phase first, then save via "
+                "POST /tasks/{chapter_id}/{subtopic_id}."
+            )
+        )
+
+    # Load previous section summary for consistency injection
+    chapter = storage.read_chapter(chapter_id)
+    previous_summary = None
+    if chapter:
+        subtopics = chapter.get("subtopics", [])
+        ids_in_order = [s["subtopic_id"] for s in subtopics]
+        if subtopic_id in ids_in_order:
+            idx = ids_in_order.index(subtopic_id)
+            if idx > 0:
+                prev_id = ids_in_order[idx - 1]
+                previous_summary = storage.read_section_summary(chapter_id, prev_id)
+
+    # Build source file list from auto-detected tagged sources
+    tagged_sources = storage.find_sources_for_subtopic(subtopic_id)
+    file_list = [
+        s.get("file_name") or s.get("label", "unnamed")
+        for s in tagged_sources
+        if s.get("has_index_card")
+    ]
+
+    prompt = _render_notebooklm_prompt(blueprint, previous_summary, word_count, academic_style_notes)
+
+    return {
+        "prompt": prompt,
+        "meta": {
+            "subtopic": f"{blueprint.get('subtopic_number')} — {blueprint.get('subtopic_title')}",
+            "task_md_approved": blueprint.get("approved", False),
+            "previous_section_included": previous_summary is not None,
+            "previous_section": (
+                f"{previous_summary.get('subtopic_number')} — {previous_summary.get('subtopic_title')}"
+                if previous_summary else None
+            ),
+            "suggested_pdf_uploads": file_list,
+        },
+        "next_step": (
+            "1. Upload suggested PDFs to NotebookLM. "
+            "2. Paste the prompt. "
+            "3. After approving the draft, save consistency summary: "
+            f"POST /consistency/{chapter_id}/{subtopic_id}"
+        )
+    }
+
+
+def _render_notebooklm_prompt(
+    blueprint: dict,
+    previous_summary: Optional[dict],
+    word_count: Optional[int],
+    academic_style_notes: Optional[str],
+) -> str:
+    lines = []
+
+    subtopic_ref = f"{blueprint.get('subtopic_number', '')} — {blueprint.get('subtopic_title', '')}"
+
+    lines += [
+        f"Write section {subtopic_ref} of the thesis.",
+        "",
+        "You must follow the blueprint below STRICTLY.",
+        "Use ONLY the uploaded PDF sources. Do not draw on outside knowledge.",
+        "Do not invent citations, statistics, or historical claims.",
+        "",
+    ]
+
+    # Word count
+    wc = word_count or blueprint.get("word_count_target")
+    if wc:
+        lines += [f"TARGET LENGTH: approximately {wc} words.", ""]
+
+    # Previous section consistency
+    if previous_summary:
+        lines += [
+            "=" * 50,
+            "PREVIOUS SECTION CONTEXT",
+            "(Do NOT repeat this. Build forward from it.)",
+            "=" * 50,
+            "",
+            f"The previous section ({previous_summary.get('subtopic_number')} — "
+            f"{previous_summary.get('subtopic_title')}) established:",
+            previous_summary["core_argument_made"],
+            "",
+        ]
+        if previous_summary.get("key_terms_established"):
+            terms = ", ".join(previous_summary["key_terms_established"])
+            lines += [
+                f"Use these terms consistently (already defined, do not redefine): {terms}",
+                "",
+            ]
+        if previous_summary.get("what_next_section_must_build_on"):
+            lines += [
+                "This section must build on:",
+                previous_summary["what_next_section_must_build_on"],
+                "",
+            ]
+
+    # Task.md blueprint
+    lines += [
+        "=" * 50,
+        "WRITING BLUEPRINT (Task.md)",
+        "=" * 50,
+        "",
+    ]
+
+    # Use parsed fields if available, otherwise fall back to raw markdown
+    if blueprint.get("core_objective"):
+        lines += [
+            f"CORE OBJECTIVE: {blueprint['core_objective']}",
+            "",
+        ]
+
+    if blueprint.get("focus_points"):
+        lines += ["FOCUS POINTS (cover all of these, in this argumentative order):"]
+        for point in blueprint["focus_points"]:
+            lines.append(f"  • {point}")
+        lines.append("")
+    elif blueprint.get("raw_markdown"):
+        lines += [blueprint["raw_markdown"], ""]
+
+    if blueprint.get("key_terms"):
+        lines += [
+            f"KEY TERMS TO USE: {', '.join(blueprint['key_terms'])}",
+            "",
+        ]
+
+    if blueprint.get("do_not_include"):
+        lines += ["DO NOT INCLUDE:"]
+        for item in blueprint["do_not_include"]:
+            lines.append(f"  ✗ {item}")
+        lines.append("")
+
+    # Writing rules
+    lines += [
+        "=" * 50,
+        "WRITING RULES",
+        "=" * 50,
+        "",
+        "• Begin directly with the argument. No 'In this section we will...' openers.",
+        "• Every claim must be supported by the uploaded sources.",
+        "• Write in academic register. Analytical, not descriptive.",
+        "• No bullet points in the output — write in prose paragraphs.",
+        "• Do not summarise sources. Use them as evidence for the focus points.",
+        "• Do not introduce arguments not listed in the Focus Points above.",
+    ]
+
+    if academic_style_notes:
+        lines += ["", f"ADDITIONAL STYLE NOTES: {academic_style_notes}"]
+
+    return "\n".join(lines)

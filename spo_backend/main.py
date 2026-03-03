@@ -17,7 +17,7 @@ Docs at: http://localhost:8000/docs
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import thesis, sources, consistency, notes, compiler
+from routers import thesis, sources, consistency, notes, compiler, tasks
 
 app = FastAPI(
     title="SPO — Surgical Prompt Orchestrator",
@@ -41,6 +41,7 @@ app.include_router(thesis.router)
 app.include_router(sources.router)
 app.include_router(consistency.router)
 app.include_router(notes.router)
+app.include_router(tasks.router)
 app.include_router(compiler.router)
 
 

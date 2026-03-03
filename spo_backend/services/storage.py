@@ -320,3 +320,34 @@ def delete_note(scope: str, note_id: str) -> bool:
         path.unlink()
         return True
     return False
+
+
+# --- Task.md storage (approved blueprint per subtopic) ---
+
+def _taskmd_dir() -> Path:
+    return _ensure(DATA_DIR / "task_blueprints")
+
+
+def write_task_blueprint(chapter_id: str, subtopic_id: str, data: dict) -> dict:
+    data["updated_at"] = datetime.utcnow().isoformat()
+    key = f"{chapter_id}__{subtopic_id}"
+    _write(_taskmd_dir() / f"{key}.json", data)
+    return data
+
+
+def read_task_blueprint(chapter_id: str, subtopic_id: str) -> Optional[dict]:
+    key = f"{chapter_id}__{subtopic_id}"
+    return _read(_taskmd_dir() / f"{key}.json")
+
+
+def list_task_blueprints() -> list[dict]:
+    return _list_json(_taskmd_dir())
+
+
+def delete_task_blueprint(chapter_id: str, subtopic_id: str) -> bool:
+    key = f"{chapter_id}__{subtopic_id}"
+    path = _taskmd_dir() / f"{key}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
