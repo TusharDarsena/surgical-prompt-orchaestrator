@@ -1,39 +1,62 @@
-I am attaching a chapter outline / plan for Chapter [NUMBER]: [TITLE] of my thesis.
 
-Your job is to convert it into a structured JSON for use by an LLM system that
-generates writing blueprints (Task.md files) for each subtopic.
+You are a thesis architecture assistant. I have uploaded:
+1. synopsis_context 
+2. index_cards : except synopsis all sources are index cards
 
-The most important field is chapter_arc. This is the argumentative map of the
-entire chapter — how all the subtopics connect, build on each other, and together
-prove the chapter's goal. Every Task.md generated for any subtopic of this chapter
-will be constrained by this arc. It must be specific to THIS chapter, not generic.
+Your task: generate a chapterization for EACH chapter defined in 
+synopsis_context's chapter_structure.
 
-Rules:
-- chapter_arc: 150–200 words. Describe the argumentative movement, not a table of contents.
-  Show HOW the subtopics build on each other. What does Subtopic 1 establish that
-  Subtopic 2 depends on? What does the chapter achieve by the final subtopic that
-  it could not achieve without the sequence? Be concrete.
-- goal: what this chapter must prove for the thesis argument. 2–3 sentences.
-- subtopics: extract all subtopics. Number them exactly as in the outline.
-- position_in_argument: for each subtopic, one sentence on its specific role within
-  the chapter arc. e.g. "Establishes the pre-existing literary norm that subsequent
-  subtopics show feminist writers consciously rejected."
-- If information is not in the document, use null. Do not invent.
+For each chapter, read the chapter's designated focus in the thesis, then 
+scan ALL index cards and identify which cards can support that chapter's 
+argument. A card is relevant if its key_claims could serve as evidence or 
+counterpoint — not just if its themes overlap.
+
+GENERATION RULES:
+
+chapter_arc (150–200 words per chapter):
+- Must open by naming the specific research gap this chapter addresses
+  (derive this from synopsis_context's research_gap and need_and_significance)
+- Must show how subtopics depend on each other argumentatively — not a 
+  list of topics but a description of how the argument moves
+
+
+subtopics (4–6 per chapter):
+- Each subtopic must map to at least one index card that supports it
+- Titles must be specific to your sources, not generic
+  Bad:  "Feminist themes in post-independence literature"
+  Good: "Patriarchy as domestic entrapment: Markandaya and Desai's 
+         rural and middle-class women compared"
+- goal: a falsifiable claim, not a description. 1–2 sentences.
+- position_in_argument: name what the previous subtopic established 
+  and what the next subtopic will need from this one
+- source_ids: list the index card source_ids that support this subtopic
+
 
 Output ONLY valid JSON. No explanation. No markdown fences.
 
-Required schema:
+Schema — repeat this block for every chapter:
 {
-  "number": 1,
+  "number": 2, (chapter number)
   "title": "Full chapter title",
-  "goal": "What this chapter must prove. 2–3 sentences.",
-  "chapter_arc": "150–200 words describing the argumentative movement across all subtopics.",
+  "goal": "What this chapter proves for the thesis. 3-4 sentences 
+           referencing the research gap.",
+  "chapter_arc": "150–200 words of argumentative movement.",
+  "chapter_goal_statement" : "3-4 sentences on what this chapter should acheive",
   "subtopics": [
     {
-      "number": "1.1",
-      "title": "Full subtopic title",
-      "goal": "What this subtopic must argue or establish. 1–2 sentences.",
-      "position_in_argument": "Its specific role within the chapter arc. 1 sentence."
+      "number": "2.1",
+      "title": "Source-grounded subtopic title",
+      
+      "position_in_argument": "Role in arc referencing what came 
+                               before and what comes next.",
+      "source_ids": [
+        {
+          "source_id": "Name of Thesis",
+          "chapter_id": "Name of relevant chapter / section",
+          "source_guidence": "how to use this source
+        }
+      ]
     }
   ]
 }
+
