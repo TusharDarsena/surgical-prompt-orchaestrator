@@ -43,6 +43,14 @@ def post(path: str, data: dict):
     return _handle(requests.post(_url(path), json=data))
 
 
+def import_chapterization(chapter_id: str, data: dict):
+    """POST /import/chapterization/{chapter_id} with cache clearing."""
+    result = _handle(requests.post(_url(f"/import/chapterization/{chapter_id}"), json=data))
+    if result is not None:
+        list_chapters.clear()
+    return result
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 @st.cache_data
