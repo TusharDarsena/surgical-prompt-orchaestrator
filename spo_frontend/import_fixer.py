@@ -383,19 +383,16 @@ def render_chapter_import_tab(chapter_id: str):
 
 def render_source_import_tab():
     """
-    Drop-in replacement for the `with tab_import:` block in 2_Source_Library.py.
+    Batch source import — upload multiple source.json files at once.
 
-    Handles:
-    - Invalid JSON with 'response N' prefixes
-    - Multiple JSON objects (merges chapters from all responses)
-    - Missing source_type (offers dropdown to pick)
-    - Missing key_claims or themes on individual chapters (inline fix)
+    The backend auto-patches missing fields (defaults for author, title,
+    source_type, key_claims, themes) and sweeps extra fields into an
+    'additional' column so nothing is lost and nothing crashes.
     """
-    SOURCE_TYPES = ["thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"]
-
     st.caption(
-        "Generate source.json by uploading PDF chapters to NotebookLM and using "
-        "`prompts/generate_source_json.txt`. One JSON = 1 group + all sources + all index cards."
+        "Upload one or more `source.json` files. Each JSON = 1 source group "
+        "+ all chapters + all index cards. Missing fields are auto-filled "
+        "by the backend; extra fields are preserved."
     )
     st.info(
         "**SPO stores metadata only.** The actual PDFs go to NotebookLM, not here. "
@@ -403,152 +400,88 @@ def render_source_import_tab():
         icon="ℹ️"
     )
 
-    uploaded_src = st.file_uploader("Upload source.json", type="json", key="src_json_upload")
-    if not uploaded_src:
+    uploaded_files = st.file_uploader(
+        "Upload source JSON(s)", type="json",
+        accept_multiple_files=True, key="src_json_batch_upload"
+    )
+    if not uploaded_files:
         return
 
-    raw = uploaded_src.read().decode("utf-8")
-    objects, err = _parse_json_tolerant(raw)
+    # ── Parse all files ───────────────────────────────────────────────────────
+    parsed = []  # list of (filename, data_dict, error_string_or_None)
+    for f in uploaded_files:
+        raw = f.read().decode("utf-8")
+        objects, err = _parse_json_tolerant(raw)
+        if err or not objects:
+            parsed.append((f.name, None, err or "No valid JSON found"))
+            continue
+        data = _merge_source_responses(objects)
+        # Frontend normalization (field renaming for preview)
+        data["chapters"] = [_normalize_chapter_entry(ch) for ch in data.get("chapters", [])]
+        parsed.append((f.name, data, None))
 
-    if err or not objects:
-        st.error(f"❌ Could not parse JSON — {err}")
-        with st.expander("Show raw content"):
-            st.code(raw[:1000])
-        return
+    # ── Summary ───────────────────────────────────────────────────────────────
+    good = [(name, data) for name, data, err in parsed if err is None]
+    bad  = [(name, err)  for name, data, err in parsed if err is not None]
 
-    # Merge multi-response NotebookLM output
-    data = _merge_source_responses(objects)
+    st.markdown(f"**{len(uploaded_files)} file(s) selected** · "
+                f"✅ {len(good)} parseable · ❌ {len(bad)} failed")
 
-    if len(objects) > 1:
-        st.info(f"ℹ️ Found {len(objects)} JSON blocks (NotebookLM multi-response) — merged into one source with {len(data.get('chapters', []))} unique chapters.")
+    # Show parse errors
+    if bad:
+        with st.expander(f"❌ {len(bad)} file(s) could not be parsed", expanded=True):
+            for name, err in bad:
+                st.error(f"**{name}** — {err}")
 
-    # Normalize chapter entries
-    chapters = [_normalize_chapter_entry(ch) for ch in data.get("chapters", [])]
-    data["chapters"] = chapters
-
-    # ── Session state ─────────────────────────────────────────────────────────
-    sk = "src_fix"
-    if sk not in st.session_state or st.session_state.get("src_fix_name") != uploaded_src.name:
-        st.session_state[sk] = data
-        st.session_state["src_fix_name"] = uploaded_src.name
-
-    d = st.session_state[sk]
-
-    # ── Top-level field issues ────────────────────────────────────────────────
-    needs_title = not d.get("title", "").strip()
-    needs_author = not d.get("author", "").strip()
-    needs_type = not d.get("source_type", "").strip() or d.get("source_type") not in SOURCE_TYPES
-
-    # ── Chapter-level issues ──────────────────────────────────────────────────
-    chapters = d.get("chapters", [])
-    ch_issues = []
-    for i, ch in enumerate(chapters):
-        problems = []
-        if not ch.get("key_claims"):
-            problems.append("key_claims")
-        if not ch.get("themes"):
-            problems.append("themes")
-        if problems:
-            ch_issues.append((i, ch.get("label", f"Chapter {i+1}"), problems))
-
-    has_issues = needs_title or needs_author or needs_type or ch_issues
-
-    # ── Status header ─────────────────────────────────────────────────────────
-    if not has_issues:
-        st.success(f"✅ **{d.get('author', '?')} ({d.get('year', '?')})** — {d.get('title', '?')}")
-    else:
-        st.warning(f"⚠️ **{d.get('author', '?')} ({d.get('year', '?')})** — {d.get('title', '?')} · Some fields need attention.")
-
-    # ── Fix top-level fields ──────────────────────────────────────────────────
-    if needs_title or needs_author or needs_type:
-        with st.expander("📝 Fix work-level fields", expanded=True):
-            c1, c2, c3 = st.columns([3, 2, 2])
-            with c1:
-                if needs_title:
-                    d["title"] = st.text_input("Title ★", value=d.get("title", ""), key="src_fix_title")
-            with c2:
-                if needs_author:
-                    d["author"] = st.text_input("Author ★", value=d.get("author", ""), key="src_fix_author")
-            with c3:
-                if needs_type:
-                    current = d.get("source_type", "")
-                    idx = SOURCE_TYPES.index(current) if current in SOURCE_TYPES else 0
-                    d["source_type"] = st.selectbox("Source Type ★", SOURCE_TYPES, index=idx, key="src_fix_type")
-            st.session_state[sk] = d
-
-    # ── Fix chapter-level issues ──────────────────────────────────────────────
-    if ch_issues:
-        with st.expander(f"📝 Fix {len(ch_issues)} chapter(s) with missing index card fields", expanded=True):
-            st.caption("Key Claims and Themes are required for each chapter — they feed directly into Architect prompts.")
-
-            for i, label, problems in ch_issues:
-                ch = chapters[i]
-                st.markdown(f"**`{label}`** — {ch.get('title', '')}")
-
-                if "key_claims" in problems:
-                    existing = "\n".join(ch.get("key_claims") or [])
-                    raw_claims = st.text_area(
-                        "Key Claims ★ (one per line)",
-                        value=existing,
-                        height=120,
-                        key=f"src_claims_{i}",
-                        placeholder=(
-                            "Argues that Deshpande represents the third phase of Indian feminism\n"
-                            "Claims that domestic circumscription catalyzed her writing process"
-                        )
-                    )
-                    chapters[i]["key_claims"] = [c.strip() for c in raw_claims.strip().split("\n") if c.strip()]
-
-                if "themes" in problems:
-                    existing_themes = ", ".join(ch.get("themes") or [])
-                    raw_themes = st.text_input(
-                        "Themes ★ (comma-separated, snake_case)",
-                        value=existing_themes,
-                        key=f"src_themes_{i}",
-                        placeholder="third_phase_feminism, domestic_confinement, literary_patriarchy"
-                    )
-                    chapters[i]["themes"] = [t.strip() for t in raw_themes.split(",") if t.strip()]
-
-                st.divider()
-
-            d["chapters"] = chapters
-            st.session_state[sk] = d
-
-    # ── Preview ───────────────────────────────────────────────────────────────
-    with st.expander(f"Preview — {len(chapters)} document(s)", expanded=not has_issues):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**{d.get('author', '?')} ({d.get('year', '?')})** — {d.get('title', '?')}")
-            st.caption(f"Type: {d.get('source_type', '?')} · {d.get('institution_or_publisher', '')}")
-            if d.get("description"):
-                st.markdown(f"*{d['description']}*")
-        with col2:
-            for ch in d.get("chapters", []):
-                card_ok = bool(ch.get("key_claims")) and bool(ch.get("themes"))
-                badge = "✅" if card_ok else "⚠️ incomplete"
-                fname = f" · `{ch.get('file_name')}`" if ch.get("file_name") else ""
-                st.markdown(f"- `{ch.get('label', '?')}` {badge}{fname}")
+    # Show preview of parseable files
+    if good:
+        with st.expander(f"Preview {len(good)} source(s)", expanded=True):
+            for name, data in good:
+                author = str(data.get("author") or "Unknown Author")
+                year = data.get("year", "?")
+                title = str(data.get("title") or "Untitled Work")
+                ch_count = len(data.get("chapters", []))
+                st.markdown(f"- **{author} ({year})** — {title} · {ch_count} chapter(s) · `{name}`")
 
     # ── Import button ─────────────────────────────────────────────────────────
-    # Re-check current state
-    still_issues = (
-        not d.get("title", "").strip()
-        or not d.get("author", "").strip()
-        or d.get("source_type", "") not in SOURCE_TYPES
-        or any(not ch.get("key_claims") or not ch.get("themes") for ch in d.get("chapters", []))
-    )
+    if not good:
+        st.button("Import All", disabled=True, key="do_batch_import",
+                  help="No valid files to import.")
+        return
 
-    if still_issues:
-        st.button("Import Source JSON", disabled=True, key="do_import_src",
-                  help="Fix all flagged fields above first.")
-    else:
-        if st.button("✅ Import Source JSON", type="primary", use_container_width=True, key="do_import_src"):
-            result = api.import_source(d)
-            if result:
-                st.success(
-                    f"Imported: **{result.get('title')}** — "
-                    f"{result.get('sources_created')} sources, all indexed. ✅"
+    if st.button(f"✅ Import {len(good)} Source(s)", type="primary",
+                 use_container_width=True, key="do_batch_import"):
+        progress = st.progress(0, text="Importing...")
+        results = []
+        errors = []
+
+        for idx, (name, data) in enumerate(good):
+            try:
+                result = api.import_source(data)
+                if result:
+                    results.append((name, result))
+                else:
+                    errors.append((name, "API returned empty response"))
+            except Exception as e:
+                errors.append((name, str(e)))
+            progress.progress((idx + 1) / len(good),
+                              text=f"Imported {idx + 1} / {len(good)}...")
+
+        progress.empty()
+
+        # Show results
+        if results:
+            st.success(f"✅ **{len(results)} / {len(good)}** sources imported successfully!")
+            for name, result in results:
+                st.markdown(
+                    f"- ✅ **{result.get('title', '?')}** — "
+                    f"{result.get('sources_created', 0)} chapters indexed · `{name}`"
                 )
-                st.session_state.pop(sk, None)
-                st.session_state.pop("src_fix_name", None)
-                st.rerun()
+
+        if errors:
+            st.error(f"❌ {len(errors)} file(s) failed to import:")
+            for name, err in errors:
+                st.markdown(f"- ❌ **{name}** — {err}")
+
+        if results:
+            st.rerun()

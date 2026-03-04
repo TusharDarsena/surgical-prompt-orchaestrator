@@ -249,29 +249,53 @@ def _normalize_source_chapter(ch: dict) -> dict:
             break
     if isinstance(c.get("limitations"), list):
         c["limitations"] = " ".join(c["limitations"])
+    # ── Coerce null values to defaults (Pydantic defaults only apply for absent keys) ──
+    if c.get("title") is None:
+        c["title"] = "Untitled Chapter"
+    if c.get("label") is None or not c.get("label"):
+        c["label"] = c.get("title", "Unlabelled")[:30]
+    if not c.get("key_claims"):
+        c["key_claims"] = ["No specific claims extracted."]
+    if not c.get("themes"):
+        c["themes"] = ["uncategorized"]
+
+    # ── Junk drawer: sweep unrecognized keys into additional ─────────────
+    CANONICAL_KEYS = {
+        "label", "title", "page_range", "file_name",
+        "key_claims", "themes", "time_period_covered",
+        "relevant_subtopics", "limitations", "notable_authors_cited",
+    }
+    extras = []
+    for k in list(c.keys()):
+        if k not in CANONICAL_KEYS:
+            val = c.pop(k)
+            if val is not None and val != "" and val != []:
+                extras.append(f"[{k.upper()}]: {val}")
+    if extras:
+        existing = c.get("additional") or ""
+        separator = "\n" if existing else ""
+        c["additional"] = (existing + separator + "\n".join(extras)).strip()
 
     return c
 
 class SourceChapterImport(BaseModel):
     """One chapter/section of the external work."""
     label: str = Field(
-        ...,
+        default="Unlabelled",
         description="Short label Claude sees in prompts. e.g. 'Sharma Ch.2'"
     )
-    title: str = Field(..., description="Full chapter/section title")
+    title: str = Field(default="Untitled Chapter", description="Full chapter/section title")
     page_range: Optional[str] = Field(None, description="e.g. '45–89'")
     file_name: Optional[str] = Field(None, description="e.g. 'sharma_2003_ch2.pdf'")
 
     # Index card fields — extracted via NotebookLM, reviewed by you
     key_claims: list[str] = Field(
-        ...,
+        default_factory=lambda: ["No specific claims extracted."],
         description="2–5 specific claims this chapter makes.",
-        min_length=1
     )
     themes: list[str] = Field(
-        ...,
+        default_factory=lambda: ["uncategorized"],
         description="Snake_case theme tags. e.g. ['nationalist_idealization']",
-        min_length=1
     )
     time_period_covered: Optional[str] = None
     relevant_subtopics: list[str] = Field(
@@ -283,6 +307,7 @@ class SourceChapterImport(BaseModel):
         description="What this chapter cannot support. Feeds 'Do Not Include' in Task.md."
     )
     notable_authors_cited: list[str] = Field(default_factory=list)
+    additional: Optional[str] = Field(None, description="Extra fields swept from JSON import that didn't match the schema.")
 
 
 class SourceImport(BaseModel):
@@ -293,11 +318,11 @@ class SourceImport(BaseModel):
     → review and correct → import here.
     """
     # Work-level metadata
-    title: str
-    author: str
+    title: str = Field(default="Untitled Work")
+    author: str = Field(default="Unknown Author")
     year: Optional[int] = None
     source_type: str = Field(
-        ...,
+        default="other",
         description="One of: thesis_chapter, book_chapter, journal_article, book, report, other"
     )
     institution_or_publisher: Optional[str] = None
@@ -315,8 +340,9 @@ class SourceImport(BaseModel):
 
     # Per-chapter index cards
     chapters: list[SourceChapterImport] = Field(
-        ..., description="One entry per PDF/chapter you have downloaded.", min_length=1
+        default_factory=list, description="One entry per PDF/chapter you have downloaded."
     )
+    additional: Optional[str] = Field(None, description="Extra work-level fields from JSON import.")
 
 
 @router.post("/source", summary="Import source.json — creates group + all sources + index cards in one upload")
@@ -333,6 +359,30 @@ def import_source(data: dict = Body(...)):
     # Normalize chapter fields before Pydantic validation
     if "chapters" in data:
         data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
+
+    # ── Work-level junk drawer: sweep extra keys into additional ──────────
+    WORK_CANONICAL_KEYS = {
+        "title", "author", "year", "source_type",
+        "institution_or_publisher", "description", "work_summary", "chapters",
+    }
+    extras = []
+    for k in list(data.keys()):
+        if k not in WORK_CANONICAL_KEYS:
+            val = data.pop(k)
+            if val is not None and val != "" and val != []:
+                extras.append(f"[{k.upper()}]: {val}")
+    if extras:
+        existing = data.get("additional") or ""
+        separator = "\n" if existing else ""
+        data["additional"] = (existing + separator + "\n".join(extras)).strip()
+
+    # ── Coerce null values to defaults ────────────────────────────────────
+    if data.get("title") is None:
+        data["title"] = "Untitled Work"
+    if data.get("author") is None:
+        data["author"] = "Unknown Author"
+    if not data.get("source_type"):
+        data["source_type"] = "other"
 
     try:
         data = SourceImport(**data)
@@ -359,6 +409,7 @@ def import_source(data: dict = Body(...)):
         "institution_or_publisher": data.institution_or_publisher,
         "description": data.description,
         "work_summary": data.work_summary,
+        "additional": data.additional,
         "created_at": now,
         "updated_at": now,
     }
@@ -390,6 +441,7 @@ def import_source(data: dict = Body(...)):
             "relevant_subtopics": ch.relevant_subtopics,
             "limitations": ch.limitations,
             "notable_authors_cited": ch.notable_authors_cited,
+            "additional": ch.additional,
             "your_notes": None,
             "created_at": now,
             "updated_at": now,
