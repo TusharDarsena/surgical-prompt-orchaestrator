@@ -51,6 +51,14 @@ def import_chapterization(chapter_id: str, data: dict):
     return result
 
 
+def import_chapterization_bulk(data: list):
+    """POST /import/chapterization/bulk — multiple chapters in one upload."""
+    result = _handle(requests.post(_url("/import/chapterization/bulk"), json=data))
+    if result is not None:
+        list_chapters.clear()
+    return result
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
 @st.cache_data
@@ -288,40 +296,6 @@ def delete_note(scope: str, entity_id: str, note_id: str):
     return result
 
 
-# ── Task Blueprints ────────────────────────────────────────────────────────────
-
-@st.cache_data
-def get_task_blueprint(chapter_id: str, subtopic_id: str):
-    r = requests.get(_url(f"/tasks/{chapter_id}/{subtopic_id}"))
-    if r.status_code == 404:
-        return None
-    return _handle(r)
-
-
-@st.cache_data
-def list_task_blueprints():
-    """Fetch all saved Task.md blueprints in one round-trip.
-    Use this to build lookup sets instead of calling get_task_blueprint() in a loop.
-    """
-    return _handle(requests.get(_url("/tasks/"))) or {}
-
-
-def save_task_blueprint(chapter_id: str, subtopic_id: str, data: dict):
-    result = _handle(requests.post(_url(f"/tasks/{chapter_id}/{subtopic_id}"), json=data))
-    if result is not None:
-        get_task_blueprint.clear(chapter_id, subtopic_id)
-        list_task_blueprints.clear()
-    return result
-
-
-def delete_task_blueprint(chapter_id: str, subtopic_id: str):
-    result = _handle(requests.delete(_url(f"/tasks/{chapter_id}/{subtopic_id}")))
-    if result is not None:
-        get_task_blueprint.clear(chapter_id, subtopic_id)
-        list_task_blueprints.clear()
-    return result
-
-
 # ── Consistency Chain ──────────────────────────────────────────────────────────
 
 @st.cache_data
@@ -353,13 +327,6 @@ def delete_consistency_summary(chapter_id: str, subtopic_id: str):
 
 
 # ── Compiler ───────────────────────────────────────────────────────────────────
-
-def compile_architect_prompt(chapter_id: str, subtopic_id: str, include_previous: bool = True):
-    return _handle(requests.get(
-        _url(f"/compile/architect-prompt/{chapter_id}/{subtopic_id}"),
-        params={"include_previous_section": include_previous}
-    ))
-
 
 def compile_notebooklm_prompt(
     chapter_id: str, subtopic_id: str,

@@ -41,8 +41,8 @@ class IndexCard(BaseModel):
     """
     The core intelligence unit of SPO.
 
-    This is what gets injected into the Architect Mega-Prompt as 'Source Profile'.
-    Claude reads these cards — not the raw PDFs — to generate grounded Task.md files.
+    This is what gets injected into compiled prompts as 'Source Profile'.
+    Claude reads these cards — not the raw PDFs — to generate grounded writing.
 
     Write these carefully. A good index card has:
     - Specific claims (not "discusses feminism" but "argues that pre-1947 female
@@ -86,7 +86,7 @@ class IndexCard(BaseModel):
         description=(
             "What can this source NOT support? What arguments would be a stretch? "
             "e.g. 'Focuses only on Bengali literature, cannot support claims about "
-            "pan-Indian feminist movement.' This feeds the Task.md 'Do Not Include' section."
+            "pan-Indian feminist movement.' This feeds the 'Do Not Include' section."
         )
     )
     notable_authors_cited: list[str] = Field(
@@ -116,7 +116,7 @@ class Source(BaseModel):
         ...,
         description=(
             "Short label for prompt injection. e.g. 'Source A', 'Sharma Ch.3', 'Nair 1992'. "
-            "This is the name Claude sees in the Architect Mega-Prompt."
+            "This is the name Claude sees in the compiled prompt."
         )
     )
     title: str = Field(..., description="Full title of this document/chapter")

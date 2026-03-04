@@ -3,7 +3,7 @@ Thesis Context Models
 ---------------------
 ThesisSynopsis schema matches the preferred thesis.json structure.
 
-Fields injected into every Architect Mega-Prompt (kept tight):
+Fields injected into every compiled prompt (kept tight):
   - central_argument
   - temporal_scope
   - theoretical_frameworks   (from methodology.theoretical_frameworks)
@@ -71,7 +71,7 @@ class ThesisSynopsis(BaseModel):
     degree: Optional[str] = None
     field: Optional[str] = None
 
-    # ── INJECTED into every Architect Mega-Prompt ──────────────────────────────
+    # ── INJECTED into every compiled prompt ─────────────────────────────────────
     research_question: Optional[str] = None
     core_argument: str = Field(
         ...,
@@ -140,7 +140,7 @@ class Chapter(BaseModel):
         None,
         description=(
             "150–200 words. How all subtopics connect argumentatively. "
-            "Injected into every Architect prompt for this chapter as Section 2."
+            "Injected into every compiled prompt for this chapter."
         )
     )
     subtopics: list[Subtopic] = Field(default_factory=list)

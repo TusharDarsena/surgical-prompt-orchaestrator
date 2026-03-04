@@ -1,5 +1,5 @@
 """
-SPO Backend — Surgical Prompt Orchestrator v0.3.0
+SPO Backend — Surgical Prompt Orchestrator v0.4.0
 Run from the spo_backend directory:
     uvicorn main:app --reload --port 8000
 """
@@ -7,16 +7,16 @@ Run from the spo_backend directory:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import thesis, sources, consistency, notes, tasks, compiler, importer
+from routers import thesis, sources, consistency, notes, compiler, importer
 
 app = FastAPI(
     title="SPO — Surgical Prompt Orchestrator",
     description=(
         "Prompt stitching engine for academic writing. "
-        "v0.3: JSON import path (thesis.json, chapterization.json, source.json) "
-        "+ chapter arc injected into Architect prompts."
+        "v0.4: Chapterization JSON → NotebookLM prompt directly. "
+        "Bulk chapterization import. Source guidance per subtopic."
     ),
-    version="0.3.0",
+    version="0.4.0",
 )
 
 app.add_middleware(
@@ -31,7 +31,6 @@ app.include_router(thesis.router)
 app.include_router(sources.router)
 app.include_router(consistency.router)
 app.include_router(notes.router)
-app.include_router(tasks.router)
 app.include_router(compiler.router)
 app.include_router(importer.router)
 
@@ -41,7 +40,7 @@ def root():
     from services.storage import DATA_DIR
     return {
         "status": "running",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "data_dir": str(DATA_DIR),
         "docs": "http://localhost:8000/docs",
     }

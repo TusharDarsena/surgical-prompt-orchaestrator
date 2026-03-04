@@ -1,122 +1,50 @@
 """
 Prompt Compiler Router
 ----------------------
-Assembles Architect Mega-Prompt and NotebookLM prompt from stored data.
+Compiles the NotebookLM writing prompt directly from chapterization data.
 
-Architect prompt section order (updated):
-  1. Thesis Context        (synopsis: central_argument, frameworks, temporal_scope)
-  2. Chapter Arc           (NEW — the argumentative map of the whole chapter)
-  3. Current Subtopic      (goal + position_in_argument)
-  4. Previous Section      (consistency chain — what was just argued)
-  5. Source Profiles       (index cards of relevant sources)
-  6. Instructions          (three-step chain-of-thought)
+The chapterization JSON contains everything needed:
+  - subtopic.goal            → Core Objective
+  - subtopic.source_ids[]    → Focus Points (with source_guidance)
+  - subtopic.position_in_argument → Scope Control
+  - chapter.sources_reserved → Do Not Include
+  - subtopic.estimated_pages → Word count target
+  - chapter.chapter_arc      → Chapter-level context
+
+Previous section context is preserved via the consistency chain
+(storage.read_section_summary).
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
 from typing import Optional
 from services import storage
 
 router = APIRouter(prefix="/compile", tags=["Prompt Compiler"])
 
 
-class ArchitectPromptRequest(BaseModel):
-    source_ids: list[dict] = []
-    # Each: {"group_id": "abc", "source_id": "def"}
-
-
-class NotebookLMRequest(BaseModel):
-    word_count: Optional[int] = None
-    academic_style_notes: Optional[str] = None
-
-
-# ── Architect Prompt ───────────────────────────────────────────────────────────
-
-@router.get(
-    "/architect-prompt/{chapter_id}/{subtopic_id}",
-    summary="Compile Architect Mega-Prompt (auto source detection)"
-)
-def compile_architect_prompt_auto(
-    chapter_id: str,
-    subtopic_id: str,
-    include_previous_section: bool = Query(default=True),
-):
-    payload = _gather_payload(chapter_id, subtopic_id, source_refs=None)
-    prompt = _render_prompt(payload, include_previous_section)
-    return {
-        "prompt": prompt,
-        "meta": _build_meta(payload),
-        "copy_instructions": (
-            "Copy 'prompt' and paste into Claude. "
-            "Claude outputs Task.md. Save it via POST /tasks/{chapter_id}/{subtopic_id}."
-        )
-    }
-
-
-@router.post(
-    "/architect-prompt/{chapter_id}/{subtopic_id}",
-    summary="Compile Architect Mega-Prompt (manual source selection)"
-)
-def compile_architect_prompt_manual(
-    chapter_id: str,
-    subtopic_id: str,
-    req: ArchitectPromptRequest,
-    include_previous_section: bool = Query(default=True),
-):
-    payload = _gather_payload(chapter_id, subtopic_id, source_refs=req.source_ids)
-    prompt = _render_prompt(payload, include_previous_section)
-    return {
-        "prompt": prompt,
-        "meta": _build_meta(payload),
-    }
-
-
-# ── NotebookLM Prompt ──────────────────────────────────────────────────────────
+# ── NotebookLM Prompt (direct from chapterization) ────────────────────────────
 
 @router.get(
     "/notebooklm-prompt/{chapter_id}/{subtopic_id}",
-    summary="Compile NotebookLM prompt from approved Task.md"
+    summary="Compile NotebookLM prompt directly from chapterization data"
 )
-def compile_notebooklm_prompt_get(
+def compile_notebooklm_prompt(
     chapter_id: str,
     subtopic_id: str,
     word_count: Optional[int] = Query(default=None),
     academic_style_notes: Optional[str] = Query(default=None),
 ):
-    return _build_notebooklm_response(chapter_id, subtopic_id, word_count, academic_style_notes)
-
-
-@router.post(
-    "/notebooklm-prompt/{chapter_id}/{subtopic_id}",
-    summary="Compile NotebookLM prompt (with style overrides)"
-)
-def compile_notebooklm_prompt_post(
-    chapter_id: str,
-    subtopic_id: str,
-    req: NotebookLMRequest,
-):
-    return _build_notebooklm_response(
-        chapter_id, subtopic_id, req.word_count, req.academic_style_notes
-    )
-
-
-# ── Data gathering ─────────────────────────────────────────────────────────────
-
-def _gather_payload(chapter_id: str, subtopic_id: str, source_refs: Optional[list]) -> dict:
-    # Synopsis — required
-    synopsis = storage.read_synopsis()
-    if not synopsis:
-        raise HTTPException(
-            status_code=422,
-            detail="No thesis synopsis. POST /import/thesis first."
-        )
-
-    # Chapter — required
+    """
+    Builds the NotebookLM writing prompt from the stored chapterization data.
+    No task.md required — source_guidance from the chapterization JSON
+    replaces the old Architect → task.md pipeline entirely.
+    """
+    # ── Load chapter ───────────────────────────────────────────────────────
     chapter = storage.read_chapter(chapter_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 
-    # Subtopic — required
+    # ── Load subtopic ──────────────────────────────────────────────────────
     subtopics = chapter.get("subtopics", [])
     subtopic = next((s for s in subtopics if s["subtopic_id"] == subtopic_id), None)
     if not subtopic:
@@ -128,33 +56,18 @@ def _gather_payload(chapter_id: str, subtopic_id: str, source_refs: Optional[lis
             )
         )
 
-    # Sources
-    if source_refs:
-        sources = []
-        for ref in source_refs:
-            s = storage.read_source(ref["group_id"], ref["source_id"])
-            if not s:
-                raise HTTPException(404, f"Source '{ref['source_id']}' not found.")
-            if not s.get("has_index_card"):
-                raise HTTPException(
-                    422,
-                    f"Source '{s.get('label')}' has no index card. Write one first."
-                )
-            sources.append(s)
-    else:
-        sources = storage.find_sources_for_subtopic(subtopic_id)
-
-    if not sources:
+    # ── Validate source_ids exist ──────────────────────────────────────────
+    source_ids = subtopic.get("source_ids", [])
+    if not source_ids:
         raise HTTPException(
             status_code=422,
             detail=(
-                f"No indexed sources tagged for subtopic '{subtopic_id}'. "
-                "Tag sources via relevant_subtopics in their index cards, "
-                "or use POST with explicit source_ids."
+                f"Subtopic '{subtopic_id}' has no source_ids. "
+                "Re-import the chapterization JSON with source_ids for each subtopic."
             )
         )
 
-    # Previous section summary
+    # ── Previous section summary (preserved from old pipeline) ─────────────
     previous_summary = None
     ids_in_order = [s["subtopic_id"] for s in subtopics]
     if subtopic_id in ids_in_order:
@@ -163,322 +76,56 @@ def _gather_payload(chapter_id: str, subtopic_id: str, source_refs: Optional[lis
             prev_id = ids_in_order[idx - 1]
             previous_summary = storage.read_section_summary(chapter_id, prev_id)
 
-    return {
-        "synopsis": synopsis,
-        "chapter": chapter,
-        "chapter_arc": chapter.get("chapter_arc"),   # may be None for old chapters
-        "subtopic": subtopic,
-        "sources": sources,
-        "previous_summary": previous_summary,
-    }
-
-
-# ── Architect prompt renderer ──────────────────────────────────────────────────
-
-def _render_prompt(payload: dict, include_previous_section: bool) -> str:
-    synopsis = payload["synopsis"]
-    chapter = payload["chapter"]
-    chapter_arc = payload.get("chapter_arc")
-    subtopic = payload["subtopic"]
-    sources = payload["sources"]
-    previous_summary = payload["previous_summary"] if include_previous_section else None
-
-    L = []  # lines
-
-    # ── System Role ────────────────────────────────────────────────────────────
-    L += [
-        "SYSTEM ROLE",
-        f"You are the Lead Academic Architect for a PhD-level thesis in "
-        f"{synopsis.get('field', 'academic research')}. "
-        "Your sole job is to generate a strict structural blueprint (Task.md) "
-        "for a specific subtopic. You do not write prose. You build the scaffold.",
-        "",
-    ]
-
-    # ── Section 1: Thesis Context ──────────────────────────────────────────────
-    L += [
-        "=" * 60,
-        "SECTION 1: THESIS CONTEXT",
-        "=" * 60,
-        "",
-        f"THESIS: {synopsis.get('title', '')}",
-        f"RESEARCHER: {synopsis.get('researcher') or synopsis.get('author', '')}",
-        "",
-        "CORE ARGUMENT:",
-        synopsis.get("core_argument") or synopsis.get("central_argument", ""),
-        "",
-    ]
-
-    # Pull frameworks from methodology object
-    methodology = synopsis.get("methodology") or {}
-    frameworks = methodology.get("theoretical_frameworks", []) if isinstance(methodology, dict) else []
-    if frameworks:
-        L += ["THEORETICAL FRAMEWORKS:", ", ".join(frameworks), ""]
-
-    if synopsis.get("temporal_scope"):
-        L += [f"TEMPORAL SCOPE: {synopsis['temporal_scope']}", ""]
-
-    if synopsis.get("research_gap"):
-        L += [
-            "RESEARCH GAP THIS THESIS FILLS:",
-            synopsis["research_gap"],
-            "(The Task.md must position arguments as contributing to filling this gap.)",
-            "",
-        ]
-
-    if synopsis.get("central_themes"):
-        themes = synopsis["central_themes"]
-        # Show first 4 — enough thematic vocabulary without bloating the prompt
-        L += [f"CENTRAL THEMES: {' · '.join(themes[:4])}", ""]
-
-        
-    # ── Section 2: Chapter Arc (NEW) ───────────────────────────────────────────
-    L += [
-        "=" * 60,
-        "SECTION 2: CHAPTER ARC",
-        "=" * 60,
-        "",
-        f"CHAPTER {chapter['number']}: {chapter['title']}",
-        "",
-        "CHAPTER GOAL:",
-        chapter["goal"],
-        "",
-    ]
-
-    if chapter_arc:
-        L += [
-            "CHAPTER ARGUMENTATIVE ARC:",
-            "(This is the map of how all subtopics of this chapter connect. "
-            "Every Task.md you generate must keep the current subtopic within "
-            "its designated role in this arc. Do not let it drift.)",
-            "",
-            chapter_arc,
-            "",
-        ]
-    else:
-        L += [
-            "CHAPTER ARC: Not set. Import chapterization.json to add one.",
-            "(Without an arc, Task.md output may be less precisely scoped.)",
-            "",
-        ]
-
-    # ── Section 3: Current Subtopic ────────────────────────────────────────────
-    L += [
-        "=" * 60,
-        "SECTION 3: CURRENT SUBTOPIC",
-        "=" * 60,
-        "",
-        f"SUBTOPIC: {subtopic['number']} — {subtopic['title']}",
-        "",
-        "GOAL:",
-        subtopic["goal"],
-        "",
-    ]
-
-    if subtopic.get("position_in_argument"):
-        L += [
-            "POSITION IN CHAPTER ARC:",
-            subtopic["position_in_argument"],
-            "",
-        ]
-
-    # ── Section 4: Previous Section ────────────────────────────────────────────
-    if previous_summary:
-        L += [
-            "=" * 60,
-            "SECTION 4: PREVIOUS SECTION CONTEXT",
-            "(Do NOT repeat this. Build forward from it.)",
-            "=" * 60,
-            "",
-            f"PREVIOUS: {previous_summary.get('subtopic_number', '')} — "
-            f"{previous_summary.get('subtopic_title', '')}",
-            "",
-            "WHAT WAS ARGUED:",
-            previous_summary["core_argument_made"],
-            "",
-        ]
-        if previous_summary.get("key_terms_established"):
-            L += [
-                "TERMS ESTABLISHED (use consistently, do not redefine):",
-                ", ".join(previous_summary["key_terms_established"]),
-                "",
-            ]
-        if previous_summary.get("what_next_section_must_build_on"):
-            L += [
-                "THIS SECTION MUST BUILD ON:",
-                previous_summary["what_next_section_must_build_on"],
-                "",
-            ]
-    else:
-        L += [
-            "=" * 60,
-            "SECTION 4: PREVIOUS SECTION CONTEXT",
-            "N/A — First subtopic of this chapter.",
-            "=" * 60,
-            "",
-        ]
-
-    # ── Section 5: Source Profiles ─────────────────────────────────────────────
-    L += [
-        "=" * 60,
-        "SECTION 5: SOURCE PROFILES",
-        "(Draw arguments ONLY from these sources. No outside knowledge.)",
-        "=" * 60,
-        "",
-    ]
-
-    for src in sources:
-        label = src.get("label", "Source")
-        card = src.get("index_card", {})
-        L.append(f"── {label} ──────────────────────")
-
-        group_id = src.get("group_id")
-        if group_id:
-            grp = storage.read_source_group(group_id)
-            if grp:
-                L.append(
-                    f"From: {grp.get('author', '')} ({grp.get('year', '')}) "
-                    f"— {grp.get('title', '')}"
-                )
-
-        if src.get("chapter_or_section"):
-            L.append(f"Section: {src['chapter_or_section']}")
-        if src.get("page_range"):
-            L.append(f"Pages: {src['page_range']}")
-        if card.get("time_period_covered"):
-            L.append(f"Period: {card['time_period_covered']}")
-        L.append("")
-
-        L.append("KEY CLAIMS:")
-        for claim in card.get("key_claims", []):
-            L.append(f"  • {claim}")
-        L.append("")
-
-        L.append(f"THEMES: {', '.join(card.get('themes', []))}")
-        L.append("")
-
-        if card.get("limitations"):
-            L += ["LIMITATIONS:", f"  {card['limitations']}", ""]
-
-        if card.get("notable_authors_cited"):
-            L += [f"Scholars cited: {', '.join(card['notable_authors_cited'])}", ""]
-
-        L.append("")
-
-    # ── Section 6: Instructions ────────────────────────────────────────────────
-    L += [
-        "=" * 60,
-        "SECTION 6: INSTRUCTIONS",
-        "=" * 60,
-        "",
-        "Process in exactly three steps. Show your work at each step.",
-        "",
-        "STEP 1 — CONTEXT ALIGNMENT",
-        "  a) What argument must this subtopic make to fulfil its role in the Chapter Arc?",
-        "  b) Which specific claims from the Source Profiles directly support this?",
-        "  c) Does anything required by the subtopic goal lack source support?",
-        "     If yes — flag it explicitly. Do not invent evidence.",
-        "",
-        "STEP 2 — THE DRAFT",
-        "  Draft 3–5 focus points.",
-        "  Rules:",
-        "  • Every point must cite its source label (e.g. '[Sharma Ch.2]')",
-        "  • If previous section established key terms, use them — do not redefine",
-        "  • No point may rely on knowledge outside the provided Source Profiles",
-        "  • Stay within the argumentative role assigned in the Chapter Arc",
-        "",
-        "STEP 3 — THE CRITIC",
-        "  • Does each point sound like a specific academic argument or generic filler?",
-        "  • Cut any bullet that could appear in ANY thesis on this topic",
-        "  • Does the scope stay within the Chapter Arc role for this subtopic?",
-        "",
-        "FINAL OUTPUT — Task.md in a markdown code block:",
-        "",
-        "  ## Core Objective",
-        "  One sentence. What this section establishes.",
-        "",
-        "  ## Focus Points",
-        "  3–5 bullets. Each names its source.",
-        "  Format: '- [Argument]. [Source label]'",
-        "",
-        "  ## Key Terms to Use",
-        "  Terms from previous sections + new terms this section introduces.",
-        "",
-        "  ## Do Not Include",
-        "  Tangents, over-broad claims, source limitations to avoid.",
-        "",
-    ]
-
-    return "\n".join(L)
-
-
-# ── NotebookLM prompt ──────────────────────────────────────────────────────────
-
-def _build_notebooklm_response(
-    chapter_id: str,
-    subtopic_id: str,
-    word_count: Optional[int],
-    academic_style_notes: Optional[str],
-) -> dict:
-    blueprint = storage.read_task_blueprint(chapter_id, subtopic_id)
-    if not blueprint:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"No approved Task.md for '{subtopic_id}'. "
-                "Complete the Architect phase first."
-            )
-        )
-
-    chapter = storage.read_chapter(chapter_id)
-    previous_summary = None
-    if chapter:
-        subtopics = chapter.get("subtopics", [])
-        ids = [s["subtopic_id"] for s in subtopics]
-        if subtopic_id in ids:
-            idx = ids.index(subtopic_id)
-            if idx > 0:
-                previous_summary = storage.read_section_summary(chapter_id, ids[idx - 1])
-
-    tagged = storage.find_sources_for_subtopic(subtopic_id)
-    file_list = [
-        s.get("file_name") or s.get("label", "unnamed")
-        for s in tagged if s.get("has_index_card")
-    ]
-
+    # ── Render prompt ──────────────────────────────────────────────────────
     prompt = _render_notebooklm_prompt(
-        blueprint, previous_summary, word_count, academic_style_notes
+        chapter=chapter,
+        subtopic=subtopic,
+        previous_summary=previous_summary,
+        word_count_override=word_count,
+        academic_style_notes=academic_style_notes,
     )
 
+    # ── Build response with source metadata ────────────────────────────────
     return {
         "prompt": prompt,
         "meta": {
-            "subtopic": f"{blueprint.get('subtopic_number')} — {blueprint.get('subtopic_title')}",
-            "task_md_approved": blueprint.get("approved", False),
+            "chapter": f"{chapter['number']} — {chapter['title']}",
+            "subtopic": f"{subtopic['number']} — {subtopic['title']}",
             "previous_section_included": previous_summary is not None,
             "previous_section": (
                 f"{previous_summary.get('subtopic_number')} — {previous_summary.get('subtopic_title')}"
                 if previous_summary else None
             ),
-            "suggested_pdf_uploads": file_list,
+            "required_sources": [
+                {
+                    "source_id": s.get("source_id", ""),
+                    "chapter_id": s.get("chapter_id", ""),
+                }
+                for s in source_ids
+            ],
+            "source_count": len(source_ids),
         },
         "next_step": (
-            f"1. Upload PDFs to NotebookLM. "
+            f"1. Upload the relevant PDFs to NotebookLM. "
             f"2. Paste the prompt. "
             f"3. After approving draft: POST /consistency/{chapter_id}/{subtopic_id}"
         )
     }
 
 
+# ── Prompt renderer ────────────────────────────────────────────────────────────
+
 def _render_notebooklm_prompt(
-    blueprint: dict,
+    chapter: dict,
+    subtopic: dict,
     previous_summary: Optional[dict],
-    word_count: Optional[int],
+    word_count_override: Optional[int],
     academic_style_notes: Optional[str],
 ) -> str:
     L = []
-    subtopic_ref = f"{blueprint.get('subtopic_number', '')} — {blueprint.get('subtopic_title', '')}"
+    subtopic_ref = f"{subtopic.get('number', '')} — {subtopic.get('title', '')}"
 
+    # ── Opening instruction ────────────────────────────────────────────────
     L += [
         f"Write section {subtopic_ref} of the thesis.",
         "",
@@ -488,10 +135,19 @@ def _render_notebooklm_prompt(
         "",
     ]
 
-    wc = word_count or blueprint.get("word_count_target")
+    # ── Word count target ──────────────────────────────────────────────────
+    estimated_pages = subtopic.get("estimated_pages")
+    if word_count_override:
+        wc = word_count_override
+    elif estimated_pages:
+        wc = estimated_pages * 250  # ~250 words per page
+    else:
+        wc = None
+
     if wc:
         L += [f"TARGET LENGTH: approximately {wc} words.", ""]
 
+    # ── Previous section context (preserved verbatim from old pipeline) ─────
     if previous_summary:
         L += [
             "=" * 50,
@@ -511,28 +167,69 @@ def _render_notebooklm_prompt(
         if previous_summary.get("what_next_section_must_build_on"):
             L += ["Build on:", previous_summary["what_next_section_must_build_on"], ""]
 
-    L += ["=" * 50, "WRITING BLUEPRINT (Task.md)", "=" * 50, ""]
+    # ── Chapter arc context ────────────────────────────────────────────────
+    chapter_arc = chapter.get("chapter_arc")
+    if chapter_arc:
+        L += [
+            "=" * 50,
+            "CHAPTER ARC",
+            "(This section is part of a larger chapter argument. "
+            "Stay within the role assigned below.)",
+            "=" * 50,
+            "",
+            f"CHAPTER {chapter['number']}: {chapter['title']}",
+            "",
+            chapter_arc,
+            "",
+        ]
 
-    if blueprint.get("core_objective"):
-        L += [f"CORE OBJECTIVE: {blueprint['core_objective']}", ""]
+    # ── Core objective (from subtopic goal) ────────────────────────────────
+    L += [
+        "=" * 50,
+        "WRITING BLUEPRINT",
+        "=" * 50,
+        "",
+        f"CORE OBJECTIVE: {subtopic['goal']}",
+        "",
+    ]
 
-    if blueprint.get("focus_points"):
-        L += ["FOCUS POINTS (cover all, in this order):"]
-        for p in blueprint["focus_points"]:
-            L.append(f"  • {p}")
-        L.append("")
-    elif blueprint.get("raw_markdown"):
-        L += [blueprint["raw_markdown"], ""]
+    # ── Position in argument (scope control) ───────────────────────────────
+    if subtopic.get("position_in_argument"):
+        L += [
+            "POSITION IN CHAPTER ARC:",
+            subtopic["position_in_argument"],
+            "",
+        ]
 
-    if blueprint.get("key_terms"):
-        L += [f"KEY TERMS: {', '.join(blueprint['key_terms'])}", ""]
+    # ── Focus points (from source_ids with source_guidance) ────────────────
+    source_ids = subtopic.get("source_ids", [])
+    if source_ids:
+        L += ["FOCUS POINTS (cover all, using the corresponding source):"]
+        for i, src in enumerate(source_ids, 1):
+            src_label = src.get("source_id", f"Source {i}")
+            chapter_ref = src.get("chapter_id", "")
+            guidance = src.get("source_guidance", "Use as evidence.")
 
-    if blueprint.get("do_not_include"):
+            label = f"[{src_label}"
+            if chapter_ref:
+                label += f" — {chapter_ref}"
+            label += "]"
+
+            L.append(f"  {i}. {label}")
+            L.append(f"     {guidance}")
+            L.append("")
+
+    # ── Do Not Include (from sources_reserved_for_later_chapters) ──────────
+    reserved = chapter.get("sources_reserved_for_later_chapters", [])
+    if reserved:
         L += ["DO NOT INCLUDE:"]
-        for item in blueprint["do_not_include"]:
-            L.append(f"  ✗ {item}")
+        for item in reserved:
+            src_name = item.get("source_id", "Unknown source")
+            reason = item.get("reason", "Reserved for later chapters.")
+            L.append(f"  ✗ {src_name}: {reason}")
         L.append("")
 
+    # ── Writing rules (preserved verbatim from old pipeline) ───────────────
     L += [
         "=" * 50,
         "WRITING RULES",
@@ -550,54 +247,3 @@ def _render_notebooklm_prompt(
         L += ["", f"STYLE NOTES: {academic_style_notes}"]
 
     return "\n".join(L)
-
-
-# ── Meta helpers ───────────────────────────────────────────────────────────────
-
-def _build_meta(payload: dict) -> dict:
-    sources_summary = [
-        {"label": s.get("label"), "title": s.get("title")}
-        for s in payload["sources"]
-    ]
-    prev = payload.get("previous_summary")
-    return {
-        "synopsis_loaded": True,
-        "chapter": f"{payload['chapter']['number']} — {payload['chapter']['title']}",
-        "chapter_arc_set": bool(payload.get("chapter_arc")),
-        "subtopic": f"{payload['subtopic']['number']} — {payload['subtopic']['title']}",
-        "sources_included": sources_summary,
-        "source_count": len(sources_summary),
-        "previous_section_included": prev is not None,
-        "previous_section": (
-            f"{prev.get('subtopic_number')} — {prev.get('subtopic_title')}" if prev else None
-        ),
-        "warnings": _collect_warnings(payload),
-    }
-
-
-def _collect_warnings(payload: dict) -> list[str]:
-    warnings = []
-    if not payload.get("chapter_arc"):
-        warnings.append(
-            "No chapter arc set. Import chapterization.json to add one. "
-            "Task.md output will be less precisely scoped without it."
-        )
-    if len(payload["sources"]) > 5:
-        warnings.append(
-            f"{len(payload['sources'])} sources included. Consider narrowing to 3–4."
-        )
-    for s in payload["sources"]:
-        card = s.get("index_card", {})
-        if not card.get("limitations"):
-            warnings.append(
-                f"Source '{s.get('label')}' has no limitations field. "
-                "Adding one improves the 'Do Not Include' section of Task.md."
-            )
-    if payload.get("previous_summary") is None:
-        subtopics = payload["chapter"].get("subtopics", [])
-        if subtopics and subtopics[0]["subtopic_id"] != payload["subtopic"]["subtopic_id"]:
-            warnings.append(
-                "No previous section summary found. "
-                "If not the first subtopic, save one via POST /consistency/..."
-            )
-    return warnings

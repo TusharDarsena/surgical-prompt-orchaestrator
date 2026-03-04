@@ -302,7 +302,7 @@ def render_chapter_import_tab(chapter_id: str):
 
         if needs_arc:
             st.markdown("**Chapter Arc** *(150–200 words)* — How do all subtopics connect argumentatively?")
-            st.caption("Describe the argumentative movement: what each subtopic establishes, how they build on each other, and what the chapter achieves by the end. This is injected into every Architect prompt for this chapter.")
+            st.caption("Describe the argumentative movement: what each subtopic establishes, how they build on each other, and what the chapter achieves by the end. This is injected into every compiled prompt for this chapter.")
             arc_val = st.text_area(
                 "Chapter Arc", value=d.get("chapter_arc", ""),
                 height=160, key=f"ch_arc_{chapter_id}",

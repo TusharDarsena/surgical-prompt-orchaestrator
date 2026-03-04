@@ -99,11 +99,22 @@ class SubtopicImport(BaseModel):
         None,
         description="How does this subtopic serve the chapter arc?"
     )
+    estimated_pages: Optional[int] = Field(
+        None,
+        description="Estimated page count for this subtopic."
+    )
+    source_ids: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Sources assigned to this subtopic with per-source writing guidance. "
+            "Each: {source_id, chapter_id, source_guidance}"
+        )
+    )
 
 
 class ChapterizationImport(BaseModel):
     """
-    Schema for chapterization.json — one file per chapter.
+    Schema for chapterization.json — one chapter.
     Generate with /prompts/generate_chapterization_json.txt
     """
     number: int
@@ -116,13 +127,25 @@ class ChapterizationImport(BaseModel):
         ...,
         description=(
             "150–200 words. How all subtopics connect argumentatively within this chapter. "
-            "Describe the argumentative movement: what each subtopic establishes, "
-            "how they build on each other, and what the chapter achieves by the end. "
-            "This is injected into every Architect prompt for this chapter."
+            "Describes the argumentative movement and how subtopics build on each other."
+        )
+    )
+    chapter_goal_statement: Optional[str] = Field(
+        None,
+        description=(
+            "3–4 sentences on what the reader must understand by the end of this chapter. "
+            "More precise than the goal field — states exactly what must be established."
         )
     )
     subtopics: list[SubtopicImport] = Field(
         ..., description="All subtopics in order.", min_length=1
+    )
+    sources_reserved_for_later_chapters: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Sources explicitly excluded from this chapter. "
+            "Each: {source_id, reserved_for, reason}"
+        )
     )
 
 
@@ -144,6 +167,8 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport):
             "title": sub.title,
             "goal": sub.goal,
             "position_in_argument": sub.position_in_argument,
+            "estimated_pages": sub.estimated_pages,
+            "source_ids": [s for s in sub.source_ids],
         })
 
     record = {
@@ -152,7 +177,11 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport):
         "title": data.title,
         "goal": data.goal,
         "chapter_arc": data.chapter_arc,
+        "chapter_goal_statement": data.chapter_goal_statement,
         "subtopics": subtopics,
+        "sources_reserved_for_later_chapters": [
+            s for s in data.sources_reserved_for_later_chapters
+        ],
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
@@ -165,6 +194,60 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport):
         "subtopics_created": len(subtopics),
         "chapter_arc_set": True,
         "arc_word_count": len(data.chapter_arc.split()),
+        "source_ids_stored": sum(len(s.source_ids) for s in data.subtopics),
+    }
+
+
+@router.post(
+    "/chapterization/bulk",
+    summary="Bulk-import chapterization JSONs — multiple chapters in one upload"
+)
+def import_chapterization_bulk(chapters: list[ChapterizationImport]):
+    """
+    Accepts an array of chapter chapterization objects.
+    Each chapter's `number` field is used as the chapter_id (e.g. 1 → 'ch1').
+    """
+    results = []
+    for ch_data in chapters:
+        chapter_id = f"ch{ch_data.number}"
+        # Reuse the same logic as single import
+        subtopics = []
+        for sub in ch_data.subtopics:
+            subtopics.append({
+                "subtopic_id": sub.number.replace(".", "_"),
+                "number": sub.number,
+                "title": sub.title,
+                "goal": sub.goal,
+                "position_in_argument": sub.position_in_argument,
+                "estimated_pages": sub.estimated_pages,
+                "source_ids": [s for s in sub.source_ids],
+            })
+
+        record = {
+            "chapter_id": chapter_id,
+            "number": ch_data.number,
+            "title": ch_data.title,
+            "goal": ch_data.goal,
+            "chapter_arc": ch_data.chapter_arc,
+            "chapter_goal_statement": ch_data.chapter_goal_statement,
+            "subtopics": subtopics,
+            "sources_reserved_for_later_chapters": [
+                s for s in ch_data.sources_reserved_for_later_chapters
+            ],
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        storage.write_chapter(chapter_id, record)
+        results.append({
+            "chapter_id": chapter_id,
+            "title": ch_data.title,
+            "subtopics_created": len(subtopics),
+        })
+
+    return {
+        "imported": "chapterization_bulk",
+        "chapters_created": len(results),
+        "chapters": results,
     }
 
 
@@ -304,7 +387,7 @@ class SourceChapterImport(BaseModel):
     )
     limitations: Optional[str] = Field(
         None,
-        description="What this chapter cannot support. Feeds 'Do Not Include' in Task.md."
+        description="What this chapter cannot support. Feeds 'Do Not Include' in compiled prompts."
     )
     notable_authors_cited: list[str] = Field(default_factory=list)
     additional: Optional[str] = Field(None, description="Extra fields swept from JSON import that didn't match the schema.")

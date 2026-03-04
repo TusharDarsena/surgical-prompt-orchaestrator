@@ -4,7 +4,7 @@ Thesis Context Router
 Endpoints for managing your OWN thesis structure:
 synopsis, chapters, and subtopics.
 
-This is the "big picture" layer — always injected into Architect prompts.
+This is the "big picture" layer — always injected into compiled prompts.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -28,7 +28,7 @@ def create_synopsis(req: SynopsisCreateRequest):
     """
     Store the master argument of your thesis.
     Write this once and update it only if your central argument shifts.
-    This is injected into every Architect Mega-Prompt.
+    This is injected into every compiled prompt.
     """
     data = req.model_dump()
     data["updated_at"] = datetime.utcnow().isoformat()

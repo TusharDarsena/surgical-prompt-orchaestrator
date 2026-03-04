@@ -246,7 +246,7 @@ def find_sources_for_subtopic(subtopic_id: str) -> list[dict]:
     """
     Scan all index cards across all source groups and return sources
     whose index_card.relevant_subtopics includes this subtopic_id.
-    Used for auto-suggesting sources when compiling the Architect Mega-Prompt.
+    Used for auto-suggesting sources when compiling prompts.
     """
     matches = []
     groups_dir = _groups_dir()
@@ -316,37 +316,6 @@ def write_note(scope: str, note_id: str, data: dict) -> dict:
 
 def delete_note(scope: str, note_id: str) -> bool:
     path = _notes_dir(scope) / f"{note_id}.json"
-    if path.exists():
-        path.unlink()
-        return True
-    return False
-
-
-# --- Task.md storage (approved blueprint per subtopic) ---
-
-def _taskmd_dir() -> Path:
-    return _ensure(DATA_DIR / "task_blueprints")
-
-
-def write_task_blueprint(chapter_id: str, subtopic_id: str, data: dict) -> dict:
-    data["updated_at"] = datetime.utcnow().isoformat()
-    key = f"{chapter_id}__{subtopic_id}"
-    _write(_taskmd_dir() / f"{key}.json", data)
-    return data
-
-
-def read_task_blueprint(chapter_id: str, subtopic_id: str) -> Optional[dict]:
-    key = f"{chapter_id}__{subtopic_id}"
-    return _read(_taskmd_dir() / f"{key}.json")
-
-
-def list_task_blueprints() -> list[dict]:
-    return _list_json(_taskmd_dir())
-
-
-def delete_task_blueprint(chapter_id: str, subtopic_id: str) -> bool:
-    key = f"{chapter_id}__{subtopic_id}"
-    path = _taskmd_dir() / f"{key}.json"
     if path.exists():
         path.unlink()
         return True

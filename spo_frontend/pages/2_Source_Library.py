@@ -70,7 +70,7 @@ def _render_index_card_form(group_id: str, source_id: str, has_card: bool):
             "Key Claims ★  (one per line)",
             value=default_claims,
             height=150,
-            help="2–5 specific claims this source makes. These go directly into the Architect prompt.",
+            help="2–5 specific claims this source makes. These go directly into compiled prompts.",
             placeholder=(
                 "Argues pre-1947 male-authored texts constructed female characters as nationalist symbols\n"
                 "Documents the 'representational gap' between literary depiction and lived experience"
@@ -111,7 +111,7 @@ def _render_index_card_form(group_id: str, source_id: str, has_card: bool):
             value=existing.get("limitations", "") if existing else "",
             height=80,
             placeholder="What can this source NOT support? e.g. 'Only covers Bengali literature.'",
-            help="Feeds the 'Do Not Include' section of Task.md."
+            help="Feeds the 'Do Not Include' section of compiled prompts."
         )
 
         submitted = st.form_submit_button(
@@ -341,5 +341,5 @@ for group in groups:
 
                     st.divider()
                     st.markdown("**Index Card**")
-                    st.caption("Structured summary injected into Architect Mega-Prompts.")
+                    st.caption("Structured summary injected into compiled prompts.")
                     _render_index_card_form(g_id, s_id, has_card)

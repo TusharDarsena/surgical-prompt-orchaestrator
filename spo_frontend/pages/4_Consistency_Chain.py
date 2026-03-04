@@ -32,14 +32,6 @@ st.divider()
 chain = api.get_chapter_chain(chapter_id)
 completed_ids = {s.get("subtopic_id") for s in chain}
 
-# Fetch ALL blueprints in one round-trip, then build a lookup set.
-# This replaces the previous N-per-subtopic api.get_task_blueprint() calls
-# inside the loop below, which made the page scale poorly with many subtopics.
-_all_blueprints = api.list_task_blueprints()
-saved_blueprint_ids = {
-    f"{b['chapter_id']}__{b['subtopic_id']}"
-    for b in _all_blueprints.get("blueprints", [])
-}
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -109,12 +101,6 @@ for i, sub in enumerate(subtopics):
         else:
             st.caption("Not yet written. Go to **Write a Section** to complete this subtopic.")
 
-        # O(1) set lookup — no HTTP call per subtopic
-        has_blueprint = f"{chapter_id}__{sub_id}" in saved_blueprint_ids
-        if has_blueprint:
-            st.caption(f"📋 Task.md saved · {sub.get('number', '')}")
-        else:
-            st.caption("📋 No Task.md yet")
 
 st.divider()
 
