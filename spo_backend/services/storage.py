@@ -365,102 +365,13 @@ def delete_section_draft(chapter_id: str, subtopic_id: str) -> bool:
         return True
     return False
 
-
-# --- Drive Link Resolution (used by compiler) ---
+# --- Drive Link Resolution (delegated to source_resolver service) ---
 
 def resolve_source_files(thesis_name: str, chapter_id_raw: str) -> list[dict]:
     """
-    Given a thesis name (source_id from chapterization) and a raw chapter_id string,
-    returns a list of matching file entries:
-        [{ "file_name": "07_chapter 1.pdf", "drive_link": None or "https://...", "segment": "..." }]
-
-    chapter_id_raw may contain "AND" for multi-chapter sources.
-    Each segment is resolved independently.
+    Resolves chapterization source_ids + chapter references to local filenames
+    and Drive links. All matching logic lives in services/source_resolver.py.
     """
-    import re
-
-    WORD_TO_NUM = {
-        "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
-        "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
-        "introduction": "intro", "conclusion": "conclusion",
-        "abstract": "abstract", "preface": "preface", "bibliography": "bibliography",
-    }
-
-    # Load scan dictionary
+    from services.source_resolver import resolve_source_files as _resolve
     scan = read_misc("drive_scan_result")
-    if not scan:
-        return []
-
-    # Fuzzy-match thesis name against scan keys
-    thesis_entry = scan.get(thesis_name)
-    if not thesis_entry:
-        # Try case-insensitive match
-        lower_name = thesis_name.lower()
-        for key in scan:
-            if key.lower() == lower_name:
-                thesis_entry = scan[key]
-                break
-
-    if not thesis_entry:
-        return []
-
-    files = thesis_entry.get("files", [])
-    # Build lookup: normalized chapter label → filename
-    file_map = {}
-    for fname in files:
-        lower_fname = fname.lower().replace(".pdf", "")
-        parts = lower_fname.split("_", 1)
-        if len(parts) == 2:
-            body = parts[1]
-            if "chapter" in body:
-                num_part = body.replace("chapter", "").strip()
-                file_map[num_part] = fname
-            else:
-                for keyword in WORD_TO_NUM:
-                    if keyword in body:
-                        file_map[WORD_TO_NUM[keyword]] = fname
-                        break
-                else:
-                    file_map[body.strip()] = fname
-
-    results = []
-    segments = [s.strip() for s in chapter_id_raw.split(" AND ")]
-
-    for segment in segments:
-        matched_file = None
-        lower_seg = segment.lower()
-
-        # Try to extract chapter number from segment
-        for word, num in WORD_TO_NUM.items():
-            if word in lower_seg:
-                if num in file_map:
-                    matched_file = file_map[num]
-                    break
-
-        # Also try bare digits in segment (e.g. "Chapter 2" → "2")
-        if not matched_file:
-            digits = re.findall(r'\b(\d+)\b', segment)
-            for d in digits:
-                if d in file_map:
-                    matched_file = file_map[d]
-                    break
-
-        # Fallback: partial string match on filename body
-        if not matched_file:
-            for fname in files:
-                if any(word in fname.lower() for word in lower_seg.split() if len(word) > 3):
-                    matched_file = fname
-                    break
-
-        # Get drive link if stored
-        drive_link = None
-        if thesis_entry.get("drive_links") and matched_file:
-            drive_link = thesis_entry["drive_links"].get(matched_file)
-
-        results.append({
-            "segment": segment,
-            "file_name": matched_file,
-            "drive_link": drive_link,
-        })
-
-    return results
+    return _resolve(thesis_name, chapter_id_raw, scan or {})
