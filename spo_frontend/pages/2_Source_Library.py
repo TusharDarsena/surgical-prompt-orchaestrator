@@ -1,6 +1,13 @@
 """
 Page: Source Library
-Manage external sources — groups, individual PDFs, index cards, and notes.
+Two distinct workflows on this page:
+
+1. INDEX CARD CREATOR (top section — new)
+   Scan a local parent folder → see thesis folders + their PDFs →
+   paste NotebookLM JSON output → save JSON + auto-import to SPO.
+
+2. SOURCE LIBRARY BROWSER (bottom section — existing)
+   Browse imported source groups, edit index cards, add notes.
 """
 
 import json
@@ -9,13 +16,13 @@ import api
 import ui
 
 st.set_page_config(page_title="Source Library · SPO", page_icon="📖", layout="wide")
-ui.page_header("📖 Source Library", "Register sources, write index cards, and paste raw reading notes.")
+ui.page_header("📖 Source Library", "Create index cards from NotebookLM · Browse and edit imported sources.")
 
 SOURCE_TYPES = ["thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HELPER FUNCTIONS — defined first, before any rendering loop
+# HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _render_notes_section(scope: str, entity_id: str, key_prefix: str):
@@ -147,11 +154,159 @@ def _render_index_card_form(group_id: str, source_id: str, has_card: bool):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ADD SOURCE GROUP — two paths: JSON import (recommended) or manual form
+# SECTION 1 — INDEX CARD CREATOR
+# Scan local folder → display thesis folders → paste JSON → save + import
 # ══════════════════════════════════════════════════════════════════════════════
 
+st.subheader("🗂️ Index Card Creator")
+st.caption(
+    "Scan your local thesis folder. For each thesis: copy the file list, "
+    "upload to NotebookLM, paste the JSON output back here, save and import."
+)
+
+# ── Path config + scan button ──────────────────────────────────────────────────
+
+col_path, col_scan = st.columns([4, 1])
+with col_path:
+    # Default path pre-filled — user can change it
+    root_path = st.text_input(
+        "Parent folder path",
+        value=st.session_state.get("scan_root_path", r"C:\Users\TUSHAR\Downloads\Shodhganga_Downloads"),
+        placeholder=r"C:\Users\TUSHAR\Downloads\Shodhganga_Downloads",
+        label_visibility="collapsed"
+    )
+with col_scan:
+    scan_clicked = st.button("🔍 Scan Folder", use_container_width=True, type="primary")
+
+if scan_clicked and root_path.strip():
+    st.session_state["scan_root_path"] = root_path.strip()
+    with st.spinner("Scanning..."):
+        result = api.scan_local_folder(root_path.strip())
+    if result:
+        st.session_state["scan_result"] = result
+        newly = result.get("newly_added", 0)
+        total = result.get("total_thesis_folders", 0)
+        if newly > 0:
+            ui.success(f"Scan complete. {newly} new thesis folders added. {total} total.")
+        else:
+            ui.success(f"Scan complete. No new folders found. {total} total.")
+
+# ── Load and display thesis folders ───────────────────────────────────────────
+
+thesis_data = api.get_local_files()
+thesis_folders = thesis_data.get("thesis_folders", []) if thesis_data else []
+
+if thesis_folders:
+    st.markdown(f"**{len(thesis_folders)} thesis folders found:**")
+
+    for entry in thesis_folders:
+        thesis_name = entry["thesis_name"]
+        files = entry.get("files", [])
+        imported = entry.get("imported", False)
+        import_error = entry.get("import_error")
+
+        # Build expander label with status badge
+        if imported:
+            badge = "✅ Imported"
+        elif import_error:
+            badge = "❌ Import failed"
+        else:
+            badge = "⬜ Not imported"
+
+        expander_label = f"**{thesis_name}**  ·  {len(files)} PDFs  ·  {badge}"
+
+        with st.expander(expander_label, expanded=False):
+
+            # ── File list + copy button ────────────────────────────────────────
+            if files:
+                st.markdown("**PDFs in this folder:**")
+                for fname in files:
+                    st.markdown(f"  • `{fname}`")
+
+                # Build plain text list for clipboard
+                file_list_text = "\n".join(files)
+                st.code(file_list_text, language=None)
+                # NOTE: Streamlit has no direct clipboard API.
+                # The st.code block above gives the user a copy button on hover (top-right of code block).
+                # This is the most reliable clipboard approach in Streamlit without custom JS.
+                st.caption("☝️ Use the copy button on the code block above to copy all filenames.")
+            else:
+                st.warning("No PDF files found in this folder.")
+
+            st.divider()
+
+            # ── Show existing import status ────────────────────────────────────
+            if imported:
+                group_id = entry.get("import_group_id")
+                imported_at = entry.get("imported_at", "")[:19].replace("T", " ") if entry.get("imported_at") else "?"
+                st.success(f"Imported at {imported_at}. Group ID: `{group_id}`")
+
+            if import_error:
+                st.error(f"Last import error: {import_error}")
+                st.caption("Fix the JSON and re-import manually from the import tab below.")
+
+            # ── JSON paste + save ──────────────────────────────────────────────
+            st.markdown("**Paste NotebookLM JSON output:**")
+            st.caption(
+                "Upload the PDFs listed above to NotebookLM, run the extraction prompt, "
+                "then paste the JSON response here."
+            )
+
+            json_input = st.text_area(
+                "NotebookLM JSON",
+                height=200,
+                key=f"json_paste_{thesis_name}",
+                placeholder='{\n  "title": "...",\n  "author": "...",\n  "chapters": [...]\n}',
+                label_visibility="collapsed"
+            )
+
+            save_col, _ = st.columns([1, 2])
+            with save_col:
+                save_clicked = st.button(
+                    "💾 Save JSON + Import",
+                    key=f"save_btn_{thesis_name}",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+            if save_clicked:
+                if not json_input.strip():
+                    st.error("Paste the JSON output first.")
+                else:
+                    with st.spinner("Saving and importing..."):
+                        result = api.save_index_card_json(
+                            thesis_name=thesis_name,
+                            level2_path=entry["level2_path"],
+                            json_text=json_input.strip()
+                        )
+                    if result:
+                        if result.get("imported"):
+                            sources_n = result.get("sources_created", 0)
+                            ui.success(
+                                f"✅ Saved to `{result.get('json_path', '')}` · "
+                                f"Imported {sources_n} sources."
+                            )
+                        else:
+                            st.warning(
+                                f"JSON saved to `{result.get('json_path', '')}` but import failed: "
+                                f"{result.get('import_error', 'unknown error')}. "
+                                "Re-import manually from the tab below."
+                            )
+                        st.rerun()
+
+elif not scan_clicked:
+    st.info("Enter your parent folder path above and click **Scan Folder** to get started.")
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 2 — ADD SOURCE GROUP (existing import tab + manual form)
+# ══════════════════════════════════════════════════════════════════════════════
+
+st.subheader("📥 Add Source Group")
+
 tab_import, tab_manual = st.tabs([
-    "📥 Import source.json  *(recommended)*",
+    "📥 Import source.json  *(batch)*",
     "✏️ Register manually"
 ])
 
@@ -193,8 +348,10 @@ with tab_manual:
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SOURCE GROUPS LIST
+# SECTION 3 — SOURCE LIBRARY BROWSER (existing)
 # ══════════════════════════════════════════════════════════════════════════════
+
+st.subheader("📚 Source Library")
 
 groups = api.list_source_groups()
 
@@ -224,7 +381,6 @@ for group in groups:
                 ui.success("Deleted.")
                 st.rerun()
 
-        # Inline group edit form
         if st.session_state.get(f"editing_grp_{g_id}"):
             with st.form(f"edit_grp_form_{g_id}"):
                 st.markdown("**Edit Work Metadata**")
@@ -252,7 +408,6 @@ for group in groups:
 
         st.divider()
 
-        # ── Add source ─────────────────────────────────────────────────────────
         sources = api.list_sources(g_id)
 
         with st.form(f"add_src_{g_id}"):
@@ -290,7 +445,6 @@ for group in groups:
                         ui.success(f"Added: {s_label}")
                         st.rerun()
 
-        # ── Sources list ───────────────────────────────────────────────────────
         if sources:
             st.markdown("**Documents in this work:**")
             for src in sources:
@@ -309,7 +463,6 @@ for group in groups:
                             api.delete_source(g_id, s_id)
                             st.rerun()
 
-                    # Inline source edit form
                     if st.session_state.get(f"editing_src_{s_id}"):
                         with st.form(f"edit_src_form_{s_id}"):
                             st.markdown("**Edit Document**")

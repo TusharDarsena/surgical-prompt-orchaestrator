@@ -320,3 +320,22 @@ def delete_note(scope: str, note_id: str) -> bool:
         path.unlink()
         return True
     return False
+
+
+# --- Misc key-value store (used by drive scanner, etc.) ---
+
+def _misc_dir() -> Path:
+    return _ensure(DATA_DIR / "misc")
+
+
+def read_misc(key: str) -> Optional[dict]:
+    """Read a misc JSON value by key. Returns None if not found."""
+    safe_key = key.replace("/", "_").replace("\\", "_")
+    return _read(_misc_dir() / f"{safe_key}.json")
+
+
+def write_misc(key: str, data: dict) -> dict:
+    """Write a misc JSON value by key. Returns the data written."""
+    safe_key = key.replace("/", "_").replace("\\", "_")
+    _write(_misc_dir() / f"{safe_key}.json", data)
+    return data

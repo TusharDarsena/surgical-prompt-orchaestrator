@@ -341,3 +341,63 @@ def compile_notebooklm_prompt(
         _url(f"/compile/notebooklm-prompt/{chapter_id}/{subtopic_id}"),
         params=params
     ))
+
+
+# ── Drive Scanner ──────────────────────────────────────────────────────────────
+
+def scan_local_folder(root_path: str) -> dict | None:
+    """
+    POST /drive/scan-local
+    Scans the given parent folder path and builds the thesis file tree.
+    On rescan, adds new folders without touching existing ones.
+    """
+    try:
+        r = requests.post(f"{BASE_URL}/drive/scan-local", json={"root_path": root_path})
+        if r.status_code == 200:
+            return r.json()
+        st.error(f"Scan failed: {r.json().get('detail', r.text)}")
+        return None
+    except Exception as e:
+        st.error(f"Could not reach backend: {e}")
+        return None
+
+
+def get_local_files() -> dict | None:
+    """
+    GET /drive/local-files
+    Returns the stored thesis file tree with import status per thesis.
+    Returns None if nothing has been scanned yet (not an error).
+    """
+    try:
+        r = requests.get(f"{BASE_URL}/drive/local-files")
+        if r.status_code == 200:
+            return r.json()
+        # 404 just means no scan has been run yet — treat as empty, not error
+        if r.status_code == 404:
+            return {"thesis_folders": [], "count": 0}
+        st.error(f"Could not load file tree: {r.json().get('detail', r.text)}")
+        return None
+    except Exception as e:
+        st.error(f"Could not reach backend: {e}")
+        return None
+
+
+def save_index_card_json(thesis_name: str, level2_path: str, json_text: str) -> dict | None:
+    """
+    POST /drive/save-index-card
+    Saves the pasted NotebookLM JSON to disk and auto-imports it to SPO.
+    Returns result dict with saved/imported status and error details if any.
+    """
+    try:
+        r = requests.post(f"{BASE_URL}/drive/save-index-card", json={
+            "thesis_name": thesis_name,
+            "level2_path": level2_path,
+            "json_text": json_text,
+        })
+        if r.status_code == 200:
+            return r.json()
+        st.error(f"Save failed: {r.json().get('detail', r.text)}")
+        return None
+    except Exception as e:
+        st.error(f"Could not reach backend: {e}")
+        return None
