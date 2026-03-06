@@ -7,7 +7,7 @@ Run from the spo_backend directory:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import thesis, sources, consistency, notes, compiler, importer, drive
+from routers import thesis, sources, consistency, notes, compiler, importer, drive, sections
 
 app = FastAPI(
     title="SPO — Surgical Prompt Orchestrator",
@@ -34,6 +34,7 @@ app.include_router(notes.router)
 app.include_router(compiler.router)
 app.include_router(importer.router)
 app.include_router(drive.router)
+app.include_router(sections.router)
 
 
 @app.get("/", tags=["Health"])

@@ -15,6 +15,7 @@ Previous section context is preserved via the consistency chain
 (storage.read_section_summary).
 """
 
+import re
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from services import storage
@@ -85,6 +86,25 @@ def compile_notebooklm_prompt(
         academic_style_notes=academic_style_notes,
     )
 
+    # ── Effective word count ──────────────────────────────────────────────
+    effective_wc = word_count
+    if not effective_wc and subtopic.get("estimated_pages"):
+        effective_wc = subtopic["estimated_pages"] * 250
+
+    # ── Resolve source files from local scan ───────────────────────────────
+    required_sources = _resolve_required_sources(source_ids)
+
+    # ── Warnings ───────────────────────────────────────────────────────────
+    warnings = []
+    if not previous_summary and ids_in_order.index(subtopic_id) > 0:
+        warnings.append("No previous section summary found. Save one after writing the previous subtopic.")
+    unresolved = [r for r in required_sources if r["file_name"] is None]
+    if unresolved:
+        warnings.append(
+            f"{len(unresolved)} source(s) could not be matched to a local file. "
+            "Run Scan Folder on the Source Library page or check thesis folder names."
+        )
+
     # ── Build response with source metadata ────────────────────────────────
     return {
         "prompt": prompt,
@@ -96,21 +116,54 @@ def compile_notebooklm_prompt(
                 f"{previous_summary.get('subtopic_number')} — {previous_summary.get('subtopic_title')}"
                 if previous_summary else None
             ),
-            "required_sources": [
-                {
-                    "source_id": s.get("source_id", ""),
-                    "chapter_id": s.get("chapter_id", ""),
-                }
-                for s in source_ids
-            ],
+            "required_sources": required_sources,
             "source_count": len(source_ids),
+            "word_count_target": effective_wc,
+            "warnings": warnings,
         },
         "next_step": (
-            f"1. Upload the relevant PDFs to NotebookLM. "
+            f"1. Check required_sources — upload those PDFs to NotebookLM. "
             f"2. Paste the prompt. "
-            f"3. After approving draft: POST /consistency/{chapter_id}/{subtopic_id}"
+            f"3. Save draft via POST /sections/{chapter_id}/{subtopic_id}/draft. "
+            f"4. Save consistency summary via POST /consistency/{chapter_id}/{subtopic_id}."
         )
     }
+
+
+# ── Source file resolver ────────────────────────────────────────────────────────
+
+def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
+    """
+    For each entry in source_ids, resolve the thesis name + chapter_id
+    to a local filename (and Drive link if available) using the scan dictionary.
+    """
+    results = []
+    for entry in source_ids:
+        thesis_name = entry.get("source_id", "")
+        chapter_id_raw = entry.get("chapter_id", "")
+        source_guidance = entry.get("source_guidance", "")
+
+        resolved = storage.resolve_source_files(thesis_name, chapter_id_raw)
+
+        if not resolved:
+            results.append({
+                "source_id": thesis_name,
+                "chapter_id": chapter_id_raw,
+                "source_guidance": source_guidance,
+                "file_name": None,
+                "drive_link": None,
+            })
+        else:
+            for r in resolved:
+                results.append({
+                    "source_id": thesis_name,
+                    "chapter_id": r["segment"],
+                    "source_guidance": source_guidance,
+                    "file_name": r["file_name"],
+                    "drive_link": r["drive_link"],
+                })
+
+    return results
 
 
 # ── Prompt renderer ────────────────────────────────────────────────────────────
