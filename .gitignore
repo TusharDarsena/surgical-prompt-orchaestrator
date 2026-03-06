@@ -1,0 +1,10 @@
+# Secrets
+.env
+service-account.json
+
+# Python
+__pycache__/
+*.pyc
+
+# Data
+spo_data/

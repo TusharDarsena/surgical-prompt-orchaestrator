@@ -4,6 +4,9 @@ Run from the spo_backend directory:
     uvicorn main:app --reload --port 8000
 """
 
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())  # walks up from spo_backend/ to find .env at project root
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

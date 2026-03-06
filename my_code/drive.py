@@ -117,199 +117,6 @@ class RegisterLinksRequest(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LOCAL SCAN ENDPOINTS (unchanged)
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.post("/scan-local", summary="Scan local parent folder and build thesis file tree")
-def scan_local(req: ScanRequest):
-    root = req.root_path.strip()
-
-    if not os.path.isdir(root):
-        raise HTTPException(status_code=400, detail=f"Path not found or not a directory: {root}")
-
-    existing_scan = _read_scan()
-    added = []
-    skipped = []
-
-    try:
-        level2_entries = [e for e in os.scandir(root) if e.is_dir()]
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=f"Permission denied reading {root}: {e}")
-
-    for l2 in level2_entries:
-        try:
-            l3_candidates = [
-                e for e in os.scandir(l2.path)
-                if e.is_dir() and e.name.endswith("_sources")
-            ]
-        except PermissionError:
-            skipped.append({"folder": l2.name, "reason": "permission denied at level-3"})
-            continue
-
-        if not l3_candidates:
-            # Flat structure fallback: level-2 dir may contain PDFs directly
-            # (e.g. Shodhganga_Downloads/thesis_name/06_chapter 1.pdf)
-            try:
-                pdfs = sorted([
-                    f.name for f in os.scandir(l2.path)
-                    if f.is_file() and f.name.lower().endswith(".pdf")
-                ])
-            except PermissionError:
-                skipped.append({"folder": l2.name, "reason": "permission denied reading PDFs"})
-                continue
-
-            if not pdfs:
-                continue  # no PDFs and no *_sources — not a thesis folder
-
-            thesis_name = l2.name
-            if thesis_name in existing_scan:
-                existing_scan[thesis_name]["files"] = pdfs
-                existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
-                skipped.append({"folder": thesis_name, "reason": "already exists — file list updated"})
-            else:
-                existing_scan[thesis_name] = {
-                    "thesis_name": thesis_name,
-                    "level2_path": l2.path,
-                    "level3_path": None,
-                    "level4_path": None,
-                    "files": pdfs,
-                    "scanned_at": datetime.utcnow().isoformat(),
-                }
-                added.append(thesis_name)
-            continue
-
-        l3 = l3_candidates[0]
-
-        try:
-            l4_entries = [e for e in os.scandir(l3.path) if e.is_dir()]
-        except PermissionError:
-            skipped.append({"folder": l2.name, "reason": "permission denied at level-4"})
-            continue
-
-        for l4 in l4_entries:
-            thesis_name = l4.name
-
-            try:
-                pdfs = sorted([
-                    f.name for f in os.scandir(l4.path)
-                    if f.is_file() and f.name.lower().endswith(".pdf")
-                ])
-            except PermissionError:
-                skipped.append({"folder": thesis_name, "reason": "permission denied reading PDFs"})
-                continue
-
-            if thesis_name in existing_scan:
-                existing_scan[thesis_name]["files"] = pdfs
-                existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
-                skipped.append({"folder": thesis_name, "reason": "already exists — file list updated"})
-            else:
-                existing_scan[thesis_name] = {
-                    "thesis_name": thesis_name,
-                    "level2_path": l2.path,
-                    "level3_path": l3.path,
-                    "level4_path": l4.path,
-                    "files": pdfs,
-                    "scanned_at": datetime.utcnow().isoformat(),
-                }
-                added.append(thesis_name)
-
-    _write_scan(existing_scan)
-
-    return {
-        "total_thesis_folders": len(existing_scan),
-        "newly_added": len(added),
-        "added": added,
-        "skipped": skipped,
-    }
-
-
-@router.get("/local-files", summary="Return stored file tree with Drive link status")
-def get_local_files():
-    scan = _read_scan()
-    import_status = _read_import_status()
-
-    result = []
-    for thesis_name, data in scan.items():
-        entry = dict(data)
-        status = import_status.get(thesis_name, {})
-        entry["imported"] = status.get("imported", False)
-        entry["imported_at"] = status.get("imported_at")
-        entry["import_group_id"] = status.get("group_id")
-        entry["import_error"] = status.get("error")
-
-        # Include Drive link status so the frontend can show register button
-        links = storage.read_misc(_links_key(thesis_name))
-        entry["drive_links_registered"] = bool(links)
-        entry["drive_links_count"] = len(links) if links else 0
-
-        result.append(entry)
-
-    result.sort(key=lambda x: x["thesis_name"].lower())
-    return {"thesis_folders": result, "count": len(result)}
-
-
-@router.post("/save-index-card", summary="Save NotebookLM JSON to disk and auto-import to SPO")
-def save_index_card(req: SaveIndexCardRequest):
-    scan = _read_scan()
-
-    if req.thesis_name not in scan:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Thesis '{req.thesis_name}' not found in scan. Run scan first."
-        )
-
-    thesis_entry = scan[req.thesis_name]
-    level2_path = thesis_entry["level2_path"]
-
-    try:
-        parsed = json.loads(req.json_text)
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid JSON: {e}. File not saved. Fix the JSON and try again."
-        )
-
-    index_cards_dir = os.path.join(level2_path, "index_cards")
-    os.makedirs(index_cards_dir, exist_ok=True)
-
-    safe_name = req.thesis_name.replace("/", "_").replace("\\", "_").replace(":", "_")
-    json_path = os.path.join(index_cards_dir, f"{safe_name}.json")
-
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(parsed, f, indent=2, ensure_ascii=False)
-
-    import_result, import_error = _auto_import(parsed)
-
-    import_status = _read_import_status()
-    import_status[req.thesis_name] = {
-        "imported": import_result is not None,
-        "imported_at": datetime.utcnow().isoformat() if import_result else None,
-        "group_id": import_result.get("group_id") if import_result else None,
-        "error": import_error,
-        "json_path": json_path,
-    }
-    _write_import_status(import_status)
-
-    if import_error:
-        return {
-            "saved": True,
-            "json_path": json_path,
-            "imported": False,
-            "import_error": import_error,
-            "message": "JSON saved to disk. Import failed — fix and re-import manually from the Source Library import tab.",
-        }
-
-    return {
-        "saved": True,
-        "json_path": json_path,
-        "imported": True,
-        "group_id": import_result["group_id"],
-        "sources_created": import_result["sources_created"],
-        "message": f"Saved and imported. {import_result['sources_created']} sources created.",
-    }
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # GOOGLE DRIVE LINK REGISTRATION
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -353,6 +160,7 @@ def register_drive_links(req: RegisterLinksRequest):
             continue
 
         # Mirror local logic: take the first folder at level-3 regardless of name
+        # (local scan requires *_sources suffix but Drive may have slightly different names)
         if not l3_folders:
             skipped.append({"folder": l2["name"], "reason": "no level-3 subfolder found"})
             continue
@@ -440,14 +248,12 @@ def get_drive_links(thesis_name: str):
 
 @router.delete("/links/{thesis_name}", summary="Clear stored Drive links for a thesis (force re-register)")
 def delete_drive_links(thesis_name: str):
-    # Remove from misc storage
     existing = storage.read_misc(_links_key(thesis_name))
     if not existing:
         raise HTTPException(status_code=404, detail=f"No links found for '{thesis_name}'.")
 
     storage.write_misc(_links_key(thesis_name), {})
 
-    # Also clear from scan entry
     scan = _read_scan()
     if thesis_name in scan:
         scan[thesis_name].pop("drive_links", None)

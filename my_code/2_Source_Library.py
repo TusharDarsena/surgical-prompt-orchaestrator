@@ -166,9 +166,9 @@ st.caption(
 
 # ── Path config + scan button ──────────────────────────────────────────────────
 
+# ── Row 1: local folder scan ───────────────────────────────────────────────────
 col_path, col_scan = st.columns([4, 1])
 with col_path:
-    # Default path pre-filled — user can change it
     root_path = st.text_input(
         "Parent folder path",
         value=st.session_state.get("scan_root_path", r"C:\Users\TUSHAR\Downloads\Shodhganga_Downloads"),
@@ -192,6 +192,9 @@ if scan_clicked and root_path.strip():
             ui.success(f"Scan complete. No new folders found. {total} total.")
 
 # ── Row 2: Drive link registration — one call registers all thesis folders ─────
+# Paste the Drive parent folder ID once. The backend walks the full 4-level tree
+# (mirroring the local structure) and registers links for every thesis it finds.
+# Run this once after uploading all thesis folders to Drive.
 col_drive, col_reg = st.columns([4, 1])
 with col_drive:
     drive_parent_id = st.text_input(
@@ -299,11 +302,6 @@ if thesis_folders:
                 st.error(f"Last import error: {import_error}")
                 st.caption("Fix the JSON and re-import manually from the import tab below.")
 
-            # ── JSON paste + save ──────────────────────────────────────────────
-            st.markdown("**Paste NotebookLM JSON output:**")
-            st.caption(
-                "Upload the PDFs listed above to NotebookLM, run the extraction prompt, "
-                "then paste the JSON response here."
             )
 
             json_input = st.text_area(
