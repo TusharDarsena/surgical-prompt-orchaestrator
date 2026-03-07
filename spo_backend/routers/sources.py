@@ -48,6 +48,14 @@ def list_groups():
         result.append(g)
     return result
 
+@router.get("/library-view", summary="Get entire source library (groups, sources, notes) in one pass")
+def get_library_view():
+    """
+    Returns the full nested structure of the source library to avoid
+    N+1 queries from the frontend on initial page load.
+    """
+    return storage.get_entire_library_data()
+
 
 @router.get("/groups/{group_id}", summary="Get a source group with all its sources")
 def get_group(group_id: str):

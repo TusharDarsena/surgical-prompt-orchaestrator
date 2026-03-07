@@ -288,6 +288,67 @@ def find_sources_by_theme(theme: str) -> list[dict]:
     return matches
 
 
+# --- Library Bulk View ---
+
+def get_entire_library_data() -> dict:
+    """
+    Reads the entire source library (groups, sources, index cards, and notes)
+    in a single pass to prevent N+1 HTTP/disk issues on the frontend.
+    Returns:
+    {
+        "groups": [
+            {
+                ...group_meta,
+                "sources": [ ...sources_with_embedded_index_cards... ]
+            }
+        ],
+        "notes": {
+            "source_group": { "group_id": [note1, note2] },
+            "source": { "source_id": [note1, note2] }
+        }
+    }
+    """
+    # 1. Gather all notes first (organized by entity_id)
+    notes_by_scope_and_id: dict[str, dict[str, list[dict]]] = {"source_group": {}, "source": {}}
+    for scope in ["source_group", "source"]:
+        notes_dir = _notes_dir(scope)
+        if notes_dir.exists():
+            for p in sorted(notes_dir.glob("*.json")):
+                note = _read(p)
+                if note:
+                    entity_id = note.get("entity_id")
+                    if entity_id:
+                        if entity_id not in notes_by_scope_and_id[scope]:
+                            notes_by_scope_and_id[scope][entity_id] = []
+                        notes_by_scope_and_id[scope][entity_id].append(note)
+
+    # 2. Gather groups and their sources
+    groups_data = []
+    groups_dir = _groups_dir()
+    if groups_dir.exists():
+        for group_path in sorted(groups_dir.iterdir()):
+            if group_path.is_dir():
+                # Read group metadata
+                meta = _read(group_path / "group_meta.json")
+                if meta:
+                    group_id = meta["group_id"]
+                    
+                    # Read all sources for this group (index cards are already embedded)
+                    sources = _list_json(_sources_dir(group_id))
+                    meta["sources"] = sources
+                    
+                    # Calculate counts for backward compatibility with list_groups UI bindings
+                    meta["source_count"] = len(sources)
+                    meta["ready_count"] = sum(1 for s in sources if s.get("has_index_card"))
+                    
+                    groups_data.append(meta)
+
+    return {
+        "groups": groups_data,
+        "notes": notes_by_scope_and_id
+    }
+
+
 # --- Notes (free-text scratch pad per entity) ---
 
 def _notes_dir(scope: str) -> Path:

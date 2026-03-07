@@ -170,6 +170,14 @@ def get_suggested_sources(chapter_id: str, subtopic_id: str):
 def list_source_groups():
     return _handle(requests.get(_url("/sources/groups"))) or []
 
+@st.cache_data
+def get_library_view():
+    """
+    Fetches the entire library (groups, sources, embedded index cards, notes)
+    in one API call to avoid N+1 queries.
+    """
+    return _handle(requests.get(_url("/sources/library-view"))) or {"groups": [], "notes": {"source": {}, "source_group": {}}}
+
 
 @st.cache_data
 def get_source_group(group_id: str):
@@ -180,6 +188,7 @@ def create_source_group(data: dict):
     result = _handle(requests.post(_url("/sources/groups"), json=data))
     if result is not None:
         list_source_groups.clear()
+        get_library_view.clear()
     return result
 
 
@@ -188,6 +197,7 @@ def update_source_group(group_id: str, data: dict):
     if result is not None:
         get_source_group.clear(group_id)
         list_source_groups.clear()
+        get_library_view.clear()
     return result
 
 
@@ -196,6 +206,7 @@ def delete_source_group(group_id: str):
     if result is not None:
         get_source_group.clear(group_id)
         list_source_groups.clear()
+        get_library_view.clear()
     return result
 
 
@@ -211,6 +222,7 @@ def create_source(group_id: str, data: dict):
     if result is not None:
         list_sources.clear(group_id)
         list_source_groups.clear()  # ready_count may change
+        get_library_view.clear()
     return result
 
 
@@ -218,6 +230,7 @@ def update_source(group_id: str, source_id: str, data: dict):
     result = _handle(requests.patch(_url(f"/sources/groups/{group_id}/sources/{source_id}"), json=data))
     if result is not None:
         list_sources.clear(group_id)
+        get_library_view.clear()
     return result
 
 
@@ -226,6 +239,7 @@ def delete_source(group_id: str, source_id: str):
     if result is not None:
         list_sources.clear(group_id)
         list_source_groups.clear()
+        get_library_view.clear()
     return result
 
 
@@ -234,6 +248,7 @@ def import_source(data: dict):
     result = _handle(requests.post(_url("/import/source"), json=data))
     if result is not None:
         list_source_groups.clear()  # a new group was created
+        get_library_view.clear()
     return result
 
 
@@ -254,6 +269,7 @@ def save_index_card(group_id: str, source_id: str, data: dict, exists: bool):
         get_index_card.clear(group_id, source_id)
         list_sources.clear(group_id)       # has_index_card flag on source
         list_source_groups.clear()         # ready_count summary
+        get_library_view.clear()
     return result
 
 
@@ -265,6 +281,7 @@ def delete_index_card(group_id: str, source_id: str):
         get_index_card.clear(group_id, source_id)
         list_sources.clear(group_id)
         list_source_groups.clear()
+        get_library_view.clear()
     return result
 
 
@@ -279,6 +296,7 @@ def create_note(scope: str, entity_id: str, data: dict):
     result = _handle(requests.post(_url(f"/notes/{scope}/{entity_id}"), json=data))
     if result is not None:
         list_notes.clear(scope, entity_id)
+        get_library_view.clear()
     return result
 
 
@@ -286,6 +304,7 @@ def update_note(scope: str, entity_id: str, note_id: str, data: dict):
     result = _handle(requests.patch(_url(f"/notes/{scope}/{entity_id}/{note_id}"), json=data))
     if result is not None:
         list_notes.clear(scope, entity_id)
+        get_library_view.clear()
     return result
 
 
@@ -293,6 +312,7 @@ def delete_note(scope: str, entity_id: str, note_id: str):
     result = _handle(requests.delete(_url(f"/notes/{scope}/{entity_id}/{note_id}")))
     if result is not None:
         list_notes.clear(scope, entity_id)
+        get_library_view.clear()
     return result
 
 

@@ -78,13 +78,15 @@ def compile_notebooklm_prompt(
             previous_summary = storage.read_section_summary(chapter_id, prev_id)
 
     # ── Render prompt ──────────────────────────────────────────────────────
-    prompt = _render_notebooklm_prompt(
+    prompts = _render_notebooklm_prompt(
         chapter=chapter,
         subtopic=subtopic,
         previous_summary=previous_summary,
         word_count_override=word_count,
         academic_style_notes=academic_style_notes,
     )
+    prompt_1 = prompts["prompt_1"]
+    prompt_2 = prompts["prompt_2"]
 
     # ── Effective word count ──────────────────────────────────────────────
     effective_wc = word_count
@@ -107,7 +109,9 @@ def compile_notebooklm_prompt(
 
     # ── Build response with source metadata ────────────────────────────────
     return {
-        "prompt": prompt,
+        "prompt": f"{prompt_1}\n\n\n{prompt_2}",
+        "prompt_1": prompt_1,
+        "prompt_2": prompt_2,
         "meta": {
             "chapter": f"{chapter['number']} — {chapter['title']}",
             "subtopic": f"{subtopic['number']} — {subtopic['title']}",
@@ -123,9 +127,10 @@ def compile_notebooklm_prompt(
         },
         "next_step": (
             f"1. Check required_sources — upload those PDFs to NotebookLM. "
-            f"2. Paste the prompt. "
-            f"3. Save draft via POST /sections/{chapter_id}/{subtopic_id}/draft. "
-            f"4. Save consistency summary via POST /consistency/{chapter_id}/{subtopic_id}."
+            f"2. Paste Prompt 1 into NotebookLM. "
+            f"3. Paste Prompt 2 into Gemini with Stage One output. "
+            f"4. Save draft via POST /sections/{chapter_id}/{subtopic_id}/draft. "
+            f"5. Save consistency summary via POST /consistency/{chapter_id}/{subtopic_id}."
         )
     }
 
@@ -174,22 +179,19 @@ def _render_notebooklm_prompt(
     previous_summary: Optional[dict],
     word_count_override: Optional[int],
     academic_style_notes: Optional[str],
-) -> str:
-    L = []
-    subtopic_ref = f"{subtopic.get('number', '')} — {subtopic.get('title', '')}"
+) -> dict[str, str]:
+    """
+    Renders the two-stage academic writing prompt
+    (Stage One for NotebookLM, Stage Two for Gemini) with all placeholder
+    fields dynamically filled from the chapterization data.
 
-    # ── Opening instruction ────────────────────────────────────────────────
-    L += [
-        f"Write section {subtopic_ref} of the thesis.",
-        "",
-        "Follow the blueprint below STRICTLY.",
-        "Use ONLY the uploaded PDF sources. Do not draw on outside knowledge.",
-        "Do not invent citations, statistics, or historical claims.",
-        "",
-    ]
+    Returns a dict with keys 'prompt_1' and 'prompt_2'.
+    """
 
-    # ── Word count target ──────────────────────────────────────────────────
+    # ── Resolve dynamic values ─────────────────────────────────────────────
+    subtopic_title = subtopic.get("title", "Untitled")
     estimated_pages = subtopic.get("estimated_pages")
+
     if word_count_override:
         wc = word_count_override
     elif estimated_pages:
@@ -197,106 +199,177 @@ def _render_notebooklm_prompt(
     else:
         wc = None
 
-    if wc:
-        L += [f"TARGET LENGTH: approximately {wc} words.", ""]
+    word_count_str = f"approximately {wc} words" if wc else "as appropriate for the section"
+    position_in_argument = subtopic.get("position_in_argument", "Not specified")
+    chapter_arc = chapter.get("chapter_arc", "Not specified")
+    goal = subtopic.get("goal", "Not specified")
+    target_page_count = estimated_pages if estimated_pages else "5–7"
 
-    # ── Previous section context (preserved verbatim from old pipeline) ─────
+    # ── Build source entries ───────────────────────────────────────────────
+    source_ids = subtopic.get("source_ids", [])
+    source_lines = []
+    for src in source_ids:
+        src_label = src.get("source_id", "Unknown")
+        chapter_ref = src.get("chapter_id", "")
+        guidance = src.get("source_guidance", "Use as evidence.")
+        source_lines.append(f"Source: {src_label}")
+        source_lines.append(f"Relevant section: {chapter_ref}")
+        source_lines.append(f"How to use it: {guidance}")
+        source_lines.append("")
+
+    sources_block = "\n".join(source_lines).rstrip() if source_lines else "No sources specified."
+
+    # ── Previous section context (injected before Prompt 1 text) ───────────
+    prev_ctx_lines = []
     if previous_summary:
-        L += [
+        prev_ctx_lines += [
             "=" * 50,
             "PREVIOUS SECTION CONTEXT — Do NOT repeat. Build forward.",
             "=" * 50,
             "",
             f"Previous section ({previous_summary.get('subtopic_number')}) established:",
-            previous_summary["core_argument_made"],
+            previous_summary.get("core_argument_made", ""),
             "",
         ]
         if previous_summary.get("key_terms_established"):
-            L += [
+            prev_ctx_lines += [
                 f"Use these terms consistently (do not redefine): "
                 f"{', '.join(previous_summary['key_terms_established'])}",
                 "",
             ]
         if previous_summary.get("what_next_section_must_build_on"):
-            L += ["Build on:", previous_summary["what_next_section_must_build_on"], ""]
+            prev_ctx_lines += [
+                "Build on:",
+                previous_summary["what_next_section_must_build_on"],
+                "",
+            ]
 
-    # ── Chapter arc context ────────────────────────────────────────────────
-    chapter_arc = chapter.get("chapter_arc")
-    if chapter_arc:
-        L += [
-            "=" * 50,
-            "CHAPTER ARC",
-            "(This section is part of a larger chapter argument. "
-            "Stay within the role assigned below.)",
-            "=" * 50,
-            "",
-            f"CHAPTER {chapter['number']}: {chapter['title']}",
-            "",
-            chapter_arc,
-            "",
-        ]
+    prev_ctx_block = "\n".join(prev_ctx_lines)
 
-    # ── Core objective (from subtopic goal) ────────────────────────────────
-    L += [
-        "=" * 50,
-        "WRITING BLUEPRINT",
-        "=" * 50,
-        "",
-        f"CORE OBJECTIVE: {subtopic['goal']}",
-        "",
-    ]
-
-    # ── Position in argument (scope control) ───────────────────────────────
-    if subtopic.get("position_in_argument"):
-        L += [
-            "POSITION IN CHAPTER ARC:",
-            subtopic["position_in_argument"],
-            "",
-        ]
-
-    # ── Focus points (from source_ids with source_guidance) ────────────────
-    source_ids = subtopic.get("source_ids", [])
-    if source_ids:
-        L += ["FOCUS POINTS (cover all, using the corresponding source):"]
-        for i, src in enumerate(source_ids, 1):
-            src_label = src.get("source_id", f"Source {i}")
-            chapter_ref = src.get("chapter_id", "")
-            guidance = src.get("source_guidance", "Use as evidence.")
-
-            label = f"[{src_label}"
-            if chapter_ref:
-                label += f" — {chapter_ref}"
-            label += "]"
-
-            L.append(f"  {i}. {label}")
-            L.append(f"     {guidance}")
-            L.append("")
-
-    # ── Do Not Include (from sources_reserved_for_later_chapters) ──────────
+    # ── Do Not Include (reserved sources) ──────────────────────────────────
     reserved = chapter.get("sources_reserved_for_later_chapters", [])
+    reserved_lines = []
     if reserved:
-        L += ["DO NOT INCLUDE:"]
+        reserved_lines.append("DO NOT INCLUDE:")
         for item in reserved:
             src_name = item.get("source_id", "Unknown source")
             reason = item.get("reason", "Reserved for later chapters.")
-            L.append(f"  ✗ {src_name}: {reason}")
-        L.append("")
+            reserved_lines.append(f"  ✗ {src_name}: {reason}")
+        reserved_lines.append("")
+    reserved_block = "\n".join(reserved_lines)
 
-    # ── Writing rules (preserved verbatim from old pipeline) ───────────────
-    L += [
-        "=" * 50,
-        "WRITING RULES",
-        "=" * 50,
-        "",
-        "• Begin directly with the argument. No 'In this section we will...' openers.",
-        "• Every claim must be evidenced from the uploaded sources.",
-        "• Academic register. Analytical, not descriptive.",
-        "• Prose paragraphs only — no bullet points in the output.",
-        "• Do not summarise sources. Use them as evidence.",
-        "• Do not introduce arguments outside the Focus Points.",
-    ]
+    # ── Style notes ────────────────────────────────────────────────────────
+    style_note_line = f"\nSTYLE NOTES: {academic_style_notes}" if academic_style_notes else ""
 
-    if academic_style_notes:
-        L += ["", f"STYLE NOTES: {academic_style_notes}"]
+    # ── Assemble Stage One prompt ───────────────────────────────────────────
+    prompt_1 = f"""\
+PROMPT 1 — NotebookLM (Stage One: Structural Execution)
 
-    return "\n".join(L)
+You are writing an academic section of a PhD dissertation in English
+literature. Your job in this prompt is structural execution only —
+building the argument correctly from the sources provided.
+
+SECTION DETAILS:
+Title: {subtopic_title}
+Target length: {word_count_str}
+Position in chapter: {position_in_argument}
+
+CHAPTER ARC CONTEXT:
+{chapter_arc}
+
+YOUR SPECIFIC GOAL FOR THIS SECTION:
+{goal}
+
+SOURCES AND HOW TO USE THEM:
+{sources_block}
+
+{prev_ctx_block}\
+{reserved_block}\
+WRITING RULES:
+- Begin directly with the argument. No introductory throat-clearing.
+- Every claim must be anchored in the sources listed above.
+- Use sources as evidence for your argument. Do not summarize them.
+- Academic prose only. No bullet points, no bold text, no headers
+  within the section.
+- Do not introduce arguments, sources, or scholars not listed above.
+- Do not use phrases like "this section will" or "as we shall see."
+- Produce continuous analytical paragraphs.{style_note_line}
+
+STRUCTURAL REQUIREMENT:
+Your section must move through these three registers in order:
+
+1. State the problem or claim with precision and demonstrate
+   it through evidence from the sources.
+
+2. Steelman — spend one full paragraph acknowledging what the
+   pattern you are critiquing achieves before showing its limit.
+   Use the sources to ground this.
+
+3. Consequentialize — explain specifically what this pattern
+   costs the field. Name the consequence for feminist
+   historiography / postcolonial studies [adjust per chapter].
+
+4. Prospective signal — two to three sentences only, gesturing
+   toward what becomes possible once this limitation is addressed.
+
+CRITICAL: All four registers must be present in the output.
+Do not omit any."""
+
+    # ── Assemble Stage Two prompt ──────────────────────────────────────────
+    prompt_2 = f"""\
+PROMPT 2 — Gemini (Stage Two: Scholarly Elaboration)
+
+Below is a draft of an academic section from a PhD dissertation.
+The argument is structurally correct but underdeveloped. Your job
+is to revise and expand it to {target_page_count} pages of
+genuine scholarly depth. You may not add new sources or citations.
+You may not pad with repetition. Every additional sentence must
+perform one of the four scholarly operations listed below.
+
+DRAFT TO REVISE:
+[PASTE STAGE ONE OUTPUT HERE]
+
+THE FOUR SCHOLARLY OPERATIONS — apply all four, in any order
+that serves the argument:
+
+OPERATION 1 — STEELMAN:
+Spend one full paragraph genuinely defending the value of what
+you are critiquing before showing its limitation. This is not
+concession — it is intellectual honesty that makes the subsequent
+critique more credible.
+
+OPERATION 2 — INSTITUTIONALIZE:
+This is the
+operation the draft cannot produce on its own.
+Name one structural or disciplinary reason why the pattern you
+are diagnosing persists. Do not just show that it exists — explain
+what institutional conditions produce and reproduce it. Draw only
+on what the sources imply, not on outside claims.
+
+OPERATION 3 — CONSEQUENTIALIZE:
+Take your strongest claim and spend a full paragraph on its
+specific consequences for the field (e.g. feminist historiography /
+postcolonial studies / Indian English literary criticism). Do not
+restate the claim — develop what it costs the field that this
+pattern exists.
+
+OPERATION 4 — PROSPECTIVE SIGNAL:
+In your closing paragraph, write two to three sentences that
+gesture toward what becomes analytically visible once this
+limitation is overcome. Do not develop the full argument —
+that belongs to later chapters. Create intellectual momentum
+only.
+
+WRITING RULES:
+- Preserve all source citations from the draft exactly as written.
+- Do not introduce new scholars, statistics, or outside knowledge.
+- No bullet points, no bold text, no subheadings.
+- Every new paragraph must be doing new argumentative work —
+  not restating what the previous paragraph already established.
+- Academic register throughout. Read the draft's register and
+  match or exceed it.
+- If a passage in the draft is already doing one of the four
+  operations well, keep it and build around it rather than
+  replacing it."""
+
+    return {"prompt_1": prompt_1, "prompt_2": prompt_2}

@@ -9,7 +9,20 @@ import api
 import ui
 
 st.set_page_config(page_title="Write a Section · SPO", page_icon="✍️", layout="wide")
-ui.page_header("✍️ Write a Section", "Compile prompt. Upload PDFs to NotebookLM. Get draft. Save.")
+
+# ── Minimal CSS — layout only, no color overrides ─────────────────────────────
+st.markdown("""
+<style>
+#MainMenu, footer { visibility: hidden; }
+.block-container {
+    padding-top: 1.2rem !important;
+    padding-bottom: 3rem !important;
+    max-width: 1400px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+ui.page_header("✍️ Write a Section", "Compile prompt → Upload to NotebookLM → Paste draft → Save.")
 
 # ── Select chapter + subtopic ──────────────────────────────────────────────────
 chapters = api.list_chapters()
@@ -21,25 +34,26 @@ if not subtopic:
 subtopic_id = subtopic["subtopic_id"]
 
 # ── When subtopic changes, clear cached prompt and load saved draft ────────────
-# Track which subtopic was last active so we can detect a switch
 last_subtopic = st.session_state.get("_last_subtopic_id")
 if last_subtopic != subtopic_id:
-    # Clear stale prompt from previous subtopic
     st.session_state.pop("nlm_prompt", None)
+    st.session_state.pop("nlm_prompt_1", None)
+    st.session_state.pop("nlm_prompt_2", None)
     st.session_state.pop("nlm_meta", None)
-    # Load saved draft for the newly selected subtopic
     draft_data = api.get_section_draft(chapter_id, subtopic_id)
     st.session_state["draft_text"] = draft_data.get("text", "") if draft_data else ""
     st.session_state["_last_subtopic_id"] = subtopic_id
 
-# ── Status bar ─────────────────────────────────────────────────────────────────
-prev = api.get_previous_summary(chapter_id, subtopic_id)
-source_ids = subtopic.get("source_ids", [])
+# ── Fetch data ─────────────────────────────────────────────────────────────────
+prev        = api.get_previous_summary(chapter_id, subtopic_id)
+source_ids  = subtopic.get("source_ids", [])
+chain       = api.get_chapter_chain(chapter_id)
 
+# ── Status bar ─────────────────────────────────────────────────────────────────
 st.divider()
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("Source Guidance", f"{len(source_ids)} sources")
+    st.metric("Sources", f"{len(source_ids)}")
 with col2:
     est_pages = subtopic.get("estimated_pages")
     st.metric("Est. Pages", est_pages if est_pages else "—")
@@ -47,16 +61,8 @@ with col3:
     has_prev = bool(prev.get("summary") if prev else False)
     st.metric("Previous Section", "✅ Found" if has_prev else "— First section")
 with col4:
-    chain = api.get_chapter_chain(chapter_id)
     st.metric("Sections Done (Ch.)", len(chain))
-
 st.divider()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SOURCES PANEL
-# ══════════════════════════════════════════════════════════════════════════════
-st.subheader("NotebookLM Prompt")
-st.caption("Compile → Upload PDFs to NotebookLM → Paste prompt → Get draft → Save.")
 
 if not source_ids:
     st.warning(
@@ -64,86 +70,75 @@ if not source_ids:
         "Re-import the chapterization JSON with source_ids for each subtopic.",
         icon="⚠️"
     )
-else:
-    # ── Sources expander ───────────────────────────────────────────────────────
-    # required_sources comes from meta after compilation.
-    # Before compilation, we show the raw source_ids from chapterization.
-    # After compilation, meta.required_sources has resolved filenames + drive links.
-    nlm_meta = st.session_state.get("nlm_meta", {})
-    resolved_sources = nlm_meta.get("required_sources", [])
+    st.stop()
 
-    with st.expander("📄 Sources for this subtopic", expanded=True):
-        st.markdown("**Upload these sources to NotebookLM before pasting the prompt:**")
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN LAYOUT — left (prompts + draft) | right (sources)
+# ══════════════════════════════════════════════════════════════════════════════
+col_main, col_sources = st.columns([2.6, 1], gap="large")
 
-        if resolved_sources:
-            # Post-compilation: show resolved filenames and drive links if available
-            all_links = [s["drive_link"] for s in resolved_sources if s.get("drive_link")]
-            all_files = [s["file_name"] for s in resolved_sources if s.get("file_name")]
+# ─────────────────────────────────────────────────────────────────────────────
+# RIGHT COLUMN — Sources
+# ─────────────────────────────────────────────────────────────────────────────
+with col_sources:
+    nlm_meta          = st.session_state.get("nlm_meta", {})
+    resolved_sources  = nlm_meta.get("required_sources", [])
+    display_sources   = resolved_sources if resolved_sources else source_ids
 
-            for s in resolved_sources:
-                src_name = s.get("source_id", "Unknown")
-                ch_ref = s.get("chapter_id", "")
-                guidance = s.get("source_guidance", "")
-                file_name = s.get("file_name")
-                drive_link = s.get("drive_link")
+    st.subheader(f"Sources · {len(display_sources)}")
 
-                label = f"📄 **{src_name}**"
-                if ch_ref:
-                    label += f"  ·  *{ch_ref}*"
-                st.markdown(f"- {label}")
+    all_links = []
+    all_files = []
 
-                # File resolution status
-                if drive_link:
-                    st.markdown(f"   🔗 [{file_name}]({drive_link})")
-                elif file_name:
-                    st.caption(f"   📁 `{file_name}`")
-                else:
-                    st.caption("   ⚠️ File not resolved — run Scan Folder on Source Library page")
+    for s in display_sources:
+        src_name   = s.get("source_id", "Unknown")
+        ch_ref     = s.get("chapter_id", "")
+        drive_link = s.get("drive_link", "")
+        file_name  = s.get("file_name", "")
 
-                if guidance:
-                    preview = (guidance[:120] + "...") if len(guidance) > 120 else guidance
-                    st.caption(f"   ↳ {preview}")
-
-            st.divider()
-
-            # Copy options — drive links if available, filenames otherwise
-            if all_links:
-                links_text = "\n".join(all_links)
-                st.markdown("**Copy Drive links to paste into NotebookLM:**")
-                st.code(links_text, language=None)
-                st.caption("☝️ Copy the links above and paste into NotebookLM's Add Source dialog.")
-            elif all_files:
-                files_text = "\n".join(all_files)
-                st.markdown("**Files to upload manually:**")
-                st.code(files_text, language=None)
-                st.caption("☝️ Upload these files from your local folder to NotebookLM.")
-
-            unresolved = [s for s in resolved_sources if not s.get("file_name")]
-            if unresolved:
-                st.warning(
-                    f"{len(unresolved)} source(s) could not be matched to a file. "
-                    "Go to Source Library → Scan Folder to register your thesis directory.",
-                    icon="⚠️"
-                )
-
+        # One compact line: link (or plain name) · chapter ref
+        if drive_link:
+            line = f"🔗 [{src_name}]({drive_link})"
+            all_links.append(drive_link)
+        elif file_name:
+            line = f"📁 **{src_name}**"
+            all_files.append(file_name)
         else:
-            # Pre-compilation: show raw chapterization source list
-            for s in source_ids:
-                src_name = s.get("source_id", "Unknown")
-                ch_ref = s.get("chapter_id", "")
-                guidance = s.get("source_guidance", "")
-                label = f"📄 **{src_name}**"
-                if ch_ref:
-                    label += f"  ·  *{ch_ref}*"
-                st.markdown(f"- {label}")
-                if guidance:
-                    preview = (guidance[:120] + "...") if len(guidance) > 120 else guidance
-                    st.caption(f"   ↳ {preview}")
-            st.caption("*Compile the prompt below to resolve filenames and Drive links.*")
+            line = f"⚠️ *{src_name}*"
 
-    # ── Compile controls ───────────────────────────────────────────────────────
-    col_n1, col_n2 = st.columns(2)
-    with col_n1:
+        if ch_ref:
+            line += f"  ·  `{ch_ref}`"
+
+        st.markdown(line)
+
+    if resolved_sources:
+        unresolved = [s for s in resolved_sources if not s.get("file_name")]
+        if unresolved:
+            st.warning(f"{len(unresolved)} unresolved — scan folder in Source Library.", icon="⚠️")
+
+    st.markdown("")
+
+    # Single copy block — links if available, filenames otherwise
+    if all_links:
+        st.caption("Copy all links → paste into NotebookLM:")
+        st.code("\n".join(all_links), language=None)
+    elif all_files:
+        st.caption("Files to upload manually:")
+        st.code("\n".join(all_files), language=None)
+    elif not resolved_sources:
+        st.caption("*Compile to resolve Drive links.*")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEFT COLUMN — Compile config, Prompts, Draft
+# ─────────────────────────────────────────────────────────────────────────────
+with col_main:
+
+    # ── Compile config ─────────────────────────────────────────────────────────
+    st.subheader("NotebookLM Prompt")
+    st.caption("Configure and compile. Then copy each prompt to its respective tool.")
+
+    cfg_c1, cfg_c2, cfg_c3 = st.columns([1.2, 2, 1.2])
+    with cfg_c1:
         default_wc = (subtopic.get("estimated_pages", 0) or 0) * 250
         nlm_wc = st.number_input(
             "Word count target",
@@ -151,70 +146,119 @@ else:
             value=default_wc if default_wc > 0 else 800,
             step=100
         )
-    with col_n2:
+    with cfg_c2:
         nlm_style = st.text_input(
             "Style notes (optional)",
             placeholder="e.g. More analytical, less descriptive"
         )
+    with cfg_c3:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        compile_clicked = st.button("⚙️ Compile Prompts", use_container_width=True, type="primary")
 
-    if st.button("⚙️ Compile NotebookLM Prompt", use_container_width=True, type="primary"):
-        with st.spinner("Compiling..."):
+    if compile_clicked:
+        with st.spinner("Compiling…"):
             result = api.compile_notebooklm_prompt(
                 chapter_id, subtopic_id,
                 word_count=int(nlm_wc) if nlm_wc else None,
                 style_notes=nlm_style or None
             )
         if result:
-            st.session_state["nlm_prompt"] = result.get("prompt", "")
-            st.session_state["nlm_meta"] = result.get("meta", {})
-            st.rerun()  # rerun so sources expander updates with resolved files
+            st.session_state["nlm_prompt_1"] = result.get("prompt_1", "")
+            st.session_state["nlm_prompt_2"] = result.get("prompt_2", "")
+            st.session_state["nlm_prompt"]   = result.get("prompt", "")
+            st.session_state["nlm_meta"]     = result.get("meta", {})
+            st.rerun()
 
-    # ── Prompt output ──────────────────────────────────────────────────────────
-    if st.session_state.get("nlm_prompt"):
-        nlm_meta = st.session_state.get("nlm_meta", {})
+    st.markdown("")
 
-        st.markdown("**NotebookLM Prompt — Copy and paste into NotebookLM:**")
-        ui.prompt_output_box(st.session_state["nlm_prompt"], copy_key="copy_nlm")
+    # ── Prompt dialogs (modals) ────────────────────────────────────────────────
+    @st.dialog("Stage 1 — NotebookLM Prompt", width="large")
+    def show_prompt_1():
+        st.markdown(st.session_state.get("nlm_prompt_1", ""))
 
-        # Warnings from meta
-        if nlm_meta.get("warnings"):
-            for w in nlm_meta["warnings"]:
-                st.warning(w, icon="⚠️")
+    @st.dialog("Stage 2 — Gemini Prompt", width="large")
+    def show_prompt_2():
+        st.markdown(st.session_state.get("nlm_prompt_2", ""))
 
+    # ── Prompt cards ───────────────────────────────────────────────────────────
+    prompt_1 = st.session_state.get("nlm_prompt_1", "")
+    prompt_2 = st.session_state.get("nlm_prompt_2", "")
+    nlm_meta = st.session_state.get("nlm_meta", {})
+
+    pc1, pc2 = st.columns(2, gap="medium")
+
+    with pc1:
+        st.markdown("**Stage 1 — NotebookLM**")
+        if prompt_1:
+            btn_c1, btn_c2 = st.columns(2)
+            with btn_c1:
+                ui.prompt_output_box(prompt_1, copy_key="copy_nlm_1")
+            with btn_c2:
+                if st.button("📖 Read Prompt", use_container_width=True, key="read_p1"):
+                    show_prompt_1()
+        else:
+            st.caption("*Compile to generate.*")
+
+    with pc2:
+        st.markdown("**Stage 2 — Gemini**")
+        if prompt_2:
+            btn_c3, btn_c4 = st.columns(2)
+            with btn_c3:
+                ui.prompt_output_box(prompt_2, copy_key="copy_nlm_2")
+            with btn_c4:
+                if st.button("📖 Read Prompt", use_container_width=True, key="read_p2"):
+                    show_prompt_2()
+        else:
+            st.caption("*Compile to generate.*")
+
+    # Warnings + meta
+    if nlm_meta.get("warnings"):
+        for w in nlm_meta["warnings"]:
+            st.warning(w, icon="⚠️")
+
+    if nlm_meta:
         with st.expander("📋 What was included"):
             st.json({
-                "chapter": nlm_meta.get("chapter"),
-                "subtopic": nlm_meta.get("subtopic"),
-                "previous_section": nlm_meta.get("previous_section"),
-                "source_count": nlm_meta.get("source_count"),
+                "chapter":           nlm_meta.get("chapter"),
+                "subtopic":          nlm_meta.get("subtopic"),
+                "previous_section":  nlm_meta.get("previous_section"),
+                "source_count":      nlm_meta.get("source_count"),
                 "word_count_target": nlm_meta.get("word_count_target"),
-                "required_sources": nlm_meta.get("required_sources"),
+                "required_sources":  nlm_meta.get("required_sources"),
             })
 
     st.divider()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # DRAFT OUTPUT STORAGE
-    # ══════════════════════════════════════════════════════════════════════════
-    st.subheader("📝 Draft Output")
+    # ── Draft ──────────────────────────────────────────────────────────────────
+    has_saved_draft = bool(st.session_state.get("draft_text"))
+
+    draft_h1, draft_h2 = st.columns([3, 1])
+    with draft_h1:
+        st.subheader("📝 Draft Output")
+    with draft_h2:
+        if has_saved_draft:
+            st.markdown("<div style='padding-top:14px; text-align:right'>✅ Saved</div>", unsafe_allow_html=True)
+
     st.caption(
-        "Paste NotebookLM's response here. Saved per subtopic — switching subtopics "
-        "loads the draft for that subtopic automatically."
+        "Paste NotebookLM's response here. "
+        "Switching subtopics auto-loads the saved draft for that subtopic."
     )
 
     draft_text = st.text_area(
         "Draft",
         value=st.session_state.get("draft_text", ""),
-        height=400,
-        placeholder="Paste NotebookLM's output here after reviewing it...",
+        height=420,
+        placeholder="Paste NotebookLM's output here after reviewing it…",
         label_visibility="collapsed",
         key="draft_textarea"
     )
 
-    draft_col1, draft_col2, draft_col3 = st.columns([2, 2, 1])
+    wc = len(draft_text.split()) if draft_text.strip() else 0
+    st.caption(f"~{wc:,} words")
 
+    draft_col1, draft_col2 = st.columns([3, 2])
     with draft_col1:
-        save_label = "💾 Save Draft" if not st.session_state.get("draft_text") else "💾 Save Updated Draft"
+        save_label = "💾 Save Updated Draft" if has_saved_draft else "💾 Save Draft"
         if st.button(save_label, use_container_width=True, type="primary"):
             if not draft_text.strip():
                 st.error("Paste a draft before saving.")
@@ -225,7 +269,7 @@ else:
                     ui.success("Draft saved.")
 
     with draft_col2:
-        if st.session_state.get("draft_text"):
+        if has_saved_draft:
             if st.button("🗑️ Clear Draft", use_container_width=True):
                 if st.session_state.get("_confirm_clear_draft"):
                     api.delete_section_draft(chapter_id, subtopic_id)
@@ -237,79 +281,75 @@ else:
                     st.session_state["_confirm_clear_draft"] = True
                     st.warning("Click Clear Draft again to confirm.")
 
-    with draft_col3:
-        if st.session_state.get("draft_text"):
-            st.caption(f"✅ Draft saved")
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSISTENCY SUMMARY — full width at bottom
+# ══════════════════════════════════════════════════════════════════════════════
+st.divider()
+st.subheader("🔗 Consistency Summary")
+st.caption("After approving the draft, lock in what was argued. This feeds into the next subtopic.")
 
-    st.divider()
+existing_summary = None
+for entry in chain:
+    if entry.get("subtopic_id") == subtopic_id:
+        existing_summary = entry
+        break
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # CONSISTENCY SUMMARY
-    # ══════════════════════════════════════════════════════════════════════════
-    st.subheader("Save Consistency Summary")
-    st.caption("After approving the draft, save what was argued here. This feeds into the next subtopic.")
+if existing_summary:
+    st.success("Summary already saved for this subtopic.", icon="✅")
+    with st.expander("View saved summary"):
+        st.markdown(f"**{existing_summary.get('core_argument_made', '')}**")
+        if existing_summary.get("key_terms_established"):
+            st.caption(f"Terms: {', '.join(existing_summary['key_terms_established'])}")
 
-    existing_summary = None
-    for entry in chain:
-        if entry.get("subtopic_id") == subtopic_id:
-            existing_summary = entry
-            break
+with st.form("consistency_form"):
+    core_arg = st.text_area(
+        "What was argued in this section? ★",
+        height=110,
+        value=existing_summary.get("core_argument_made", "") if existing_summary else "",
+        placeholder=(
+            "2–3 sentences. e.g. Established that pre-1947 male authors systematically "
+            "constructed female characters as nationalist symbols using 'nationalist idealization' "
+            "(Sharma Ch.2). This creates the baseline from which feminist writing departed."
+        ),
+        help="Injected as 'Previous Section Context' in the next subtopic's prompts."
+    )
 
-    if existing_summary:
-        st.success(f"Summary already saved for this subtopic.", icon="✅")
-        with st.expander("View saved summary"):
-            st.markdown(f"**{existing_summary.get('core_argument_made', '')}**")
-            if existing_summary.get("key_terms_established"):
-                st.caption(f"Terms: {', '.join(existing_summary['key_terms_established'])}")
-
-    with st.form("consistency_form"):
-        core_arg = st.text_area(
-            "What was argued in this section? ★",
-            height=120,
-            value=existing_summary.get("core_argument_made", "") if existing_summary else "",
-            placeholder=(
-                "2–3 sentences. e.g. Established that pre-1947 male authors systematically "
-                "constructed female characters as nationalist symbols using 'nationalist idealization' "
-                "(Sharma Ch.2). This creates the baseline from which feminist writing departed."
-            ),
-            help="Injected as 'Previous Section Context' in the next subtopic's prompts."
+    col1, col2 = st.columns(2)
+    with col1:
+        terms_raw = st.text_input(
+            "Key Terms Established (comma-separated)",
+            value=", ".join(existing_summary.get("key_terms_established", [])) if existing_summary else "",
+            placeholder="nationalist idealization, representational gap"
         )
-        col1, col2 = st.columns(2)
-        with col1:
-            terms_raw = st.text_input(
-                "Key Terms Established (comma-separated)",
-                value=", ".join(existing_summary.get("key_terms_established", [])) if existing_summary else "",
-                placeholder="nationalist idealization, representational gap"
+        sources_used_raw = st.text_input(
+            "Sources Used",
+            value=", ".join(existing_summary.get("sources_used", [])) if existing_summary else "",
+            placeholder="Sharma Ch.2, Nair 1992"
+        )
+    with col2:
+        bridge = st.text_area(
+            "Bridge to Next Section (optional)",
+            value=existing_summary.get("what_next_section_must_build_on", "") if existing_summary else "",
+            height=100,
+            placeholder=(
+                "Next section should use 'nationalist idealization' as established baseline "
+                "and show how feminist writers rejected it."
             )
-            sources_used_raw = st.text_input(
-                "Sources Used",
-                value=", ".join(existing_summary.get("sources_used", [])) if existing_summary else "",
-                placeholder="Sharma Ch.2, Nair 1992"
-            )
-        with col2:
-            bridge = st.text_area(
-                "Bridge to Next Section (optional)",
-                value=existing_summary.get("what_next_section_must_build_on", "") if existing_summary else "",
-                height=100,
-                placeholder=(
-                    "Next section should use 'nationalist idealization' as established baseline "
-                    "and show how feminist writers rejected it."
-                )
-            )
+        )
 
-        if st.form_submit_button("Save Summary", use_container_width=True, type="primary"):
-            if not core_arg.strip():
-                st.error("The argument summary is required.")
-            else:
-                data = {
-                    "subtopic_number": subtopic["number"],
-                    "subtopic_title": subtopic["title"],
-                    "core_argument_made": core_arg,
-                    "key_terms_established": [t.strip() for t in terms_raw.split(",") if t.strip()],
-                    "sources_used": [s.strip() for s in sources_used_raw.split(",") if s.strip()],
-                    "what_next_section_must_build_on": bridge or None,
-                }
-                result = api.save_consistency_summary(chapter_id, subtopic_id, data)
-                if result:
-                    ui.success("Summary saved. The next subtopic will inherit this context.")
-                    st.rerun()
+    if st.form_submit_button("💾 Save Summary", use_container_width=True, type="primary"):
+        if not core_arg.strip():
+            st.error("The argument summary is required.")
+        else:
+            data = {
+                "subtopic_number": subtopic["number"],
+                "subtopic_title":  subtopic["title"],
+                "core_argument_made":              core_arg,
+                "key_terms_established":           [t.strip() for t in terms_raw.split(",") if t.strip()],
+                "sources_used":                    [s.strip() for s in sources_used_raw.split(",") if s.strip()],
+                "what_next_section_must_build_on": bridge or None,
+            }
+            result = api.save_consistency_summary(chapter_id, subtopic_id, data)
+            if result:
+                ui.success("Summary saved. The next subtopic will inherit this context.")
+                st.rerun()

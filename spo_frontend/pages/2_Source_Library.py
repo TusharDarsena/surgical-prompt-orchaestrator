@@ -25,8 +25,8 @@ SOURCE_TYPES = ["thesis_chapter", "book_chapter", "journal_article", "book", "re
 # HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _render_notes_section(scope: str, entity_id: str, key_prefix: str):
-    notes = api.list_notes(scope, entity_id)
+def _render_notes_section(scope: str, entity_id: str, key_prefix: str, pre_fetched_notes: list[dict]):
+    notes = pre_fetched_notes
     notes_label = f"📝 Notes ({len(notes)})" if notes else "📝 Notes"
 
     st.markdown(f"**{notes_label}**")
@@ -68,8 +68,8 @@ def _render_notes_section(scope: str, entity_id: str, key_prefix: str):
                 st.rerun()
 
 
-def _render_index_card_form(group_id: str, source_id: str, has_card: bool):
-    existing = api.get_index_card(group_id, source_id) if has_card else None
+def _render_index_card_form(group_id: str, source_id: str, has_card: bool, pre_fetched_card: dict | None):
+    existing = pre_fetched_card if has_card else None
 
     with st.form(f"card_form_{source_id}"):
         default_claims = "\n".join(existing.get("key_claims", [])) if existing else ""
@@ -407,7 +407,10 @@ st.divider()
 
 st.subheader("📚 Source Library")
 
-groups = api.list_source_groups()
+# 🔥 Bulk fetch all groups, sources, cards, and notes in one fast API pass
+library_data = api.get_library_view()
+groups = library_data.get("groups", [])
+notes_data = library_data.get("notes", {"source_group": {}, "source": {}})
 
 if not groups:
     ui.info("No sources registered yet. Add a work above.")
@@ -458,11 +461,13 @@ for group in groups:
                         st.session_state[f"editing_grp_{g_id}"] = False
                         st.rerun()
 
-        _render_notes_section("source_group", g_id, f"grp_{g_id}")
+        group_notes = notes_data.get("source_group", {}).get(g_id, [])
+        _render_notes_section("source_group", g_id, f"grp_{g_id}", group_notes)
 
         st.divider()
 
-        sources = api.list_sources(g_id)
+        # Sources are securely embedded into the group payload
+        sources = group.get("sources", [])
 
         with st.form(f"add_src_{g_id}"):
             st.markdown("**Add a Document (chapter / PDF)**")
@@ -511,7 +516,7 @@ for group in groups:
                     sc1, sc2, sc3 = st.columns([4, 1, 1])
                     with sc2:
                         if st.button("✏️ Edit", key=f"edit_src_btn_{s_id}"):
-                            st.session_state[f"editing_src_{s_id}"] = True
+                             st.session_state[f"editing_src_{s_id}"] = True
                     with sc3:
                         if st.button("🗑️ Delete", key=f"del_src_{s_id}"):
                             api.delete_source(g_id, s_id)
@@ -544,9 +549,11 @@ for group in groups:
                                     st.session_state[f"editing_src_{s_id}"] = False
                                     st.rerun()
 
-                    _render_notes_section("source", s_id, f"src_{s_id}")
+                    source_notes = notes_data.get("source", {}).get(s_id, [])
+                    _render_notes_section("source", s_id, f"src_{s_id}", source_notes)
 
                     st.divider()
                     st.markdown("**Index Card**")
                     st.caption("Structured summary injected into compiled prompts.")
-                    _render_index_card_form(g_id, s_id, has_card)
+                    embedded_card = src.get("index_card")
+                    _render_index_card_form(g_id, s_id, has_card, embedded_card)
