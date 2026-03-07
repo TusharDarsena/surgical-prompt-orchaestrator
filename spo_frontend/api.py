@@ -94,12 +94,12 @@ def save_synopsis(data: dict):
 
 # ── Chapters ───────────────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def list_chapters():
     return _handle(requests.get(_url("/thesis/chapters"))) or []
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def get_chapter(chapter_id: str):
     return _handle(requests.get(_url(f"/thesis/chapters/{chapter_id}")))
 

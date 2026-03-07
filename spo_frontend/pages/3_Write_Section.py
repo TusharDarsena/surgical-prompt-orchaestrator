@@ -5,8 +5,38 @@ No intermediate Architect/Task.md step.
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import api
 import ui
+
+def copy_button(text: str, label: str, key: str, btn_type: str = "primary"):
+    """Render a self-contained JS clipboard copy button with no extra UI."""
+    # Escape backticks and backslashes so the text is safe inside a JS template literal
+    safe = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+    components.html(f"""
+    <style>
+      button.cpbtn {{
+        width: 100%;
+        padding: 0.45rem 1rem;
+        background: {"#ff4b4b" if btn_type == "primary" else "#f0f2f6"};
+        color: {"white" if btn_type == "primary" else "#262730"};
+        border: none;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        font-family: inherit;
+        transition: opacity 0.15s;
+      }}
+      button.cpbtn:hover {{ opacity: 0.85; }}
+    </style>
+    <button class="cpbtn" onclick="
+      navigator.clipboard.writeText(`{safe}`).then(() => {{
+        this.textContent = '✅ Copied!';
+        setTimeout(() => this.textContent = '{label}', 2000);
+      }});
+    ">{label}</button>
+    """, height=42, scrolling=False)
 
 st.set_page_config(page_title="Write a Section · SPO", page_icon="✍️", layout="wide")
 
@@ -85,10 +115,9 @@ with col_sources:
     resolved_sources  = nlm_meta.get("required_sources", [])
     display_sources   = resolved_sources if resolved_sources else source_ids
 
-    st.subheader(f"Sources · {len(display_sources)}")
-
     all_links = []
     all_files = []
+    unresolved_count = 0
 
     for s in display_sources:
         src_name   = s.get("source_id", "Unknown")
@@ -96,35 +125,44 @@ with col_sources:
         drive_link = s.get("drive_link", "")
         file_name  = s.get("file_name", "")
 
-        # One compact line: link (or plain name) · chapter ref
         if drive_link:
-            line = f"🔗 [{src_name}]({drive_link})"
             all_links.append(drive_link)
         elif file_name:
-            line = f"📁 **{src_name}**"
             all_files.append(file_name)
         else:
-            line = f"⚠️ *{src_name}*"
+            unresolved_count += 1
+
+    resolved_count = len(all_links) + len(all_files)
+    st.subheader(f"Sources · {resolved_count}/{len(display_sources)}")
+
+    # Show only sources that have a link or file — skip unresolved silently
+    for s in display_sources:
+        src_name   = s.get("source_id", "Unknown")
+        ch_ref     = s.get("chapter_id", "")
+        drive_link = s.get("drive_link", "")
+        file_name  = s.get("file_name", "")
+
+        if drive_link:
+            line = f"🔗 [{src_name}]({drive_link})"
+        elif file_name:
+            line = f"📁 **{src_name}**"
+        else:
+            continue  # hide unresolved — no link, nothing useful to show
 
         if ch_ref:
             line += f"  ·  `{ch_ref}`"
-
         st.markdown(line)
 
-    if resolved_sources:
-        unresolved = [s for s in resolved_sources if not s.get("file_name")]
-        if unresolved:
-            st.warning(f"{len(unresolved)} unresolved — scan folder in Source Library.", icon="⚠️")
+    if unresolved_count:
+        st.caption(f"⚠️ {unresolved_count} unresolved — scan folder in Source Library.")
 
     st.markdown("")
 
-    # Single copy block — links if available, filenames otherwise
+    # Copy all links — JS button (no code block)
     if all_links:
-        st.caption("Copy all links → paste into NotebookLM:")
-        st.code("\n".join(all_links), language=None)
+        copy_button("\n".join(all_links), "📋 Copy All Links", key="copy_links")
     elif all_files:
-        st.caption("Files to upload manually:")
-        st.code("\n".join(all_files), language=None)
+        copy_button("\n".join(all_files), "📋 Copy File Names", key="copy_files")
     elif not resolved_sources:
         st.caption("*Compile to resolve Drive links.*")
 
@@ -192,7 +230,7 @@ with col_main:
         if prompt_1:
             btn_c1, btn_c2 = st.columns(2)
             with btn_c1:
-                ui.prompt_output_box(prompt_1, copy_key="copy_nlm_1")
+                copy_button(prompt_1, "📋 Copy to Clipboard", key="copy_p1")
             with btn_c2:
                 if st.button("📖 Read Prompt", use_container_width=True, key="read_p1"):
                     show_prompt_1()
@@ -204,7 +242,7 @@ with col_main:
         if prompt_2:
             btn_c3, btn_c4 = st.columns(2)
             with btn_c3:
-                ui.prompt_output_box(prompt_2, copy_key="copy_nlm_2")
+                copy_button(prompt_2, "📋 Copy to Clipboard", key="copy_p2")
             with btn_c4:
                 if st.button("📖 Read Prompt", use_container_width=True, key="read_p2"):
                     show_prompt_2()

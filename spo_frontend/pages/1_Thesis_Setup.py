@@ -62,14 +62,14 @@ if synopsis:
         st.markdown("**Central argument:**")
         st.info(arg)
 
-tab_import, tab_manual = st.tabs(["📥 Import thesis.json  *(recommended)*", "✏️ Manual form"])
+tab_import, tab_manual = st.tabs(["📥 Import synopsis_context.json  *(recommended)*", "✏️ Manual form"])
 
 with tab_import:
     st.caption(
-        "Generate thesis.json by giving Claude your synopsis document with the prompt "
-        "in `prompts/generate_thesis_json.txt`. Review the JSON, then upload here."
+        "Generate synopsis_context.json by giving Claude your synopsis document with the prompt "
+        "in `prompts/generate_synopsis_context_json.txt`. Review the JSON, then upload here."
     )
-    uploaded = st.file_uploader("Upload thesis.json", type="json", key="thesis_upload")
+    uploaded = st.file_uploader("Upload synopsis_context.json", type="json", key="synopsis_upload")
     if uploaded:
         try:
             data = json.load(uploaded)
