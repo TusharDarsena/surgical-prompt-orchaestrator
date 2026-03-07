@@ -16,14 +16,14 @@ echo.
 
 :: Start Backend (Uvicorn)
 echo [1/2] Starting Backend on port 8000...
-start "SPO Backend" cmd /k "cd /d %PROJECT_DIR%\spo_backend && python -m uvicorn main:app --reload --port 8000"
+start "SPO Backend" cmd /c "cd /d %PROJECT_DIR%\spo_backend && python -m uvicorn main:app --reload --port 8000"
 
 :: Buffer for Backend to start
 timeout /t 4 /nobreak > nul
 
 :: Start Frontend (Streamlit)
 echo [2/2] Starting Frontend on port 8501...
-start "SPO Frontend" cmd /k "cd /d %PROJECT_DIR%\spo_frontend && python -m streamlit run app.py"
+start "SPO Frontend" cmd /c "cd /d %PROJECT_DIR%\spo_frontend && python -m streamlit run app.py"
 
 echo.
 echo ------------------------------------------
