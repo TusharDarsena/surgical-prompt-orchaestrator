@@ -8,11 +8,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 import api
 import ui
+import base64
 
 def copy_button(text: str, label: str, key: str, btn_type: str = "primary"):
     """Render a self-contained JS clipboard copy button with no extra UI."""
-    # Escape backticks and backslashes so the text is safe inside a JS template literal
-    safe = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+    b64_text = base64.b64encode(text.encode("utf-8")).decode("utf-8")
+    
     components.html(f"""
     <style>
       button.cpbtn {{
@@ -31,10 +32,19 @@ def copy_button(text: str, label: str, key: str, btn_type: str = "primary"):
       button.cpbtn:hover {{ opacity: 0.85; }}
     </style>
     <button class="cpbtn" onclick="
-      navigator.clipboard.writeText(`{safe}`).then(() => {{
-        this.textContent = '✅ Copied!';
-        setTimeout(() => this.textContent = '{label}', 2000);
-      }});
+      try {{
+          const b64 = '{b64_text}';
+          const bin = atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const val = new TextDecoder('utf-8').decode(bytes);
+          navigator.clipboard.writeText(val).then(() => {{
+            this.textContent = '✅ Copied!';
+            setTimeout(() => this.textContent = '{label}', 2000);
+          }}).catch(err => console.error('Clipboard error:', err));
+      }} catch (err) {{
+          console.error('Decoding error:', err);
+      }}
     ">{label}</button>
     """, height=42, scrolling=False)
 
@@ -133,7 +143,8 @@ with col_sources:
             unresolved_count += 1
 
     resolved_count = len(all_links) + len(all_files)
-    st.subheader(f"Sources · {resolved_count}/{len(display_sources)}")
+    unique_works = len(set(s.get("source_id", "Unknown") for s in display_sources))
+    st.subheader(f"Sources · {unique_works} works ({resolved_count} files)")
 
     # Show only sources that have a link or file — skip unresolved silently
     for s in display_sources:

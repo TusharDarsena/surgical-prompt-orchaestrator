@@ -104,11 +104,13 @@ def _normalize_thesis_name(name: str) -> str:
     """
     Normalizes a thesis name for matching.
     Steps:
-      1. Strip trailing parenthetical (author, year) — e.g. (Puhan, 2018), (author unlisted)
+      1. Strip trailing parenthetical (author, year)
       2. Replace underscores with spaces
       3. Replace punctuation chars with spaces
       4. Collapse multiple spaces
-      5. Lowercase and strip
+      5. Lowercase
+      6. Remove leading articles (a, an, the)
+      7. Remove all spaces
     """
     s = name.strip()
 
@@ -127,6 +129,12 @@ def _normalize_thesis_name(name: str) -> str:
 
     # Collapse whitespace and lowercase
     s = re.sub(r'\s+', ' ', s).strip().lower()
+
+    # Remove leading articles
+    s = re.sub(r'^(a|an|the)\s+', '', s)
+
+    # Remove all spaces
+    s = s.replace(' ', '')
 
     return s
 
@@ -315,11 +323,11 @@ def _extract_chapter_number(text: str) -> str | None:
     Returns string digit e.g. '2', or None.
 
     Handles: "chapter 2", "chapter two", "ch. 3", "section 4", "part v",
-             standalone "2", "II"
+             standalone "2", "II", "chapter1"
     """
     # Pattern: chapter/section/part + digit
     m = re.search(
-        r'(?:chapter|ch\.?|section|sec\.?|part)\s+(\d+)',
+        r'(?:chapter|ch\.?|section|sec\.?|part)\s*(\d+)',
         text, re.IGNORECASE
     )
     if m:
@@ -327,14 +335,14 @@ def _extract_chapter_number(text: str) -> str | None:
 
     # Try word number after chapter indicator
     m = re.search(
-        r'(?:chapter|ch\.?|section|sec\.?|part)\s+(' + '|'.join(_WORD_TO_NUM.keys()) + r')\b',
+        r'(?:chapter|ch\.?|section|sec\.?|part)\s*(' + '|'.join(_WORD_TO_NUM.keys()) + r')\b',
         text, re.IGNORECASE
     )
     if m:
         return _WORD_TO_NUM[m.group(1).lower()]
 
     # Try Roman numeral after chapter indicator
-    roman_pattern = r'(?:chapter|ch\.?|section|sec\.?|part)\s+(' + '|'.join(_ROMAN_TO_NUM.keys()) + r')\b'
+    roman_pattern = r'(?:chapter|ch\.?|section|sec\.?|part)\s*(' + '|'.join(_ROMAN_TO_NUM.keys()) + r')\b'
     m = re.search(roman_pattern, text, re.IGNORECASE)
     if m:
         return _ROMAN_TO_NUM[m.group(1).lower()]
@@ -387,7 +395,7 @@ def _parse_filename(filename: str) -> dict:
     keyword = None
 
     # Try to extract chapter number from body
-    m = re.search(r'chapter\s+(\d+)', body)
+    m = re.search(r'(?:chapter|ch\.?|section|part)\s*(\d+)', body)
     if m:
         number = m.group(1)
     else:
