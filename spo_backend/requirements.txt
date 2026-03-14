@@ -1,3 +1,6 @@
 fastapi
 uvicorn[standard]
 pydantic
+python-dotenv
+notebooklm-py[browser]
+playwright

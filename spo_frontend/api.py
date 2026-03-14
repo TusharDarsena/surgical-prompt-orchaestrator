@@ -530,3 +530,76 @@ def delete_section_draft(chapter_id: str, subtopic_id: str) -> bool:
     except Exception as e:
         st.error(f"Could not reach backend: {e}")
         return False
+
+
+# ── NotebookLM Automation ──────────────────────────────────────────────────────
+
+def nlm_status() -> dict:
+    """
+    GET /notebooklm/status
+    Returns {"ok": bool, "message": str}.
+    ok=True means credentials are valid and the client is ready.
+    """
+    try:
+        r = requests.get(f"{BASE_URL}/notebooklm/status", timeout=15)
+        return r.json()
+    except Exception as e:
+        return {"ok": False, "message": f"Could not reach backend: {e}"}
+
+
+def nlm_run(
+    chapter_id: str,
+    subtopic_id: str,
+    word_count: int | None = None,
+    academic_style_notes: str | None = None,
+    notebook_title: str | None = None,
+) -> dict | None:
+    """
+    POST /notebooklm/run/{chapter_id}/{subtopic_id}
+    Triggers Stage 1 automation as a background task.
+    Returns 202 immediately — poll nlm_state() for progress.
+    """
+    body: dict = {}
+    if word_count:
+        body["word_count"] = word_count
+    if academic_style_notes:
+        body["academic_style_notes"] = academic_style_notes
+    if notebook_title:
+        body["notebook_title"] = notebook_title
+    return _handle(
+        requests.post(
+            f"{BASE_URL}/notebooklm/run/{chapter_id}/{subtopic_id}",
+            json=body,
+            timeout=30,
+        )
+    )
+
+
+def nlm_state(chapter_id: str, subtopic_id: str) -> dict:
+    """
+    GET /notebooklm/state/{chapter_id}/{subtopic_id}
+    Returns current run state: status, notebook_id, sources_uploaded, etc.
+    Status values: idle | running | done | error
+    """
+    try:
+        r = requests.get(
+            f"{BASE_URL}/notebooklm/state/{chapter_id}/{subtopic_id}",
+            timeout=10,
+        )
+        return r.json()
+    except Exception as e:
+        return {"status": "error", "error": f"Could not reach backend: {e}"}
+
+
+def nlm_delete_notebook(chapter_id: str, subtopic_id: str) -> dict | None:
+    """
+    DELETE /notebooklm/notebook/{chapter_id}/{subtopic_id}
+    Deletes the NLM notebook and clears stored state.
+    The section draft is NOT affected.
+    """
+    return _handle(
+        requests.delete(
+            f"{BASE_URL}/notebooklm/notebook/{chapter_id}/{subtopic_id}",
+            timeout=30,
+        )
+    )

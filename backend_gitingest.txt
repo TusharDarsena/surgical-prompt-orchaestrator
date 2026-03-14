@@ -1,0 +1,3800 @@
+Directory structure:
+└── tushardarsena-surgical-prompt-orchaestrator/
+    ├── readme.md
+    ├── start_spo - Shortcut.lnk
+    ├── stop_spo - Shortcut.lnk
+    └── spo_backend/
+        ├── models/
+        │   ├── __init__.py
+        │   ├── consistency.py
+        │   ├── notes.py
+        │   ├── sources.py
+        │   └── thesis.py
+        ├── routers/
+        │   ├── __init__.py
+        │   ├── compiler.py
+        │   ├── consistency.py
+        │   ├── drive.py
+        │   ├── importer.py
+        │   ├── notes.py
+        │   ├── sections.py
+        │   ├── sources.py
+        │   └── thesis.py
+        └── services/
+            ├── __init__.py
+            ├── source_resolver.py
+            └── storage.py
+
+================================================
+FILE: readme.md
+================================================
+[Binary file]
+
+
+================================================
+FILE: start_spo - Shortcut.lnk
+================================================
+[Binary file]
+
+
+================================================
+FILE: stop_spo - Shortcut.lnk
+================================================
+[Binary file]
+
+
+================================================
+FILE: spo_backend/models/__init__.py
+================================================
+# Empty file - makes this directory a Python package
+
+
+
+================================================
+FILE: spo_backend/models/consistency.py
+================================================
+"""
+Consistency Chain Models
+------------------------
+The mechanism that prevents Claude and NotebookLM from "resetting" their logic
+between subtopics. Without this, each section feels like a fresh essay with
+no memory of what was argued before.
+
+How it works:
+  After NotebookLM writes subtopic 1.3.1, you save a brief summary of what
+  was argued. When writing 1.3.2, your app injects that summary as
+  "Previous Section Context" into the NotebookLM prompt.
+
+This is the consistency layer your document describes needing.
+"""
+
+from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
+
+
+class SectionSummary(BaseModel):
+    """
+    A brief record of what was argued in a completed subtopic.
+    Written by you (or Claude) after NotebookLM produces the draft.
+    Injected into the NEXT subtopic's NotebookLM prompt.
+    """
+    chapter_id: str
+    subtopic_id: str
+    subtopic_number: str = Field(..., description="e.g. '1.3.1'")
+    subtopic_title: str
+
+    # The consistency payload — this is what gets injected
+    core_argument_made: str = Field(
+        ...,
+        description=(
+            "What was the central argument of this section? 2-3 sentences. "
+            "Written after the draft is approved. "
+            "e.g. 'Established that pre-independence male authors constructed female "
+            "characters as nationalist symbols, creating a gap between literary representation "
+            "and lived experience. Used Sharma Ch.2 and Nair 1992 as primary evidence.'"
+        )
+    )
+    key_terms_established: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Terms or concepts defined in this section that the next section should "
+            "use consistently. e.g. ['nationalist idealization', 'representational gap']"
+        )
+    )
+    sources_used: list[str] = Field(
+        default_factory=list,
+        description="Source labels used. e.g. ['Sharma Ch.2', 'Nair 1992']"
+    )
+    what_next_section_must_build_on: Optional[str] = Field(
+        None,
+        description=(
+            "Explicit bridge instruction for the next subtopic. "
+            "e.g. 'Next section should use the concept of nationalist idealization "
+            "established here as the baseline from which feminist writing departed.'"
+        )
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SectionSummaryCreateRequest(BaseModel):
+    subtopic_number: str
+    subtopic_title: str
+    core_argument_made: str
+    key_terms_established: list[str] = []
+    sources_used: list[str] = []
+    what_next_section_must_build_on: Optional[str] = None
+
+
+
+================================================
+FILE: spo_backend/models/notes.py
+================================================
+"""
+Notes Models
+------------
+Free-text notes for when you don't want to fill structured index card fields.
+
+Use cases:
+  - You've read a source and want to dump your thoughts before structuring them
+  - You have overall notes about a thesis you're using as a source
+  - Chapter-level notes for a multi-chapter work (before breaking into index cards)
+  - Your own thesis writing notes per chapter
+
+Notes live alongside the structured data but are never injected into prompts
+automatically — they're YOUR scratch pad. When you're ready, the compiler
+endpoint can optionally include a note as a raw block.
+
+Storage location: spo_data/notes/{scope}/{id}.json
+  scope: "thesis" | "source_group" | "source" | "chapter"
+"""
+
+from pydantic import BaseModel, Field
+from typing import Optional, Literal
+from datetime import datetime
+
+NoteScope = Literal["thesis", "source_group", "source", "chapter"]
+
+
+class Note(BaseModel):
+    """
+    A free-text note attached to any entity in the system.
+    Write whatever you want here — reading impressions, argument ideas,
+    connections you notice, things to follow up.
+    """
+    note_id: str
+    scope: NoteScope = Field(..., description="What this note is about")
+    entity_id: str = Field(
+        ...,
+        description=(
+            "ID of the entity this note belongs to. "
+            "e.g. group_id, source_id, chapter_id, or 'main' for thesis-level notes."
+        )
+    )
+    label: Optional[str] = Field(
+        None,
+        description="Short title for the note. e.g. 'Overall impressions', 'Chapter 3 gaps'"
+    )
+    content: str = Field(
+        ...,
+        description=(
+            "The note itself. Plain text, no structure required. "
+            "Paste your reading notes, paste text you copied from the PDF, "
+            "write stream-of-consciousness — whatever is useful."
+        )
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NoteCreateRequest(BaseModel):
+    label: Optional[str] = None
+    content: str
+
+
+class NoteUpdateRequest(BaseModel):
+    label: Optional[str] = None
+    content: Optional[str] = None
+
+
+
+================================================
+FILE: spo_backend/models/sources.py
+================================================
+"""
+Source Library Models
+---------------------
+These models represent your external source materials — the PDFs and books
+you are reading and drawing arguments from.
+
+The hierarchy is:
+  SourceGroup  (a complete work: e.g. "Sharma 2003 PhD Thesis")
+      └── Source  (one document/chapter from that work)
+              └── IndexCard  (YOUR human-written summary of what it contains)
+
+Why separate SourceGroup from Source?
+  A PhD thesis has 6 chapters. A book has 12 chapters. You upload them separately
+  as PDFs but they belong to the same intellectual work. The SourceGroup keeps
+  that relationship intact so when you need "everything from Sharma 2003"
+  you can pull all its sources at once.
+
+Why is IndexCard human-written and not AI-generated?
+  Because Claude generating index cards from PDFs will hallucinate or miss
+  your specific argumentative needs. YOU decide what matters in each source.
+  The index card is your curation layer — the most valuable asset in this system.
+"""
+
+from pydantic import BaseModel, Field
+from typing import Optional, Literal
+from datetime import datetime
+import uuid
+
+
+SourceType = Literal[
+    "thesis_chapter",
+    "book_chapter",
+    "journal_article",
+    "book",
+    "report",
+    "other"
+]
+
+
+class IndexCard(BaseModel):
+    """
+    The core intelligence unit of SPO.
+
+    This is what gets injected into compiled prompts as 'Source Profile'.
+    Claude reads these cards — not the raw PDFs — to generate grounded writing.
+
+    Write these carefully. A good index card has:
+    - Specific claims (not "discusses feminism" but "argues that pre-1947 female
+      characters in male-authored texts were idealized as nationalist symbols")
+    - Named themes that map to your subtopics
+    - Honest limitations (what the source CANNOT support)
+    """
+    # Core content — these are injected into prompts
+    key_claims: list[str] = Field(
+        ...,
+        description=(
+            "2-5 specific, concrete claims this source makes. "
+            "Be precise. Avoid generic statements. "
+            "Good: 'Argues partition trauma redirected female identity from nation to self.' "
+            "Bad: 'Discusses women in post-partition literature.'"
+        ),
+        min_length=1
+    )
+    themes: list[str] = Field(
+        ...,
+        description=(
+            "Thematic tags for filtering. e.g. ['feminist_literary_history', "
+            "'postcolonial_identity', 'partition_trauma']. "
+            "Use snake_case. These help the app suggest relevant sources per subtopic."
+        ),
+        min_length=1
+    )
+    time_period_covered: Optional[str] = Field(
+        None,
+        description="Historical period the source focuses on. e.g. '1947-1980'"
+    )
+    relevant_subtopics: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Which of YOUR subtopic IDs (e.g. '1_3_2') is this source useful for? "
+            "Fill this as you read. Drives auto-suggestion of sources when compiling prompts."
+        )
+    )
+    limitations: Optional[str] = Field(
+        None,
+        description=(
+            "What can this source NOT support? What arguments would be a stretch? "
+            "e.g. 'Focuses only on Bengali literature, cannot support claims about "
+            "pan-Indian feminist movement.' This feeds the 'Do Not Include' section."
+        )
+    )
+    notable_authors_cited: list[str] = Field(
+        default_factory=list,
+        description="Key scholars/authors cited in this source. For academic credibility tracking."
+    )
+    your_notes: Optional[str] = Field(
+        None,
+        description=(
+            "Private reading notes. NOT injected into prompts. "
+            "For your own reference while writing."
+        )
+    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Source(BaseModel):
+    """
+    One document — typically one PDF file or one chapter of a larger work.
+    """
+    source_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    group_id: str = Field(..., description="Parent SourceGroup ID")
+
+    # Identity
+    label: str = Field(
+        ...,
+        description=(
+            "Short label for prompt injection. e.g. 'Source A', 'Sharma Ch.3', 'Nair 1992'. "
+            "This is the name Claude sees in the compiled prompt."
+        )
+    )
+    title: str = Field(..., description="Full title of this document/chapter")
+    chapter_or_section: Optional[str] = Field(
+        None,
+        description="e.g. 'Chapter 3: The Nationalist Imagination' or 'Section 2.4'"
+    )
+    page_range: Optional[str] = Field(
+        None,
+        description="e.g. '45-89' — for citing in your thesis"
+    )
+
+    # File reference (no upload, just path tracking)
+    file_path: Optional[str] = Field(
+        None,
+        description="Absolute path to PDF on your local drive. For NotebookLM upload reference."
+    )
+    file_name: Optional[str] = Field(
+        None,
+        description="e.g. 'sharma_2003_ch3.pdf'"
+    )
+
+    # The intelligence layer
+    index_card: Optional[IndexCard] = Field(
+        None,
+        description="Your curated summary. Fill this after reading the source."
+    )
+
+    has_index_card: bool = Field(
+        default=False,
+        description="Quick flag — False means this source is not yet ready for prompt injection."
+    )
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SourceGroup(BaseModel):
+    """
+    A complete intellectual work that may be broken into multiple Source documents.
+
+    Examples:
+      - A PhD thesis (6 chapter PDFs → 1 SourceGroup, 6 Sources)
+      - A book (uploaded chapter by chapter → 1 SourceGroup, N Sources)
+      - A single journal article (1 SourceGroup, 1 Source)
+
+    This keeps provenance intact — you always know all Sources from
+    'Sharma 2003' belong together.
+    """
+    group_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    title: str = Field(..., description="Full title of the work")
+    author: str = Field(..., description="Author(s) name(s)")
+    year: Optional[int] = Field(None, description="Publication year")
+    source_type: SourceType = Field(..., description="Type of source material")
+    institution_or_publisher: Optional[str] = Field(
+        None,
+        description="e.g. 'JNU', 'Oxford University Press'"
+    )
+    description: Optional[str] = Field(
+        None,
+        description=(
+            "Brief note on what this work is about and WHY you are using it. "
+            "e.g. 'Sharma's thesis on pre-independence Bengali women writers. "
+            "Primary source for Chapter 1 historical background.'"
+        )
+    )
+    sources: list[Source] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @property
+    def ready_sources(self) -> list[Source]:
+        """Sources that have index cards and are ready for prompt injection."""
+        return [s for s in self.sources if s.has_index_card]
+
+    @property
+    def source_count(self) -> int:
+        return len(self.sources)
+
+    @property
+    def ready_count(self) -> int:
+        return len(self.ready_sources)
+
+
+# --- Request models ---
+
+class SourceGroupCreateRequest(BaseModel):
+    title: str
+    author: str
+    year: Optional[int] = None
+    source_type: SourceType
+    institution_or_publisher: Optional[str] = None
+    description: Optional[str] = None
+
+
+class SourceGroupUpdateRequest(BaseModel):
+    description: Optional[str] = None
+    institution_or_publisher: Optional[str] = None
+
+
+class SourceCreateRequest(BaseModel):
+    label: str
+    title: str
+    chapter_or_section: Optional[str] = None
+    page_range: Optional[str] = None
+    file_path: Optional[str] = None
+    file_name: Optional[str] = None
+
+
+class SourceUpdateRequest(BaseModel):
+    label: Optional[str] = None
+    title: Optional[str] = None
+    chapter_or_section: Optional[str] = None
+    page_range: Optional[str] = None
+    file_path: Optional[str] = None
+    file_name: Optional[str] = None
+
+
+class IndexCardCreateRequest(BaseModel):
+    key_claims: list[str]
+    themes: list[str]
+    time_period_covered: Optional[str] = None
+    relevant_subtopics: list[str] = []
+    limitations: Optional[str] = None
+    notable_authors_cited: list[str] = []
+    your_notes: Optional[str] = None
+
+
+class IndexCardUpdateRequest(BaseModel):
+    key_claims: Optional[list[str]] = None
+    themes: Optional[list[str]] = None
+    time_period_covered: Optional[str] = None
+    relevant_subtopics: Optional[list[str]] = None
+    limitations: Optional[str] = None
+    notable_authors_cited: Optional[list[str]] = None
+    your_notes: Optional[str] = None
+
+
+
+================================================
+FILE: spo_backend/models/thesis.py
+================================================
+"""
+Thesis Context Models
+---------------------
+ThesisSynopsis schema matches the preferred thesis.json structure.
+
+Fields injected into every compiled prompt (kept tight):
+  - central_argument
+  - temporal_scope
+  - theoretical_frameworks   (from methodology.theoretical_frameworks)
+  - central_themes
+  - research_gap
+
+Everything else is stored for reference only.
+"""
+
+from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
+
+
+# ── Nested models for thesis.json sub-objects ──────────────────────────────────
+
+class KeyAuthor(BaseModel):
+    author: str
+    work: Optional[str] = None
+    year: Optional[int] = None
+    theme: Optional[str] = None
+
+
+class Methodology(BaseModel):
+    approach: Optional[str] = None
+    primary_method: Optional[str] = None
+    supporting_methods: list[str] = Field(default_factory=list)
+    theoretical_frameworks: list[str] = Field(default_factory=list)
+    data_sources: Optional[dict] = None
+
+
+class TheoreticalPositions(BaseModel):
+    feminism_in_india: Optional[str] = None
+    postcolonial_feminism: Optional[str] = None
+    literature_as_agent: Optional[str] = None
+
+
+class ChapterStructureEntry(BaseModel):
+    chapter: int
+    title: str
+    focus: Optional[str] = None
+
+
+class LiteratureReviewFinding(BaseModel):
+    author: str
+    finding: str
+
+
+class Significance(BaseModel):
+    academic: Optional[str] = None
+    practical: Optional[str] = None
+    contemporary: Optional[str] = None
+
+
+# ── Main synopsis model ────────────────────────────────────────────────────────
+
+class ThesisSynopsis(BaseModel):
+    # ── Identity ───────────────────────────────────────────────────────────────
+    document_type: Optional[str] = None
+    title: str
+    institution: Optional[str] = None
+    researcher: Optional[str] = None       # alias for author
+    author: Optional[str] = None           # kept for backward compat
+    year: Optional[int] = None
+    degree: Optional[str] = None
+    field: Optional[str] = None
+
+    # ── INJECTED into every compiled prompt ─────────────────────────────────────
+    research_question: Optional[str] = None
+    core_argument: str = Field(
+        ...,
+        description=(
+            "The single core argument of the entire thesis. 2–4 sentences. "
+            "What the thesis argues and proves, specifically."
+        )
+    )
+    temporal_scope: Optional[str] = None
+    research_gap: Optional[str] = Field(
+        None,
+        description=(
+            "What gap in existing scholarship this thesis fills. "
+            "Injected into prompts — prevents Claude from writing as if "
+            "the thesis is making generic observations already covered elsewhere."
+        )
+    )
+    central_themes: list[str] = Field(
+        default_factory=list,
+        description="Full descriptive theme strings from the synopsis."
+    )
+
+    # ── Methodology (theoretical_frameworks pulled from here for injection) ────
+    methodology: Optional[Methodology] = None
+
+    # ── REFERENCE ONLY — not injected ─────────────────────────────────────────
+    objectives: list[str] = Field(default_factory=list)
+    key_authors_and_works: list[KeyAuthor] = Field(default_factory=list)
+    other_authors_mentioned: list[str] = Field(default_factory=list)
+    theoretical_positions: Optional[TheoreticalPositions] = None
+    chapter_structure: list[ChapterStructureEntry] = Field(default_factory=list)
+    expected_outcome: Optional[str] = None
+    significance: Optional[Significance] = None
+    key_literature_review_findings: list[LiteratureReviewFinding] = Field(default_factory=list)
+    scope_and_limits: Optional[str] = None
+
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def get_author(self) -> str:
+        """Returns researcher or author, whichever is set."""
+        return self.researcher or self.author or ""
+
+    def get_theoretical_frameworks(self) -> list[str]:
+        """Pull frameworks from methodology object."""
+        if self.methodology:
+            return self.methodology.theoretical_frameworks
+        return []
+
+
+# ── Chapter models ─────────────────────────────────────────────────────────────
+
+class Subtopic(BaseModel):
+    subtopic_id: str = Field(..., description="e.g. '1_3_2'")
+    number: str = Field(..., description="e.g. '1.3.2'")
+    title: str
+    goal: str
+    position_in_argument: Optional[str] = None
+
+
+class Chapter(BaseModel):
+    chapter_id: str
+    number: int
+    title: str
+    goal: str
+    chapter_arc: Optional[str] = Field(
+        None,
+        description=(
+            "150–200 words. How all subtopics connect argumentatively. "
+            "Injected into every compiled prompt for this chapter."
+        )
+    )
+    subtopics: list[Subtopic] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── Request models (manual form path) ─────────────────────────────────────────
+
+class SynopsisCreateRequest(BaseModel):
+    """Flat request for the manual form path."""
+    title: str
+    author: str
+    field: Optional[str] = None
+    central_argument: Optional[str] = None
+    core_argument: Optional[str] = None     # accept both field names
+    theoretical_frameworks: list[str] = []
+    temporal_scope: Optional[str] = None
+    research_question: Optional[str] = None
+    research_gap: Optional[str] = None
+    objectives: list[str] = []
+    central_themes: list[str] = []
+    scope_and_limits: Optional[str] = None
+
+
+class SynopsisUpdateRequest(BaseModel):
+    core_argument: Optional[str] = None
+    central_argument: Optional[str] = None  # backward compat alias
+    temporal_scope: Optional[str] = None
+    research_gap: Optional[str] = None
+    scope_and_limits: Optional[str] = None
+
+
+class ChapterCreateRequest(BaseModel):
+    number: int
+    title: str
+    goal: str
+    chapter_arc: Optional[str] = None
+
+
+class SubtopicCreateRequest(BaseModel):
+    number: str
+    title: str
+    goal: str
+    position_in_argument: Optional[str] = None
+
+
+class SubtopicUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    goal: Optional[str] = None
+    position_in_argument: Optional[str] = None
+    chapter_arc: Optional[str] = None
+
+
+================================================
+FILE: spo_backend/routers/__init__.py
+================================================
+# Empty file - makes this directory a Python package
+
+
+
+================================================
+FILE: spo_backend/routers/compiler.py
+================================================
+"""
+Prompt Compiler Router
+----------------------
+Compiles the NotebookLM writing prompt directly from chapterization data.
+
+The chapterization JSON contains everything needed:
+  - subtopic.goal            → Core Objective
+  - subtopic.source_ids[]    → Focus Points (with source_guidance)
+  - subtopic.position_in_argument → Scope Control
+  - chapter.sources_reserved → Do Not Include
+  - subtopic.estimated_pages → Word count target
+  - chapter.chapter_arc      → Chapter-level context
+
+Previous section context is preserved via the consistency chain
+(storage.read_section_summary).
+"""
+
+import re
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+from services import storage
+
+router = APIRouter(prefix="/compile", tags=["Prompt Compiler"])
+
+
+# ── NotebookLM Prompt (direct from chapterization) ────────────────────────────
+
+@router.get(
+    "/notebooklm-prompt/{chapter_id}/{subtopic_id}",
+    summary="Compile NotebookLM prompt directly from chapterization data"
+)
+def compile_notebooklm_prompt(
+    chapter_id: str,
+    subtopic_id: str,
+    word_count: Optional[int] = Query(default=None),
+    academic_style_notes: Optional[str] = Query(default=None),
+):
+    """
+    Builds the NotebookLM writing prompt from the stored chapterization data.
+    No task.md required — source_guidance from the chapterization JSON
+    replaces the old Architect → task.md pipeline entirely.
+    """
+    # ── Load chapter ───────────────────────────────────────────────────────
+    chapter = storage.read_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+
+    # ── Load subtopic ──────────────────────────────────────────────────────
+    subtopics = chapter.get("subtopics", [])
+    subtopic = next((s for s in subtopics if s["subtopic_id"] == subtopic_id), None)
+    if not subtopic:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Subtopic '{subtopic_id}' not found. "
+                f"Available: {[s['subtopic_id'] for s in subtopics]}"
+            )
+        )
+
+    # ── Validate source_ids exist ──────────────────────────────────────────
+    source_ids = subtopic.get("source_ids", [])
+    if not source_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Subtopic '{subtopic_id}' has no source_ids. "
+                "Re-import the chapterization JSON with source_ids for each subtopic."
+            )
+        )
+
+    # ── Previous section summary (preserved from old pipeline) ─────────────
+    previous_summary = None
+    ids_in_order = [s["subtopic_id"] for s in subtopics]
+    if subtopic_id in ids_in_order:
+        idx = ids_in_order.index(subtopic_id)
+        if idx > 0:
+            prev_id = ids_in_order[idx - 1]
+            previous_summary = storage.read_section_summary(chapter_id, prev_id)
+
+    # ── Render prompt ──────────────────────────────────────────────────────
+    prompts = _render_notebooklm_prompt(
+        chapter=chapter,
+        subtopic=subtopic,
+        previous_summary=previous_summary,
+        word_count_override=word_count,
+        academic_style_notes=academic_style_notes,
+    )
+    prompt_1 = prompts["prompt_1"]
+    prompt_2 = prompts["prompt_2"]
+
+    # ── Effective word count ──────────────────────────────────────────────
+    effective_wc = word_count
+    if not effective_wc and subtopic.get("estimated_pages"):
+        effective_wc = subtopic["estimated_pages"] * 250
+
+    # ── Resolve source files from local scan ───────────────────────────────
+    required_sources = _resolve_required_sources(source_ids)
+
+    # ── Warnings ───────────────────────────────────────────────────────────
+    warnings = []
+    if not previous_summary and ids_in_order.index(subtopic_id) > 0:
+        warnings.append("No previous section summary found. Save one after writing the previous subtopic.")
+    unresolved = [r for r in required_sources if r["file_name"] is None]
+    if unresolved:
+        warnings.append(
+            f"{len(unresolved)} source(s) could not be matched to a local file. "
+            "Run Scan Folder on the Source Library page or check thesis folder names."
+        )
+
+    # ── Build response with source metadata ────────────────────────────────
+    return {
+        "prompt": f"{prompt_1}\n\n\n{prompt_2}",
+        "prompt_1": prompt_1,
+        "prompt_2": prompt_2,
+        "meta": {
+            "chapter": f"{chapter['number']} — {chapter['title']}",
+            "subtopic": f"{subtopic['number']} — {subtopic['title']}",
+            "previous_section_included": previous_summary is not None,
+            "previous_section": (
+                f"{previous_summary.get('subtopic_number')} — {previous_summary.get('subtopic_title')}"
+                if previous_summary else None
+            ),
+            "required_sources": required_sources,
+            "source_count": len(source_ids),
+            "word_count_target": effective_wc,
+            "warnings": warnings,
+        },
+        "next_step": (
+            f"1. Check required_sources — upload those PDFs to NotebookLM. "
+            f"2. Paste Prompt 1 into NotebookLM. "
+            f"3. Paste Prompt 2 into Gemini with Stage One output. "
+            f"4. Save draft via POST /sections/{chapter_id}/{subtopic_id}/draft. "
+            f"5. Save consistency summary via POST /consistency/{chapter_id}/{subtopic_id}."
+        )
+    }
+
+
+# ── Source file resolver ────────────────────────────────────────────────────────
+
+def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
+    """
+    For each entry in source_ids, resolve the thesis name + chapter_id
+    to a local filename (and Drive link if available) using the scan dictionary.
+    """
+    results = []
+    for entry in source_ids:
+        thesis_name = entry.get("source_id", "")
+        chapter_id_raw = entry.get("chapter_id", "")
+        source_guidance = entry.get("source_guidance", "")
+
+        resolved = storage.resolve_source_files(thesis_name, chapter_id_raw)
+
+        if not resolved:
+            results.append({
+                "source_id": thesis_name,
+                "chapter_id": chapter_id_raw,
+                "source_guidance": source_guidance,
+                "file_name": None,
+                "drive_link": None,
+            })
+        else:
+            for r in resolved:
+                results.append({
+                    "source_id": thesis_name,
+                    "chapter_id": r["segment"],
+                    "source_guidance": source_guidance,
+                    "file_name": r["file_name"],
+                    "drive_link": r["drive_link"],
+                })
+
+    return results
+
+
+# ── Prompt renderer ────────────────────────────────────────────────────────────
+
+def _render_notebooklm_prompt(
+    chapter: dict,
+    subtopic: dict,
+    previous_summary: Optional[dict],
+    word_count_override: Optional[int],
+    academic_style_notes: Optional[str],
+) -> dict[str, str]:
+
+    # ── Resolve dynamic values ─────────────────────────────────────────────
+    subtopic_number = subtopic.get("number", "")
+    subtopic_title  = subtopic.get("title", "Untitled")
+    estimated_pages = subtopic.get("estimated_pages")
+
+    if word_count_override:
+        wc = word_count_override
+    elif estimated_pages:
+        wc = estimated_pages * 250
+    else:
+        wc = 1000
+
+    position_in_argument = subtopic.get("position_in_argument", "Not specified")
+    goal                 = subtopic.get("goal", "Not specified")
+    target_page_count    = estimated_pages
+    # ── Build source block (chapter name + source_guidance only) ──────────
+    source_ids   = subtopic.get("source_ids", [])
+    source_lines = []
+    for src in source_ids:
+        src_label = src.get("source_id", "Unknown")
+        guidance  = src.get("source_guidance", "Use as evidence.")
+        source_lines.append(f"- {src_label}\n  {guidance}")
+    sources_block = "\n\n".join(source_lines) if source_lines else "No sources specified."
+
+    # ── Previous section context ───────────────────────────────────────────
+    prev_lines = []
+    if previous_summary:
+        prev_lines += [
+            "# PREVIOUS SECTION CONTEXT",
+            "Do NOT repeat. Build forward from what was established.",
+            "",
+            f"Section {previous_summary.get('subtopic_number')} established:",
+            previous_summary.get("core_argument_made", ""),
+        ]
+        if previous_summary.get("key_terms_established"):
+            prev_lines += [
+                "",
+                f"Use these terms consistently (do not redefine): "
+                f"{', '.join(previous_summary['key_terms_established'])}",
+            ]
+        if previous_summary.get("what_next_section_must_build_on"):
+            prev_lines += [
+                "",
+                "Build on:",
+                previous_summary["what_next_section_must_build_on"],
+            ]
+        prev_lines.append("")
+
+    prev_ctx_block = "\n".join(prev_lines)
+
+    # ── Style notes ────────────────────────────────────────────────────────
+    style_note_line = f"\n* {academic_style_notes}" if academic_style_notes else ""
+
+    # ── Assemble prompt ────────────────────────────────────────────────────
+    prompt_1 = f"""\
+You are writing an academic section of a PhD dissertation in English \
+literature. Your job is structural execution: build the argument exactly \
+as instructed using only the provided sources.
+
+# {subtopic_number} {subtopic_title}
+* Target length: ~{wc} words
+* {position_in_argument}
+* {goal}{style_note_line}
+
+# SOURCES & DEPLOYMENT STRATEGY
+{sources_block}
+
+{prev_ctx_block}\
+# STRICT RULES
+- Begin directly with the argument. No "In this section" openers.
+- Continuous analytical paragraphs only. No bullet points, bolding, \
+or subheadings within the section.
+- Do not introduce outside arguments, sources, or scholars.
+- Write as a scholar would: establish the claim, acknowledge what the \
+existing approach achieves before critiquing it, name what the field \
+loses by maintaining this pattern, and close by signalling what becomes \
+possible once it is overcome."""
+
+    # ── Assemble Stage Two prompt ──────────────────────────────────────────
+    prompt_2 = f"""\
+PROMPT 2 — Gemini (Stage Two: Scholarly Elaboration)
+You are a scholarly editor working on a PhD dissertation in 
+English literature. When given a draft section your job is 
+to expand it to genuine scholarly depth without adding new 
+sources, inventing citations, or padding with repetition.
+
+Every paragraph you add must do one of these four things:
+1. STEELMAN — defend what the existing approach achieves 
+   before the critique lands.
+2. INSTITUTIONALIZE — explain what disciplinary or structural 
+   conditions produce and reproduce the pattern being diagnosed. 
+   Draw only on what the sources imply.
+3. CONSEQUENTIALIZE — develop what the field specifically 
+   loses by maintaining this pattern.
+4. PROSPECTIVE SIGNAL — gesture toward what becomes visible 
+   once the limitation is overcome. Two to three sentences only.
+
+ALWAYS:
+- Preserve all citations exactly as written in the draft.
+- Match or exceed the draft's academic register.
+- If the draft already handles one of the four tasks well, 
+  build around it rather than replacing it.
+
+NEVER:
+- Add new scholars, sources, or outside knowledge.
+- Use bullet points, bolding, or subheadings.
+- Let two consecutive paragraphs do the same argumentative work.
+Expand this draft to {target_page_count} pages. All four tasks must be present."""
+
+    return {"prompt_1": prompt_1, "prompt_2": prompt_2}
+
+
+
+================================================
+FILE: spo_backend/routers/consistency.py
+================================================
+"""
+Consistency Chain Router
+------------------------
+Stores and retrieves section summaries that maintain argument continuity
+across subtopics.
+
+After writing each section, save a summary here.
+The next section's NotebookLM prompt will include this as context.
+"""
+
+from fastapi import APIRouter, HTTPException
+from models.consistency import SectionSummaryCreateRequest
+from services import storage
+
+router = APIRouter(prefix="/consistency", tags=["Consistency Chain"])
+
+
+@router.post(
+    "/{chapter_id}/{subtopic_id}",
+    summary="Save summary after completing a subtopic"
+)
+def save_section_summary(
+    chapter_id: str,
+    subtopic_id: str,
+    req: SectionSummaryCreateRequest
+):
+    """
+    Call this after NotebookLM produces an approved draft.
+    The summary becomes the 'Previous Section Context' for the next subtopic.
+    """
+    data = req.model_dump()
+    return storage.write_section_summary(chapter_id, subtopic_id, data)
+
+
+@router.get(
+    "/{chapter_id}",
+    summary="Get all section summaries for a chapter (the consistency chain)"
+)
+def get_chapter_chain(chapter_id: str):
+    """
+    Returns all completed summaries in order.
+    Your app uses this to show the argumentative thread of a chapter so far.
+    """
+    summaries = storage.list_section_summaries(chapter_id)
+    return {
+        "chapter_id": chapter_id,
+        "chain": summaries,
+        "sections_completed": len(summaries)
+    }
+
+
+@router.get(
+    "/{chapter_id}/{subtopic_id}",
+    summary="Get summary for a specific completed subtopic"
+)
+def get_section_summary(chapter_id: str, subtopic_id: str):
+    data = storage.read_section_summary(chapter_id, subtopic_id)
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No summary found for subtopic '{subtopic_id}'. "
+                   "Complete and save the section first."
+        )
+    return data
+
+
+@router.get(
+    "/{chapter_id}/previous-for/{subtopic_id}",
+    summary="Get the previous section's summary (for injecting into next prompt)"
+)
+def get_previous_summary(chapter_id: str, subtopic_id: str):
+    """
+    Key endpoint for the app: before compiling a prompt for subtopic X,
+    call this to get the summary of the subtopic written just before X.
+    Inject the returned data into your NotebookLM prompt as 'Previous Section Context'.
+    """
+    chapter = storage.read_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+
+    subtopics = chapter.get("subtopics", [])
+    ids_in_order = [s["subtopic_id"] for s in subtopics]
+
+    if subtopic_id not in ids_in_order:
+        raise HTTPException(status_code=404, detail=f"Subtopic '{subtopic_id}' not in chapter.")
+
+    idx = ids_in_order.index(subtopic_id)
+    if idx == 0:
+        return {"message": "This is the first subtopic. No previous section context.", "summary": None}
+
+    previous_id = ids_in_order[idx - 1]
+    summary = storage.read_section_summary(chapter_id, previous_id)
+    if not summary:
+        return {
+            "message": f"Previous subtopic '{previous_id}' exists but has no saved summary yet.",
+            "summary": None
+        }
+    return {"summary": summary}
+
+
+@router.delete(
+    "/{chapter_id}/{subtopic_id}",
+    summary="Delete a section summary (if you need to rewrite)"
+)
+def delete_section_summary(chapter_id: str, subtopic_id: str):
+    if not storage.delete_section_summary(chapter_id, subtopic_id):
+        raise HTTPException(status_code=404, detail="Summary not found.")
+    return {"deleted": subtopic_id}
+
+
+
+================================================
+FILE: spo_backend/routers/drive.py
+================================================
+"""
+Drive Router
+------------
+Two responsibilities:
+  1. Local filesystem scan — discovers thesis folders and PDFs from a local path
+  2. Google Drive link registration — fetches file IDs from a Drive folder and
+     stores shareable links per filename, so the compiler can resolve source_ids
+     to clickable links
+
+Expected folder structure (local):
+    parent_folder/
+        my_thesis_1/
+            my_thesis_1_sources/
+                actual_thesis_folder/     ← level-4: thesis name
+                    07_chapter 1.pdf
+                    08_chapter 2.pdf
+            index_cards/                  ← created by app if missing
+                actual_thesis_folder.json
+
+Google Drive structure (mirrors local):
+    phd/
+        my_thesis_1/
+            original_sources/
+                actual_thesis_folder/
+                    07_chapter 1.pdf
+
+Endpoints:
+    POST /drive/scan-local              ← scan local parent folder
+    GET  /drive/local-files             ← return stored file tree + link status
+    POST /drive/save-index-card         ← save JSON + auto-import to SPO
+    POST /drive/register-links          ← fetch Drive file IDs → store shareable links
+    GET  /drive/links/{thesis_name}     ← return stored links for one thesis
+    DELETE /drive/links/{thesis_name}   ← clear stored links (force re-register)
+
+Setup required:
+    pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+    Credentials: set GOOGLE_SERVICE_ACCOUNT_JSON env var to the path of your
+    service account JSON file, OR set GOOGLE_DRIVE_API_KEY for API key auth.
+
+    For a service account:
+      1. Create a service account in Google Cloud Console
+      2. Enable the Drive API
+      3. Share the parent Drive folder with the service account email (viewer access)
+      4. Download the JSON key file
+      5. Set GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/key.json
+
+    For API key (simpler, read-only public folders only):
+      1. Create an API key in Google Cloud Console with Drive API access
+      2. Set GOOGLE_DRIVE_API_KEY=your_key_here
+      3. Make sure the Drive folder is publicly accessible (Anyone with link → Viewer)
+"""
+
+import os
+import json
+import uuid
+from datetime import datetime
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+from services import storage
+
+router = APIRouter(prefix="/drive", tags=["Drive & Local Scanner"])
+
+# ── Storage keys ───────────────────────────────────────────────────────────────
+SCAN_KEY = "drive_scan_result"
+IMPORT_STATUS_KEY = "drive_import_status"
+LINKS_KEY_PREFIX = "drive_links_"  # + thesis_name
+
+
+def _read_scan() -> dict:
+    data = storage.read_misc(SCAN_KEY)
+    return data if data else {}
+
+
+def _write_scan(data: dict):
+    storage.write_misc(SCAN_KEY, data)
+
+
+def _read_import_status() -> dict:
+    data = storage.read_misc(IMPORT_STATUS_KEY)
+    return data if data else {}
+
+
+def _write_import_status(data: dict):
+    storage.write_misc(IMPORT_STATUS_KEY, data)
+
+
+def _links_key(thesis_name: str) -> str:
+    # Sanitize for use as a storage key (no spaces, slashes, quotes)
+    safe = thesis_name.replace(" ", "_").replace("/", "-").replace("\\", "-")
+    return f"{LINKS_KEY_PREFIX}{safe[:100]}"
+
+
+# ── Models ─────────────────────────────────────────────────────────────────────
+
+class ScanRequest(BaseModel):
+    root_path: str
+
+
+class SaveIndexCardRequest(BaseModel):
+    thesis_name: str
+    level2_path: str
+    json_text: str
+
+
+class RegisterLinksRequest(BaseModel):
+    # The Google Drive folder ID of the PARENT folder —
+    # the same top-level folder you configured in scan-local.
+    # Drive structure expected (mirrors local):
+    #   parent_folder/               ← pass THIS folder's ID
+    #     my_thesis_1/
+    #       my_thesis_1_sources/
+    #         actual_thesis_folder/  ← level-4, matched to thesis_name in scan
+    #           07_chapter 1.pdf
+    drive_parent_folder_id: str
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOCAL SCAN ENDPOINTS (unchanged)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/scan-local", summary="Scan local parent folder and build thesis file tree")
+def scan_local(req: ScanRequest):
+    root = req.root_path.strip()
+
+    if not os.path.isdir(root):
+        raise HTTPException(status_code=400, detail=f"Path not found or not a directory: {root}")
+
+    existing_scan = _read_scan()
+    added = []
+    skipped = []
+
+    try:
+        level2_entries = [e for e in os.scandir(root) if e.is_dir()]
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=f"Permission denied reading {root}: {e}")
+
+    for l2 in level2_entries:
+        try:
+            l3_candidates = [
+                e for e in os.scandir(l2.path)
+                if e.is_dir() and e.name.endswith("_sources")
+            ]
+        except PermissionError:
+            skipped.append({"folder": l2.name, "reason": "permission denied at level-3"})
+            continue
+
+        if not l3_candidates:
+            # Flat structure fallback: level-2 dir may contain PDFs directly
+            # (e.g. Shodhganga_Downloads/thesis_name/06_chapter 1.pdf)
+            try:
+                pdfs = sorted([
+                    f.name for f in os.scandir(l2.path)
+                    if f.is_file() and f.name.lower().endswith(".pdf")
+                ])
+            except PermissionError:
+                skipped.append({"folder": l2.name, "reason": "permission denied reading PDFs"})
+                continue
+
+            if not pdfs:
+                continue  # no PDFs and no *_sources — not a thesis folder
+
+            thesis_name = l2.name
+            if thesis_name in existing_scan:
+                existing_scan[thesis_name]["files"] = pdfs
+                existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
+                skipped.append({"folder": thesis_name, "reason": "already exists — file list updated"})
+            else:
+                existing_scan[thesis_name] = {
+                    "thesis_name": thesis_name,
+                    "level2_path": l2.path,
+                    "level3_path": None,
+                    "level4_path": None,
+                    "files": pdfs,
+                    "scanned_at": datetime.utcnow().isoformat(),
+                }
+                added.append(thesis_name)
+            continue
+
+        l3 = l3_candidates[0]
+
+        try:
+            l4_entries = [e for e in os.scandir(l3.path) if e.is_dir()]
+        except PermissionError:
+            skipped.append({"folder": l2.name, "reason": "permission denied at level-4"})
+            continue
+
+        for l4 in l4_entries:
+            thesis_name = l4.name
+
+            try:
+                pdfs = sorted([
+                    f.name for f in os.scandir(l4.path)
+                    if f.is_file() and f.name.lower().endswith(".pdf")
+                ])
+            except PermissionError:
+                skipped.append({"folder": thesis_name, "reason": "permission denied reading PDFs"})
+                continue
+
+            if thesis_name in existing_scan:
+                existing_scan[thesis_name]["files"] = pdfs
+                existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
+                skipped.append({"folder": thesis_name, "reason": "already exists — file list updated"})
+            else:
+                existing_scan[thesis_name] = {
+                    "thesis_name": thesis_name,
+                    "level2_path": l2.path,
+                    "level3_path": l3.path,
+                    "level4_path": l4.path,
+                    "files": pdfs,
+                    "scanned_at": datetime.utcnow().isoformat(),
+                }
+                added.append(thesis_name)
+
+    _write_scan(existing_scan)
+
+    return {
+        "total_thesis_folders": len(existing_scan),
+        "newly_added": len(added),
+        "added": added,
+        "skipped": skipped,
+    }
+
+
+@router.get("/local-files", summary="Return stored file tree with Drive link status")
+def get_local_files():
+    scan = _read_scan()
+    import_status = _read_import_status()
+
+    result = []
+    for thesis_name, data in scan.items():
+        entry = dict(data)
+        status = import_status.get(thesis_name, {})
+        entry["imported"] = status.get("imported", False)
+        entry["imported_at"] = status.get("imported_at")
+        entry["import_group_id"] = status.get("group_id")
+        entry["import_error"] = status.get("error")
+
+        # Include Drive link status so the frontend can show register button
+        links = storage.read_misc(_links_key(thesis_name))
+        entry["drive_links_registered"] = bool(links)
+        entry["drive_links_count"] = len(links) if links else 0
+
+        result.append(entry)
+
+    result.sort(key=lambda x: x["thesis_name"].lower())
+    return {"thesis_folders": result, "count": len(result)}
+
+
+@router.post("/save-index-card", summary="Save NotebookLM JSON to disk and auto-import to SPO")
+def save_index_card(req: SaveIndexCardRequest):
+    scan = _read_scan()
+
+    if req.thesis_name not in scan:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Thesis '{req.thesis_name}' not found in scan. Run scan first."
+        )
+
+    thesis_entry = scan[req.thesis_name]
+    level2_path = thesis_entry["level2_path"]
+
+    try:
+        parsed = json.loads(req.json_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid JSON: {e}. File not saved. Fix the JSON and try again."
+        )
+
+    index_cards_dir = os.path.join(level2_path, "index_cards")
+    os.makedirs(index_cards_dir, exist_ok=True)
+
+    safe_name = req.thesis_name.replace("/", "_").replace("\\", "_").replace(":", "_")
+    json_path = os.path.join(index_cards_dir, f"{safe_name}.json")
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(parsed, f, indent=2, ensure_ascii=False)
+
+    import_result, import_error = _auto_import(parsed)
+
+    import_status = _read_import_status()
+    import_status[req.thesis_name] = {
+        "imported": import_result is not None,
+        "imported_at": datetime.utcnow().isoformat() if import_result else None,
+        "group_id": import_result.get("group_id") if import_result else None,
+        "error": import_error,
+        "json_path": json_path,
+    }
+    _write_import_status(import_status)
+
+    if import_error:
+        return {
+            "saved": True,
+            "json_path": json_path,
+            "imported": False,
+            "import_error": import_error,
+            "message": "JSON saved to disk. Import failed — fix and re-import manually from the Source Library import tab.",
+        }
+
+    return {
+        "saved": True,
+        "json_path": json_path,
+        "imported": True,
+        "group_id": import_result["group_id"],
+        "sources_created": import_result["sources_created"],
+        "message": f"Saved and imported. {import_result['sources_created']} sources created.",
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GOOGLE DRIVE LINK REGISTRATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/register-links", summary="Walk Drive parent folder and register shareable links for all thesis folders")
+def register_drive_links(req: RegisterLinksRequest):
+    """
+    Walks the Drive parent folder (4 levels deep, mirroring the local structure)
+    and for every level-4 thesis folder found, fetches all PDF file IDs and
+    stores shareable links as { filename: link }.
+
+    Drive structure walked:
+      parent/                        level-1 (drive_parent_folder_id)
+        my_thesis_1/                 level-2
+          my_thesis_1_sources/       level-3 (any folder at this level)
+            actual_thesis_folder/    level-4 → matched to thesis_name in local scan
+              07_chapter 1.pdf       → registered
+
+    Only thesis names already present in the local scan are registered.
+    Unknown Drive folders are skipped and reported.
+    Results are stored and used automatically by resolve_source_files().
+    """
+    service = _get_drive_service()
+    scan = _read_scan()
+
+    registered = []   # { thesis_name, files_registered }
+    skipped = []      # { folder_name, reason }
+
+    # ── Level-2: list folders inside parent ───────────────────────────────────
+    l2_folders = _list_drive_folders(service, req.drive_parent_folder_id)
+    if l2_folders is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not list Drive folder '{req.drive_parent_folder_id}'. Check folder ID and sharing settings."
+        )
+
+    for l2 in l2_folders:
+        # ── Level-3: find the *_sources folder inside each level-2 ───────────
+        l3_folders = _list_drive_folders(service, l2["id"])
+        if l3_folders is None:
+            skipped.append({"folder": l2["name"], "reason": "could not list level-3 subfolders"})
+            continue
+
+        # Mirror local logic: take the first folder at level-3 regardless of name
+        if not l3_folders:
+            skipped.append({"folder": l2["name"], "reason": "no level-3 subfolder found"})
+            continue
+
+        l3 = l3_folders[0]
+
+        # ── Level-4: thesis folders inside sources folder ─────────────────────
+        l4_folders = _list_drive_folders(service, l3["id"])
+        if l4_folders is None:
+            skipped.append({"folder": l2["name"], "reason": "could not list level-4 thesis folders"})
+            continue
+
+        for l4 in l4_folders:
+            thesis_name = l4["name"]
+
+            # Only register theses that exist in the local scan
+            if thesis_name not in scan:
+                # Try case-insensitive match
+                matched = next(
+                    (k for k in scan if k.lower() == thesis_name.lower()),
+                    None
+                )
+                if not matched:
+                    skipped.append({
+                        "folder": thesis_name,
+                        "reason": "not in local scan — run scan-local first or check folder name"
+                    })
+                    continue
+                thesis_name = matched  # use the scan key casing
+
+            # ── Fetch PDF files inside level-4 ────────────────────────────────
+            files = _list_drive_files(service, l4["id"])
+            if files is None:
+                skipped.append({"folder": thesis_name, "reason": "could not list files in Drive folder"})
+                continue
+
+            if not files:
+                skipped.append({"folder": thesis_name, "reason": "no files found in Drive folder"})
+                continue
+
+            # Build filename → shareable link
+            links = {
+                f["name"]: f"https://drive.google.com/file/d/{f['id']}/view"
+                for f in files
+            }
+
+            # Persist links
+            storage.write_misc(_links_key(thesis_name), links)
+
+            # Also write into scan entry for resolve_source_files()
+            scan[thesis_name]["drive_links"] = links
+            scan[thesis_name]["drive_links_registered_at"] = datetime.utcnow().isoformat()
+            scan[thesis_name]["drive_folder_id"] = l4["id"]
+
+            registered.append({
+                "thesis_name": thesis_name,
+                "drive_folder_id": l4["id"],
+                "files_registered": len(links),
+            })
+
+    _write_scan(scan)
+
+    return {
+        "registered_count": len(registered),
+        "skipped_count": len(skipped),
+        "registered": registered,
+        "skipped": skipped,
+    }
+
+
+@router.get("/links/{thesis_name}", summary="Return stored Drive links for a thesis")
+def get_drive_links(thesis_name: str):
+    links = storage.read_misc(_links_key(thesis_name))
+    if not links:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No Drive links registered for '{thesis_name}'. Use POST /drive/register-links first."
+        )
+    return {
+        "thesis_name": thesis_name,
+        "count": len(links),
+        "links": links,
+    }
+
+
+@router.delete("/links/{thesis_name}", summary="Clear stored Drive links for a thesis (force re-register)")
+def delete_drive_links(thesis_name: str):
+    # Remove from misc storage
+    existing = storage.read_misc(_links_key(thesis_name))
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"No links found for '{thesis_name}'.")
+
+    storage.write_misc(_links_key(thesis_name), {})
+
+    # Also clear from scan entry
+    scan = _read_scan()
+    if thesis_name in scan:
+        scan[thesis_name].pop("drive_links", None)
+        scan[thesis_name].pop("drive_links_registered_at", None)
+        scan[thesis_name].pop("drive_folder_id", None)
+        _write_scan(scan)
+
+    return {"deleted": True, "thesis_name": thesis_name}
+
+
+# ── Drive API helpers ──────────────────────────────────────────────────────────
+
+def _list_drive_folders(service, folder_id: str) -> list | None:
+    """Returns list of {id, name} for subfolders of folder_id. None on error."""
+    try:
+        results = service.files().list(
+            q=f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'",
+            fields="files(id, name)",
+            pageSize=100,
+        ).execute()
+        return results.get("files", [])
+    except Exception:
+        return None
+
+
+def _list_drive_files(service, folder_id: str) -> list | None:
+    """Returns list of {id, name} for files (non-folders) in folder_id. None on error."""
+    try:
+        results = service.files().list(
+            q=f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'",
+            fields="files(id, name)",
+            pageSize=100,
+        ).execute()
+        return results.get("files", [])
+    except Exception:
+        return None
+
+
+# ── Drive API client ───────────────────────────────────────────────────────────
+
+def _get_drive_service():
+    """
+    Returns an authenticated Google Drive API service object.
+    Tries service account first, falls back to API key.
+    Raises HTTPException with a clear message if neither is configured.
+    """
+    service_account_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    api_key = os.environ.get("GOOGLE_DRIVE_API_KEY")
+
+    if not service_account_path and not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Google Drive credentials not configured. "
+                "Set GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/key.json "
+                "or GOOGLE_DRIVE_API_KEY=your_key in your environment variables. "
+                "See drive.py module docstring for full setup instructions."
+            )
+        )
+
+    try:
+        from googleapiclient.discovery import build
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "google-api-python-client not installed. "
+                "Run: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib"
+            )
+        )
+
+    if service_account_path:
+        # Service account auth — works for both public and private folders
+        try:
+            from google.oauth2 import service_account
+            creds = service_account.Credentials.from_service_account_file(
+                service_account_path,
+                scopes=["https://www.googleapis.com/auth/drive.readonly"]
+            )
+            return build("drive", "v3", credentials=creds)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Service account auth failed: {e}. Check GOOGLE_SERVICE_ACCOUNT_JSON path."
+            )
+
+    # API key auth — only works for publicly shared folders
+    try:
+        return build("drive", "v3", developerKey=api_key)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"API key auth failed: {e}. Check GOOGLE_DRIVE_API_KEY value."
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTO-IMPORT HELPER (unchanged)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _auto_import(data: dict):
+    from routers.importer import _normalize_source_chapter, SourceImport
+    from pydantic import ValidationError
+
+    if "chapters" in data:
+        data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
+
+    try:
+        validated = SourceImport(**data)
+    except ValidationError as e:
+        return None, f"Validation failed: {e.errors()}"
+
+    valid_types = {"thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"}
+    if validated.source_type not in valid_types:
+        return None, f"source_type must be one of: {', '.join(valid_types)}"
+
+    group_id = str(uuid.uuid4())[:8]
+    now = datetime.utcnow().isoformat()
+
+    group_record = {
+        "group_id": group_id,
+        "title": validated.title,
+        "author": validated.author,
+        "year": validated.year,
+        "source_type": validated.source_type,
+        "institution_or_publisher": validated.institution_or_publisher,
+        "description": validated.description,
+        "work_summary": validated.work_summary,
+        "created_at": now,
+        "updated_at": now,
+    }
+    storage.write_source_group(group_id, group_record)
+
+    created_sources = []
+    for ch in validated.chapters:
+        source_id = str(uuid.uuid4())[:8]
+        source_record = {
+            "source_id": source_id,
+            "group_id": group_id,
+            "label": ch.label,
+            "title": ch.title,
+            "chapter_or_section": ch.title,
+            "page_range": ch.page_range,
+            "file_name": ch.file_name,
+            "file_path": None,
+            "index_card": None,
+            "has_index_card": False,
+            "created_at": now,
+            "updated_at": now,
+        }
+        index_card = {
+            "key_claims": ch.key_claims,
+            "themes": ch.themes,
+            "time_period_covered": ch.time_period_covered,
+            "relevant_subtopics": ch.relevant_subtopics,
+            "limitations": ch.limitations,
+            "notable_authors_cited": ch.notable_authors_cited,
+            "your_notes": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        source_record["index_card"] = index_card
+        source_record["has_index_card"] = True
+        storage.write_source(group_id, source_id, source_record)
+        created_sources.append({"source_id": source_id, "label": ch.label})
+
+    return {
+        "group_id": group_id,
+        "title": validated.title,
+        "author": validated.author,
+        "sources_created": len(created_sources),
+        "sources": created_sources,
+    }, None
+
+
+================================================
+FILE: spo_backend/routers/importer.py
+================================================
+"""
+Import Router
+-------------
+JSON-based setup path. Replaces the slow field-by-field form flow for
+initial project setup. Form-based endpoints in thesis.py and sources.py
+remain fully functional for manual patches and corrections.
+
+Endpoints:
+  POST /import/thesis                  ← thesis.json
+  POST /import/chapterization/{ch_id}  ← chapterization.json for one chapter
+  POST /import/source                  ← source.json for one external work
+  GET  /import/status                  ← what has been set up so far
+
+JSON schemas are documented in /prompts/ — use those prompts with Claude
+to generate the JSONs from your actual documents.
+"""
+
+from fastapi import APIRouter, HTTPException, Body
+from pydantic import BaseModel, Field, ValidationError
+from typing import Optional
+from datetime import datetime
+from services import storage
+
+router = APIRouter(prefix="/import", tags=["JSON Import"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# THESIS.JSON SCHEMA
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ThesisImport(BaseModel):
+    """
+    Matches the preferred thesis.json schema exactly.
+    The JSON uses core_argument (not central_argument) and
+    nests theoretical_frameworks inside methodology.
+    """
+    # Identity
+    document_type: Optional[str] = None
+    title: str
+    institution: Optional[str] = None
+    researcher: Optional[str] = None
+    author: Optional[str] = None
+    year: Optional[int] = None
+    degree: Optional[str] = None
+    field: Optional[str] = None
+
+    # Injected into prompts
+    research_question: Optional[str] = None
+    core_argument: str
+    temporal_scope: Optional[str] = None
+    research_gap: Optional[str] = None
+    central_themes: list[str] = Field(default_factory=list)
+    methodology: Optional[dict] = None
+
+    # Reference only
+    objectives: list[str] = Field(default_factory=list)
+    key_authors_and_works: list[dict] = Field(default_factory=list)
+    other_authors_mentioned: list[str] = Field(default_factory=list)
+    theoretical_positions: Optional[dict] = None
+    chapter_structure: list[dict] = Field(default_factory=list)
+    expected_outcome: Optional[str] = None
+    significance: Optional[dict] = None
+    key_literature_review_findings: list[dict] = Field(default_factory=list)
+    scope_and_limits: Optional[str] = None
+
+
+
+@router.post("/thesis", summary="Import thesis.json")
+def import_thesis(data: ThesisImport):
+    record = data.model_dump()
+    record["updated_at"] = datetime.utcnow().isoformat()
+    storage.write_synopsis(record)
+    
+    frameworks = []
+    if data.methodology and isinstance(data.methodology, dict):
+        frameworks = data.methodology.get("theoretical_frameworks", [])
+    
+    return {
+        "imported": "thesis",
+        "title": data.title,
+        "author": data.researcher or data.author,
+        "injected_into_prompts": [
+            "core_argument", "temporal_scope", "research_gap",
+            "central_themes", "methodology.theoretical_frameworks"
+        ],
+        "theoretical_frameworks_found": frameworks,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHAPTERIZATION.JSON SCHEMA
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SubtopicImport(BaseModel):
+    number: str = Field(..., description="e.g. '1.3.2'")
+    title: str
+    goal: str = Field(..., description="What must this subtopic argue or establish?")
+    position_in_argument: Optional[str] = Field(
+        None,
+        description="How does this subtopic serve the chapter arc?"
+    )
+    estimated_pages: Optional[int] = Field(
+        None,
+        description="Estimated page count for this subtopic."
+    )
+    source_ids: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Sources assigned to this subtopic with per-source writing guidance. "
+            "Each: {source_id, chapter_id, source_guidance}"
+        )
+    )
+
+
+class ChapterizationImport(BaseModel):
+    """
+    Schema for chapterization.json — one chapter.
+    Generate with /prompts/generate_chapterization_json.txt
+    """
+    number: int
+    title: str
+    goal: str = Field(
+        ...,
+        description="What must this chapter prove? How does it serve the thesis argument?"
+    )
+    chapter_arc: str = Field(
+        ...,
+        description=(
+            "150–200 words. How all subtopics connect argumentatively within this chapter. "
+            "Describes the argumentative movement and how subtopics build on each other."
+        )
+    )
+    chapter_goal_statement: Optional[str] = Field(
+        None,
+        description=(
+            "3–4 sentences on what the reader must understand by the end of this chapter. "
+            "More precise than the goal field — states exactly what must be established."
+        )
+    )
+    subtopics: list[SubtopicImport] = Field(
+        ..., description="All subtopics in order.", min_length=1
+    )
+    sources_reserved_for_later_chapters: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Sources explicitly excluded from this chapter. "
+            "Each: {source_id, reserved_for, reason}"
+        )
+    )
+
+
+@router.post(
+    "/chapterization/{chapter_id}",
+    summary="Import chapterization.json — sets up chapter arc + all subtopics at once"
+)
+def import_chapterization(chapter_id: str, data: ChapterizationImport):
+    """
+    Imports a full chapter: goal, arc, and all subtopics in one JSON.
+    If the chapter already exists, it is overwritten.
+    Subtopic IDs are auto-generated from the number (e.g. '1.3.2' → '1_3_2').
+    """
+    subtopics = []
+    for sub in data.subtopics:
+        subtopics.append({
+            "subtopic_id": sub.number.replace(".", "_"),
+            "number": sub.number,
+            "title": sub.title,
+            "goal": sub.goal,
+            "position_in_argument": sub.position_in_argument,
+            "estimated_pages": sub.estimated_pages,
+            "source_ids": [s for s in sub.source_ids],
+        })
+
+    record = {
+        "chapter_id": chapter_id,
+        "number": data.number,
+        "title": data.title,
+        "goal": data.goal,
+        "chapter_arc": data.chapter_arc,
+        "chapter_goal_statement": data.chapter_goal_statement,
+        "subtopics": subtopics,
+        "sources_reserved_for_later_chapters": [
+            s for s in data.sources_reserved_for_later_chapters
+        ],
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    storage.write_chapter(chapter_id, record)
+
+    return {
+        "imported": "chapter",
+        "chapter_id": chapter_id,
+        "title": data.title,
+        "subtopics_created": len(subtopics),
+        "chapter_arc_set": True,
+        "arc_word_count": len(data.chapter_arc.split()),
+        "source_ids_stored": sum(len(s.source_ids) for s in data.subtopics),
+    }
+
+
+@router.post(
+    "/chapterization/bulk",
+    summary="Bulk-import chapterization JSONs — multiple chapters in one upload"
+)
+def import_chapterization_bulk(chapters: list[ChapterizationImport]):
+    """
+    Accepts an array of chapter chapterization objects.
+    Each chapter's `number` field is used as the chapter_id (e.g. 1 → 'ch1').
+    """
+    results = []
+    for ch_data in chapters:
+        chapter_id = f"ch{ch_data.number}"
+        # Reuse the same logic as single import
+        subtopics = []
+        for sub in ch_data.subtopics:
+            subtopics.append({
+                "subtopic_id": sub.number.replace(".", "_"),
+                "number": sub.number,
+                "title": sub.title,
+                "goal": sub.goal,
+                "position_in_argument": sub.position_in_argument,
+                "estimated_pages": sub.estimated_pages,
+                "source_ids": [s for s in sub.source_ids],
+            })
+
+        record = {
+            "chapter_id": chapter_id,
+            "number": ch_data.number,
+            "title": ch_data.title,
+            "goal": ch_data.goal,
+            "chapter_arc": ch_data.chapter_arc,
+            "chapter_goal_statement": ch_data.chapter_goal_statement,
+            "subtopics": subtopics,
+            "sources_reserved_for_later_chapters": [
+                s for s in ch_data.sources_reserved_for_later_chapters
+            ],
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        storage.write_chapter(chapter_id, record)
+        results.append({
+            "chapter_id": chapter_id,
+            "title": ch_data.title,
+            "subtopics_created": len(subtopics),
+        })
+
+    return {
+        "imported": "chapterization_bulk",
+        "chapters_created": len(results),
+        "chapters": results,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SOURCE.JSON SCHEMA
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _normalize_source_chapter(ch: dict) -> dict:
+    """
+    Maps alternative field names from NotebookLM output to SPO's canonical schema.
+    This makes the importer tolerant of reasonable field name variants so that
+    minor differences in what NotebookLM produces don't cause import failures.
+
+    Canonical field         ← Accepted alternatives
+    ─────────────────────────────────────────────────
+    file_name               ← file, filename, pdf, pdf_name
+    title                   ← chapter_title, name, section_title
+    label                   ← (auto-generated from file_name or title if missing)
+    time_period_covered     ← time_period, period, historical_period
+    notable_authors_cited   ← citations, cited_authors, authors_cited, scholars
+    key_claims              ← claims, main_claims, arguments
+    themes                  ← theme, tags, keywords
+    limitations             ← limitation, constraints, cannot_support
+    """
+    c = dict(ch)  # don't mutate original
+
+    # file_name
+    for alt in ("file", "filename", "pdf", "pdf_name"):
+        if alt in c and "file_name" not in c:
+            c["file_name"] = c.pop(alt)
+            break
+
+    # title
+    for alt in ("chapter_title", "name", "section_title"):
+        if alt in c and "title" not in c:
+            c["title"] = c.pop(alt)
+            break
+
+    # label — auto-generate if absent
+    if "label" not in c or not c["label"]:
+        fname = c.get("file_name", "")
+        title = c.get("title", "")
+        # Use stem of filename, or truncated title
+        if fname:
+            stem = fname.replace(".pdf", "").replace("_", " ").title()
+            c["label"] = stem[:30]
+        elif title:
+            c["label"] = title[:30]
+        else:
+            c["label"] = "Unlabelled"
+
+    # time_period_covered
+    for alt in ("time_period", "period", "historical_period"):
+        if alt in c and "time_period_covered" not in c:
+            c["time_period_covered"] = c.pop(alt)
+            break
+
+    # notable_authors_cited
+    for alt in ("citations", "cited_authors", "authors_cited", "scholars"):
+        if alt in c and "notable_authors_cited" not in c:
+            c["notable_authors_cited"] = c.pop(alt)
+            break
+
+    # key_claims
+    for alt in ("claims", "main_claims", "arguments"):
+        if alt in c and "key_claims" not in c:
+            c["key_claims"] = c.pop(alt)
+            break
+
+    # themes — also accept a single string (split on comma)
+    for alt in ("theme", "tags", "keywords"):
+        if alt in c and "themes" not in c:
+            c["themes"] = c.pop(alt)
+            break
+    if isinstance(c.get("themes"), str):
+        c["themes"] = [t.strip() for t in c["themes"].split(",") if t.strip()]
+
+    # limitations — also accept list (join to string)
+    for alt in ("limitation", "constraints", "cannot_support"):
+        if alt in c and "limitations" not in c:
+            c["limitations"] = c.pop(alt)
+            break
+    if isinstance(c.get("limitations"), list):
+        c["limitations"] = " ".join(c["limitations"])
+    # ── Coerce null values to defaults (Pydantic defaults only apply for absent keys) ──
+    if c.get("title") is None:
+        c["title"] = "Untitled Chapter"
+    if c.get("label") is None or not c.get("label"):
+        c["label"] = c.get("title", "Unlabelled")[:30]
+    if not c.get("key_claims"):
+        c["key_claims"] = ["No specific claims extracted."]
+    if not c.get("themes"):
+        c["themes"] = ["uncategorized"]
+
+    # ── Junk drawer: sweep unrecognized keys into additional ─────────────
+    CANONICAL_KEYS = {
+        "label", "title", "page_range", "file_name",
+        "key_claims", "themes", "time_period_covered",
+        "relevant_subtopics", "limitations", "notable_authors_cited",
+    }
+    extras = []
+    for k in list(c.keys()):
+        if k not in CANONICAL_KEYS:
+            val = c.pop(k)
+            if val is not None and val != "" and val != []:
+                extras.append(f"[{k.upper()}]: {val}")
+    if extras:
+        existing = c.get("additional") or ""
+        separator = "\n" if existing else ""
+        c["additional"] = (existing + separator + "\n".join(extras)).strip()
+
+    return c
+
+class SourceChapterImport(BaseModel):
+    """One chapter/section of the external work."""
+    label: str = Field(
+        default="Unlabelled",
+        description="Short label Claude sees in prompts. e.g. 'Sharma Ch.2'"
+    )
+    title: str = Field(default="Untitled Chapter", description="Full chapter/section title")
+    page_range: Optional[str] = Field(None, description="e.g. '45–89'")
+    file_name: Optional[str] = Field(None, description="e.g. 'sharma_2003_ch2.pdf'")
+
+    # Index card fields — extracted via NotebookLM, reviewed by you
+    key_claims: list[str] = Field(
+        default_factory=lambda: ["No specific claims extracted."],
+        description="2–5 specific claims this chapter makes.",
+    )
+    themes: list[str] = Field(
+        default_factory=lambda: ["uncategorized"],
+        description="Snake_case theme tags. e.g. ['nationalist_idealization']",
+    )
+    time_period_covered: Optional[str] = None
+    relevant_subtopics: list[str] = Field(
+        default_factory=list,
+        description="Your subtopic IDs this chapter supports. e.g. ['1_3_2', '1_3_3']"
+    )
+    limitations: Optional[str] = Field(
+        None,
+        description="What this chapter cannot support. Feeds 'Do Not Include' in compiled prompts."
+    )
+    notable_authors_cited: list[str] = Field(default_factory=list)
+    additional: Optional[str] = Field(None, description="Extra fields swept from JSON import that didn't match the schema.")
+
+
+class SourceImport(BaseModel):
+    """
+    Schema for source.json — one file per external work.
+    Generate with /prompts/generate_source_json.txt
+    Workflow: upload PDF chapters to NotebookLM → extract structured summary
+    → review and correct → import here.
+    """
+    # Work-level metadata
+    title: str = Field(default="Untitled Work")
+    author: str = Field(default="Unknown Author")
+    year: Optional[int] = None
+    source_type: str = Field(
+        default="other",
+        description="One of: thesis_chapter, book_chapter, journal_article, book, report, other"
+    )
+    institution_or_publisher: Optional[str] = None
+    description: Optional[str] = Field(
+        None,
+        description="Why you are using this work. How it serves your thesis."
+    )
+    work_summary: Optional[str] = Field(
+        None,
+        description=(
+            "2–4 sentence summary of the whole work's argument. "
+            "Stored for reference, not injected into prompts."
+        )
+    )
+
+    # Per-chapter index cards
+    chapters: list[SourceChapterImport] = Field(
+        default_factory=list, description="One entry per PDF/chapter you have downloaded."
+    )
+    additional: Optional[str] = Field(None, description="Extra work-level fields from JSON import.")
+
+
+@router.post("/source", summary="Import source.json — creates group + all sources + index cards in one upload")
+def import_source(data: dict = Body(...)):
+    """
+    Imports a complete external work:
+      1 SourceGroup + N Sources + N IndexCards in one request.
+
+    Accepts raw dict, normalizes alternative field names from NotebookLM
+    output via _normalize_source_chapter(), then validates with Pydantic.
+    """
+    import uuid
+
+    # Normalize chapter fields before Pydantic validation
+    if "chapters" in data:
+        data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
+
+    # ── Work-level junk drawer: sweep extra keys into additional ──────────
+    WORK_CANONICAL_KEYS = {
+        "title", "author", "year", "source_type",
+        "institution_or_publisher", "description", "work_summary", "chapters",
+    }
+    extras = []
+    for k in list(data.keys()):
+        if k not in WORK_CANONICAL_KEYS:
+            val = data.pop(k)
+            if val is not None and val != "" and val != []:
+                extras.append(f"[{k.upper()}]: {val}")
+    if extras:
+        existing = data.get("additional") or ""
+        separator = "\n" if existing else ""
+        data["additional"] = (existing + separator + "\n".join(extras)).strip()
+
+    # ── Coerce null values to defaults ────────────────────────────────────
+    if data.get("title") is None:
+        data["title"] = "Untitled Work"
+    if data.get("author") is None:
+        data["author"] = "Unknown Author"
+    if not data.get("source_type"):
+        data["source_type"] = "other"
+
+    try:
+        data = SourceImport(**data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
+
+    valid_types = {"thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"}
+    if data.source_type not in valid_types:
+        raise HTTPException(
+            status_code=422,
+            detail=f"source_type must be one of: {', '.join(valid_types)}"
+        )
+
+    group_id = str(uuid.uuid4())[:8]
+    now = datetime.utcnow().isoformat()
+
+    # Write group metadata
+    group_record = {
+        "group_id": group_id,
+        "title": data.title,
+        "author": data.author,
+        "year": data.year,
+        "source_type": data.source_type,
+        "institution_or_publisher": data.institution_or_publisher,
+        "description": data.description,
+        "work_summary": data.work_summary,
+        "additional": data.additional,
+        "created_at": now,
+        "updated_at": now,
+    }
+    storage.write_source_group(group_id, group_record)
+
+    # Write each chapter as a Source + IndexCard
+    created_sources = []
+    for ch in data.chapters:
+        source_id = str(uuid.uuid4())[:8]
+        source_record = {
+            "source_id": source_id,
+            "group_id": group_id,
+            "label": ch.label,
+            "title": ch.title,
+            "chapter_or_section": ch.title,
+            "page_range": ch.page_range,
+            "file_name": ch.file_name,
+            "file_path": None,
+            "index_card": None,
+            "has_index_card": False,
+            "created_at": now,
+            "updated_at": now,
+        }
+        # Attach index card inline
+        index_card = {
+            "key_claims": ch.key_claims,
+            "themes": ch.themes,
+            "time_period_covered": ch.time_period_covered,
+            "relevant_subtopics": ch.relevant_subtopics,
+            "limitations": ch.limitations,
+            "notable_authors_cited": ch.notable_authors_cited,
+            "additional": ch.additional,
+            "your_notes": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        source_record["index_card"] = index_card
+        source_record["has_index_card"] = True
+        storage.write_source(group_id, source_id, source_record)
+        created_sources.append({"source_id": source_id, "label": ch.label})
+
+    return {
+        "imported": "source",
+        "group_id": group_id,
+        "title": data.title,
+        "author": data.author,
+        "sources_created": len(created_sources),
+        "sources": created_sources,
+        "all_indexed": True,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STATUS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/status", summary="Check what has been imported and what is still missing")
+def import_status():
+    synopsis = storage.read_synopsis()
+    chapters = storage.list_chapters()
+    groups = storage.list_source_groups()
+
+    chapter_status = []
+    for ch in chapters:
+        ch_id = ch["chapter_id"]
+        full = storage.read_chapter(ch_id)
+        sub_count = len(full.get("subtopics", [])) if full else 0
+        chapter_status.append({
+            "chapter_id": ch_id,
+            "title": ch.get("title"),
+            "has_arc": bool(ch.get("chapter_arc")),
+            "subtopic_count": sub_count,
+        })
+
+    source_status = []
+    for g in groups:
+        g_id = g["group_id"]
+        sources = storage.list_sources(g_id)
+        ready = sum(1 for s in sources if s.get("has_index_card"))
+        source_status.append({
+            "group_id": g_id,
+            "title": g.get("title"),
+            "author": g.get("author"),
+            "total_sources": len(sources),
+            "indexed_sources": ready,
+        })
+
+    # Readiness checks
+    warnings = []
+    if not synopsis:
+        warnings.append("No thesis synopsis. POST /import/thesis")
+    for ch in chapter_status:
+        if not ch["has_arc"]:
+            warnings.append(f"Chapter '{ch['title']}' has no arc. Re-import with chapter_arc field.")
+        if ch["subtopic_count"] == 0:
+            warnings.append(f"Chapter '{ch['title']}' has no subtopics.")
+
+    return {
+        "synopsis": {
+            "imported": bool(synopsis),
+            "title": synopsis.get("title") if synopsis else None,
+        },
+        "chapters": chapter_status,
+        "source_groups": source_status,
+        "warnings": warnings,
+        "ready_to_compile": len(warnings) == 0,
+    }
+
+
+================================================
+FILE: spo_backend/routers/notes.py
+================================================
+"""
+Notes Router
+------------
+Free-text notes attached to any entity: thesis, source group, source, or chapter.
+
+This solves the "index card is too much work upfront" problem.
+Workflow:
+  1. Read a source → paste your raw notes here immediately
+  2. Later, convert the note into a structured index card when you need it for a prompt
+  3. Notes are always available as a reference, even before the index card exists
+
+URL pattern: /notes/{scope}/{entity_id}/
+  scope = thesis | source_group | source | chapter
+  entity_id = the ID of that thing (or "main" for the thesis)
+"""
+
+from fastapi import APIRouter, HTTPException
+from datetime import datetime
+import uuid
+
+from models.notes import NoteCreateRequest, NoteUpdateRequest
+from services import storage
+
+router = APIRouter(prefix="/notes", tags=["Notes"])
+
+
+@router.post("/{scope}/{entity_id}", summary="Add a free-text note to any entity")
+def create_note(scope: str, entity_id: str, req: NoteCreateRequest):
+    """
+    Paste anything here — reading impressions, copied text from the PDF,
+    argument ideas, gaps you notice. No structure required.
+
+    Examples:
+      POST /notes/source_group/abc123   ← overall note on a thesis/book
+      POST /notes/source/def456        ← note on one chapter/PDF
+      POST /notes/chapter/chapter_01   ← note on YOUR chapter 1
+      POST /notes/thesis/main          ← general thesis research note
+    """
+    _validate_scope(scope)
+    short_id = str(uuid.uuid4())[:6]
+    note_id = f"{entity_id}_{short_id}"
+    data = {
+        "note_id": note_id,
+        "scope": scope,
+        "entity_id": entity_id,
+        "label": req.label,
+        "content": req.content,
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    return storage.write_note(scope, note_id, data)
+
+
+@router.get("/{scope}/{entity_id}", summary="List all notes for an entity")
+def list_notes(scope: str, entity_id: str):
+    _validate_scope(scope)
+    notes = storage.list_notes(scope, entity_id)
+    return {"entity_id": entity_id, "scope": scope, "notes": notes, "count": len(notes)}
+
+
+@router.get("/{scope}/{entity_id}/{note_id}", summary="Get a specific note")
+def get_note(scope: str, entity_id: str, note_id: str):
+    _validate_scope(scope)
+    data = storage.read_note(scope, note_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found.")
+    return data
+
+
+@router.patch("/{scope}/{entity_id}/{note_id}", summary="Update a note")
+def update_note(scope: str, entity_id: str, note_id: str, req: NoteUpdateRequest):
+    _validate_scope(scope)
+    data = storage.read_note(scope, note_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found.")
+    if req.label is not None:
+        data["label"] = req.label
+    if req.content is not None:
+        data["content"] = req.content
+    return storage.write_note(scope, note_id, data)
+
+
+@router.delete("/{scope}/{entity_id}/{note_id}", summary="Delete a note")
+def delete_note(scope: str, entity_id: str, note_id: str):
+    _validate_scope(scope)
+    if not storage.delete_note(scope, note_id):
+        raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found.")
+    return {"deleted": note_id}
+
+
+def _validate_scope(scope: str):
+    valid = {"thesis", "source_group", "source", "chapter"}
+    if scope not in valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid scope '{scope}'. Must be one of: {', '.join(valid)}"
+        )
+
+
+
+================================================
+FILE: spo_backend/routers/sections.py
+================================================
+"""
+Sections Router
+---------------
+Stores and retrieves NotebookLM draft output per subtopic.
+Drafts are separate from consistency summaries — both can exist for the same subtopic.
+
+Endpoints:
+    GET  /sections/{chapter_id}/{subtopic_id}/draft   ← load saved draft
+    POST /sections/{chapter_id}/{subtopic_id}/draft   ← save or overwrite draft
+    DELETE /sections/{chapter_id}/{subtopic_id}/draft ← clear draft
+"""
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+from services import storage
+
+router = APIRouter(prefix="/sections", tags=["Section Drafts"])
+
+
+class DraftSaveRequest(BaseModel):
+    text: str
+
+
+@router.get("/{chapter_id}/{subtopic_id}/draft", summary="Load saved draft for a subtopic")
+def get_draft(chapter_id: str, subtopic_id: str):
+    draft = storage.read_section_draft(chapter_id, subtopic_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="No draft saved for this subtopic.")
+    return draft
+
+
+@router.post("/{chapter_id}/{subtopic_id}/draft", summary="Save or overwrite draft for a subtopic")
+def save_draft(chapter_id: str, subtopic_id: str, req: DraftSaveRequest):
+    if not req.text.strip():
+        raise HTTPException(status_code=422, detail="Draft text cannot be empty.")
+    record = {
+        "chapter_id": chapter_id,
+        "subtopic_id": subtopic_id,
+        "text": req.text,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    return storage.write_section_draft(chapter_id, subtopic_id, record)
+
+
+@router.delete("/{chapter_id}/{subtopic_id}/draft", summary="Delete draft for a subtopic")
+def delete_draft(chapter_id: str, subtopic_id: str):
+    deleted = storage.delete_section_draft(chapter_id, subtopic_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No draft found to delete.")
+    return {"deleted": True, "subtopic_id": subtopic_id}
+
+
+
+================================================
+FILE: spo_backend/routers/sources.py
+================================================
+"""
+Source Library Router
+---------------------
+Full CRUD for SourceGroups, Sources, and IndexCards.
+"""
+
+from fastapi import APIRouter, HTTPException
+from datetime import datetime
+
+from models.sources import (
+    SourceGroupCreateRequest, SourceGroupUpdateRequest,
+    SourceCreateRequest, SourceUpdateRequest,
+    IndexCardCreateRequest, IndexCardUpdateRequest,
+)
+from services import storage
+
+router = APIRouter(prefix="/sources", tags=["Source Library"])
+
+
+# --- Source Groups ---
+
+@router.post("/groups", summary="Create a new source group (a complete work)")
+def create_group(req: SourceGroupCreateRequest):
+    """
+    Create a SourceGroup for a complete work (thesis, book, journal issue).
+    After creating the group, add individual chapter/article Sources to it.
+    """
+    import uuid
+    group_id = str(uuid.uuid4())[:8]
+    data = req.model_dump()
+    data["group_id"] = group_id
+    data["sources"] = []
+    data["created_at"] = datetime.utcnow().isoformat()
+    data["updated_at"] = datetime.utcnow().isoformat()
+    storage.write_source_group(group_id, data)
+    return storage.read_source_group(group_id)
+
+
+@router.get("/groups", summary="List all source groups")
+def list_groups():
+    groups = storage.list_source_groups()
+    # Attach source counts without loading all source data
+    result = []
+    for g in groups:
+        sources = storage.list_sources(g["group_id"])
+        g["source_count"] = len(sources)
+        g["ready_count"] = sum(1 for s in sources if s.get("has_index_card"))
+        result.append(g)
+    return result
+
+@router.get("/library-view", summary="Get entire source library (groups, sources, notes) in one pass")
+def get_library_view():
+    """
+    Returns the full nested structure of the source library to avoid
+    N+1 queries from the frontend on initial page load.
+    """
+    return storage.get_entire_library_data()
+
+
+@router.get("/groups/{group_id}", summary="Get a source group with all its sources")
+def get_group(group_id: str):
+    data = storage.read_source_group(group_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found.")
+    return data
+
+
+@router.patch("/groups/{group_id}", summary="Update source group metadata")
+def update_group(group_id: str, req: SourceGroupUpdateRequest):
+    data = storage.read_source_group(group_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found.")
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    data.update(updates)
+    return storage.write_source_group(group_id, data)
+
+
+@router.delete("/groups/{group_id}", summary="Delete a source group and all its sources")
+def delete_group(group_id: str):
+    if not storage.delete_source_group(group_id):
+        raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found.")
+    return {"deleted": group_id}
+
+
+# --- Sources ---
+
+@router.post("/groups/{group_id}/sources", summary="Add a source document to a group")
+def create_source(group_id: str, req: SourceCreateRequest):
+    """
+    Add one PDF chapter or article as a Source within a SourceGroup.
+    The Source starts without an index card — fill the index card after reading.
+    """
+    group = storage.read_source_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found.")
+
+    import uuid
+    source_id = str(uuid.uuid4())[:8]
+    data = req.model_dump()
+    data["source_id"] = source_id
+    data["group_id"] = group_id
+    data["index_card"] = None
+    data["has_index_card"] = False
+    data["created_at"] = datetime.utcnow().isoformat()
+    data["updated_at"] = datetime.utcnow().isoformat()
+    return storage.write_source(group_id, source_id, data)
+
+
+@router.get("/groups/{group_id}/sources", summary="List all sources in a group")
+def list_sources(group_id: str):
+    group = storage.read_source_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found.")
+    return storage.list_sources(group_id)
+
+
+@router.get("/groups/{group_id}/sources/{source_id}", summary="Get a source with its index card")
+def get_source(group_id: str, source_id: str):
+    data = storage.read_source(group_id, source_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found.")
+    return data
+
+
+@router.patch("/groups/{group_id}/sources/{source_id}", summary="Update source metadata")
+def update_source(group_id: str, source_id: str, req: SourceUpdateRequest):
+    data = storage.read_source(group_id, source_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found.")
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    data.update(updates)
+    return storage.write_source(group_id, source_id, data)
+
+
+@router.delete("/groups/{group_id}/sources/{source_id}", summary="Delete a source")
+def delete_source(group_id: str, source_id: str):
+    if not storage.delete_source(group_id, source_id):
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found.")
+    return {"deleted": source_id}
+
+
+# --- Index Cards ---
+
+@router.post(
+    "/groups/{group_id}/sources/{source_id}/index-card",
+    summary="Create index card for a source"
+)
+def create_index_card(group_id: str, source_id: str, req: IndexCardCreateRequest):
+    """
+    Write the index card for a source after reading it.
+    This is the most valuable step — take time to write specific key_claims
+    and tag relevant_subtopics accurately.
+    """
+    source = storage.read_source(group_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found.")
+    if source.get("has_index_card"):
+        raise HTTPException(
+            status_code=409,
+            detail="Index card already exists. Use PATCH to update it."
+        )
+    card_data = req.model_dump()
+    result = storage.write_index_card(group_id, source_id, card_data)
+    return result
+
+
+@router.get(
+    "/groups/{group_id}/sources/{source_id}/index-card",
+    summary="Get index card for a source"
+)
+def get_index_card(group_id: str, source_id: str):
+    source = storage.read_source(group_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found.")
+    if not source.get("has_index_card"):
+        raise HTTPException(
+            status_code=404,
+            detail="No index card yet. Read the source and create one."
+        )
+    return source["index_card"]
+
+
+@router.patch(
+    "/groups/{group_id}/sources/{source_id}/index-card",
+    summary="Update index card (partial update)"
+)
+def update_index_card(group_id: str, source_id: str, req: IndexCardUpdateRequest):
+    source = storage.read_source(group_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found.")
+    if not source.get("has_index_card"):
+        raise HTTPException(status_code=404, detail="No index card to update. Create one first.")
+    existing_card = source["index_card"]
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    existing_card.update(updates)
+    result = storage.write_index_card(group_id, source_id, existing_card)
+    return result
+
+
+@router.delete(
+    "/groups/{group_id}/sources/{source_id}/index-card",
+    summary="Delete index card (source becomes un-ready)"
+)
+def delete_index_card(group_id: str, source_id: str):
+    source = storage.read_source(group_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found.")
+    storage.delete_index_card(group_id, source_id)
+    return {"deleted": "index_card", "source_id": source_id}
+
+
+# --- Discovery ---
+
+@router.get("/search/by-theme/{theme}", summary="Find all sources with a given theme tag")
+def search_by_theme(theme: str):
+    sources = storage.find_sources_by_theme(theme)
+    return {"theme": theme, "sources": sources, "count": len(sources)}
+
+
+@router.get("/ready", summary="List all sources that have index cards (ready for prompts)")
+def list_ready_sources():
+    """Returns all sources across all groups that are ready for prompt injection."""
+    groups = storage.list_source_groups()
+    ready = []
+    for g in groups:
+        for source in storage.list_sources(g["group_id"]):
+            if source.get("has_index_card"):
+                source["group_title"] = g.get("title", "")
+                ready.append(source)
+    return {"ready_sources": ready, "count": len(ready)}
+
+
+
+================================================
+FILE: spo_backend/routers/thesis.py
+================================================
+"""
+Thesis Context Router
+---------------------
+Endpoints for managing your OWN thesis structure:
+synopsis, chapters, and subtopics.
+
+This is the "big picture" layer — always injected into compiled prompts.
+"""
+
+from fastapi import APIRouter, HTTPException
+from datetime import datetime
+import uuid
+
+from models.thesis import (
+    ThesisSynopsis, Chapter, Subtopic,
+    SynopsisCreateRequest, SynopsisUpdateRequest,
+    ChapterCreateRequest, SubtopicCreateRequest, SubtopicUpdateRequest,
+)
+from services import storage
+
+router = APIRouter(prefix="/thesis", tags=["Thesis Context"])
+
+
+# --- Synopsis ---
+
+@router.post("/synopsis", response_model=dict, summary="Create or replace thesis synopsis")
+def create_synopsis(req: SynopsisCreateRequest):
+    """
+    Store the master argument of your thesis.
+    Write this once and update it only if your central argument shifts.
+    This is injected into every compiled prompt.
+    """
+    data = req.model_dump()
+    data["updated_at"] = datetime.utcnow().isoformat()
+    return storage.write_synopsis(data)
+
+
+@router.get("/synopsis", summary="Get thesis synopsis")
+def get_synopsis():
+    data = storage.read_synopsis()
+    if not data:
+        raise HTTPException(status_code=404, detail="No synopsis found. Create one first.")
+    return data
+
+
+@router.patch("/synopsis", summary="Update thesis synopsis")
+def update_synopsis(req: SynopsisUpdateRequest):
+    existing = storage.read_synopsis()
+    if not existing:
+        raise HTTPException(status_code=404, detail="No synopsis found. Create one first.")
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    existing.update(updates)
+    return storage.write_synopsis(existing)
+
+
+@router.put("/synopsis", summary="Upsert thesis synopsis (create or replace)")
+def upsert_synopsis(req: SynopsisCreateRequest):
+    """
+    Idempotent upsert — creates the synopsis if it doesn't exist, or
+    replaces it in full if it does. The frontend does not need to know
+    which state currently applies.
+    """
+    data = req.model_dump()
+    data["updated_at"] = datetime.utcnow().isoformat()
+    return storage.write_synopsis(data)
+
+
+# --- Chapters ---
+
+@router.post("/chapters", summary="Add a chapter")
+def create_chapter(req: ChapterCreateRequest):
+    chapter_id = f"chapter_{req.number:02d}"
+    existing = storage.read_chapter(chapter_id)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Chapter {req.number} already exists. Use PATCH to update."
+        )
+    data = {
+        "chapter_id": chapter_id,
+        "number": req.number,
+        "title": req.title,
+        "goal": req.goal,
+        "subtopics": [],
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    return storage.write_chapter(chapter_id, data)
+
+
+@router.get("/chapters", summary="List all chapters")
+def list_chapters():
+    return storage.list_chapters()
+
+
+@router.get("/chapters/{chapter_id}", summary="Get a chapter with all its subtopics")
+def get_chapter(chapter_id: str):
+    data = storage.read_chapter(chapter_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+    return data
+
+
+@router.patch("/chapters/{chapter_id}", summary="Update chapter goal or title")
+def update_chapter(chapter_id: str, updates: dict):
+    data = storage.read_chapter(chapter_id)
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+    allowed = {"title", "goal"}
+    for k, v in updates.items():
+        if k in allowed:
+            data[k] = v
+    return storage.write_chapter(chapter_id, data)
+
+
+@router.delete("/chapters/{chapter_id}", summary="Delete a chapter")
+def delete_chapter(chapter_id: str):
+    if not storage.delete_chapter(chapter_id):
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+    return {"deleted": chapter_id}
+
+
+# --- Subtopics (nested under chapters) ---
+
+@router.post("/chapters/{chapter_id}/subtopics", summary="Add a subtopic to a chapter")
+def add_subtopic(chapter_id: str, req: SubtopicCreateRequest):
+    chapter = storage.read_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+
+    # Build subtopic_id from number: "1.3.2" -> "1_3_2"
+    subtopic_id = req.number.replace(".", "_")
+
+    # Check for duplicate
+    existing_ids = [s["subtopic_id"] for s in chapter.get("subtopics", [])]
+    if subtopic_id in existing_ids:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Subtopic {req.number} already exists in this chapter."
+        )
+
+    subtopic = {
+        "subtopic_id": subtopic_id,
+        "number": req.number,
+        "title": req.title,
+        "goal": req.goal,
+        "position_in_argument": req.position_in_argument,
+    }
+    chapter.setdefault("subtopics", []).append(subtopic)
+    storage.write_chapter(chapter_id, chapter)
+    return subtopic
+
+
+@router.patch(
+    "/chapters/{chapter_id}/subtopics/{subtopic_id}",
+    summary="Update a subtopic"
+)
+def update_subtopic(chapter_id: str, subtopic_id: str, req: SubtopicUpdateRequest):
+    chapter = storage.read_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+
+    subtopics = chapter.get("subtopics", [])
+    target = next((s for s in subtopics if s["subtopic_id"] == subtopic_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Subtopic '{subtopic_id}' not found.")
+
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    target.update(updates)
+    storage.write_chapter(chapter_id, chapter)
+    return target
+
+
+@router.delete(
+    "/chapters/{chapter_id}/subtopics/{subtopic_id}",
+    summary="Remove a subtopic"
+)
+def delete_subtopic(chapter_id: str, subtopic_id: str):
+    chapter = storage.read_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+
+    original = chapter.get("subtopics", [])
+    filtered = [s for s in original if s["subtopic_id"] != subtopic_id]
+    if len(filtered) == len(original):
+        raise HTTPException(status_code=404, detail=f"Subtopic '{subtopic_id}' not found.")
+
+    chapter["subtopics"] = filtered
+    storage.write_chapter(chapter_id, chapter)
+    return {"deleted": subtopic_id}
+
+
+@router.get(
+    "/chapters/{chapter_id}/subtopics/{subtopic_id}/suggested-sources",
+    summary="Get sources whose index cards are tagged for this subtopic"
+)
+def get_suggested_sources(chapter_id: str, subtopic_id: str):
+    """
+    Returns all sources across all groups that have tagged this subtopic
+    in their index card's relevant_subtopics field.
+    Use this when building the source selection UI for a subtopic.
+    """
+    sources = storage.find_sources_for_subtopic(subtopic_id)
+    return {
+        "subtopic_id": subtopic_id,
+        "suggested_sources": sources,
+        "count": len(sources)
+    }
+
+
+
+================================================
+FILE: spo_backend/services/__init__.py
+================================================
+# Empty file - makes this directory a Python package
+
+
+
+================================================
+FILE: spo_backend/services/source_resolver.py
+================================================
+"""
+Source Resolver Service
+=======================
+Matches chapterization source_ids to local scan folder names and
+resolves chapter references to specific PDF filenames + Drive links.
+
+Used by compiler.py via storage.resolve_source_files() (re-exported).
+"""
+
+import re
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
+
+def resolve_source_files(thesis_name: str, chapter_id_raw: str, scan: dict) -> list[dict]:
+    """
+    Given a thesis name (source_id from chapterization), a raw chapter_id string,
+    and the scan dictionary, returns a list of resolved file entries:
+        [{ "segment": "Chapter Two: ...", "file_name": "08_chapter 2.pdf", "drive_link": "https://..." or None }]
+
+    Handles:
+      - Thesis name normalization (strips author/year parentheticals, punctuation, case, underscores)
+      - Prefix fallback for truncated folder names
+      - AND / and / & splitting for multi-chapter references
+      - Chapter number extraction: digits, word numbers, Roman numerals
+      - Special chapter keywords: Introduction, Abstract, Preface, Conclusion, Bibliography etc.
+      - Returns unresolved entries (file_name=None) instead of crashing on no match
+    """
+    if not scan:
+        return []
+
+    # ── Step 1: match thesis name to scan key ─────────────────────────────────
+    thesis_entry = _match_thesis_name(thesis_name, scan)
+    if not thesis_entry:
+        return []
+
+    files = thesis_entry.get("files", [])
+
+    # ── Step 2: split chapter_id_raw into individual chapter segments ─────────
+    segments = _split_chapter_references(chapter_id_raw)
+
+    # ── Step 3: resolve each segment to a filename ────────────────────────────
+    results = []
+    for segment in segments:
+        file_name = _match_chapter_to_file(segment, files)
+        drive_link = None
+        if file_name and thesis_entry.get("drive_links"):
+            drive_link = thesis_entry["drive_links"].get(file_name)
+        results.append({
+            "segment": segment,
+            "file_name": file_name,
+            "drive_link": drive_link,
+        })
+
+    return results
+
+
+# ── Thesis name matching ───────────────────────────────────────────────────────
+
+def _match_thesis_name(source_id: str, scan: dict) -> dict | None:
+    """
+    Matches source_id (from chapterization) to a key in the scan dictionary.
+    Tries in order:
+      1. Exact match
+      2. Case-insensitive exact match
+      3. Normalized match (strip parentheticals, punctuation, underscores, lowercase)
+      4. Prefix match — normalized folder name is prefix of normalized source_id or vice versa
+    Returns the scan entry dict, or None if no match found.
+    """
+    # Build normalized versions of all scan keys once
+    norm_map = {_normalize_thesis_name(k): k for k in scan}
+
+    # 1. Exact
+    if source_id in scan:
+        return scan[source_id]
+
+    # 2. Case-insensitive exact
+    lower_id = source_id.lower()
+    for k in scan:
+        if k.lower() == lower_id:
+            return scan[k]
+
+    # 3. Normalized match
+    norm_source = _normalize_thesis_name(source_id)
+    if norm_source in norm_map:
+        return scan[norm_map[norm_source]]
+
+    # 4. Prefix match — handles truncated folder names
+    # e.g. folder "...Cry_ the P" normalized matches start of normalized source_id
+    # Require minimum 20 chars to avoid false positives on short common words
+    MIN_PREFIX = 20
+    for norm_key, original_key in norm_map.items():
+        short, long = (
+            (norm_key, norm_source) if len(norm_key) <= len(norm_source)
+            else (norm_source, norm_key)
+        )
+        if len(short) >= MIN_PREFIX and long.startswith(short):
+            return scan[original_key]
+
+    return None
+
+
+def _normalize_thesis_name(name: str) -> str:
+    """
+    Normalizes a thesis name for matching.
+    Steps:
+      1. Strip trailing parenthetical (author, year)
+      2. Replace underscores with spaces
+      3. Replace punctuation chars with spaces
+      4. Collapse multiple spaces
+      5. Lowercase
+      6. Remove leading articles (a, an, the)
+      7. Remove all spaces
+    """
+    s = name.strip()
+
+    # Strip trailing parentheticals like (Puhan, 2018) or (author unlisted) or (2019)
+    while True:
+        stripped = re.sub(r'\s*\([^)]*\)\s*$', '', s).strip()
+        if stripped == s:
+            break
+        s = stripped
+
+    # Replace underscores with spaces
+    s = s.replace('_', ' ')
+
+    # Replace punctuation with spaces
+    s = re.sub(r"[:\-,.'\"''\u2018\u2019\u201c\u201d/\\()\[\]{}]", ' ', s)
+
+    # Collapse whitespace and lowercase
+    s = re.sub(r'\s+', ' ', s).strip().lower()
+
+    # Remove leading articles
+    s = re.sub(r'^(a|an|the)\s+', '', s)
+
+    # Remove all spaces
+    s = s.replace(' ', '')
+
+    return s
+
+
+# ── Chapter reference splitting ────────────────────────────────────────────────
+
+def _split_chapter_references(chapter_id_raw: str) -> list[str]:
+    """
+    Splits a chapter_id string into individual chapter references.
+
+    Handles:
+      " AND " (uppercase) — always split
+      " and " (lowercase) — split only if both sides look like chapter references
+      " & "              — split only if both sides look like chapter references
+      "Chapters 2 and 5" — split on "and" between numbers
+      "Chapter 2, Chapter 5" — split on comma between chapter references
+
+    Does NOT split on "and" inside a title like
+    "Framing Life-narratives as Performance and Agency"
+    """
+    raw = chapter_id_raw.strip()
+
+    # Zero pass: "Chapters N and M" / "Chapters N & M" — plural with bare numbers/words
+    m = re.match(
+        r'chapters?\s+(\w+)\s+(?:and|&)\s+(\w+)\s*$',
+        raw, re.IGNORECASE
+    )
+    if m:
+        return [f"Chapter {m.group(1)}", f"Chapter {m.group(2)}"]
+
+    # First pass: always split on uppercase AND (explicit multi-chapter marker)
+    if ' AND ' in raw:
+        parts = [p.strip() for p in raw.split(' AND ') if p.strip()]
+        if len(parts) > 1:
+            return parts
+
+    # Second pass: split on comma + "Chapter" pattern
+    # e.g. "Chapter Two: Title One, Chapter Five: Title Two"
+    comma_split = re.split(r',\s*(?=(?:chapter|ch\.?|section|part)\s)', raw, flags=re.IGNORECASE)
+    if len(comma_split) > 1:
+        return [p.strip() for p in comma_split if p.strip()]
+
+    # Third pass: split on " and " or " & " only when flanked by chapter indicators
+    and_pattern = re.compile(
+        r'(.+?)\s+(?:and|&)\s+(.+)',
+        re.IGNORECASE
+    )
+    m = and_pattern.match(raw)
+    if m:
+        left, right = m.group(1).strip(), m.group(2).strip()
+        if _looks_like_chapter_ref(left) and _looks_like_chapter_ref(right):
+            return [left, right]
+
+    # No split — return as single segment
+    return [raw]
+
+
+def _looks_like_chapter_ref(text: str) -> bool:
+    """
+    Returns True if text looks like a chapter reference rather than
+    a fragment of a title.
+    """
+    t = text.strip().lower()
+
+    # Starts with chapter/section/part indicator
+    if re.match(r'^(?:chapter|ch\.?|section|sec\.?|part)\b', t):
+        return True
+
+    # Is a standalone number or Roman numeral
+    if re.match(r'^[ivxlc\d]+$', t):
+        return True
+
+    # Is a known special chapter keyword
+    keywords = {
+        'introduction', 'intro', 'abstract', 'preface', 'conclusion',
+        'bibliography', 'references', 'appendix', 'acknowledgement',
+        'acknowledgments', 'contents', 'declaration', 'certificate'
+    }
+    if t in keywords:
+        return True
+
+    return False
+
+
+# ── Chapter-to-file matching ───────────────────────────────────────────────────
+
+# Word numbers → digit
+_WORD_TO_NUM = {
+    'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
+    'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
+    'eleven': '11', 'twelve': '12', 'thirteen': '13', 'fourteen': '14',
+    'fifteen': '15',
+}
+
+# Roman numerals → digit (whole word match only, checked before word number)
+_ROMAN_TO_NUM = {
+    'xii': '12', 'xi': '11', 'x': '10',
+    'ix': '9', 'viii': '8', 'vii': '7', 'vi': '6',
+    'v': '5', 'iv': '4', 'iii': '3', 'ii': '2', 'i': '1',
+}
+
+# Special keyword synonyms → canonical keyword used in filename matching
+_KEYWORD_MAP = {
+    'introduction': 'introduction',
+    'intro': 'introduction',
+    'introductory': 'introduction',
+    'abstract': 'abstract',
+    'preface': 'preface',
+    'conclusion': 'conclusion',
+    'concluding': 'conclusion',
+    'bibliography': 'bibliography',
+    'references': 'bibliography',
+    'works cited': 'bibliography',
+    'acknowledgement': 'acknowledgement',
+    'acknowledgements': 'acknowledgement',
+    'acknowledgment': 'acknowledgement',
+    'acknowledgments': 'acknowledgement',
+    'contents': 'contents',
+    'table of contents': 'contents',
+    'toc': 'contents',
+    'appendix': 'appendix',
+    'declaration': 'declaration',
+    'certificate': 'certificate',
+    'title page': 'title page',
+    'title': 'title page',
+}
+
+
+def _match_chapter_to_file(segment: str, files: list[str]) -> str | None:
+    """
+    Matches one chapter segment to a filename from the file list.
+
+    Strategy (in order):
+      1. Extract chapter number → match against "chapter N" in filename body
+      2. Extract keyword (introduction, conclusion, etc.) → match in filename body
+      3. Normalized partial match — significant words from segment appear in filename
+      4. Return None if no match
+    """
+    if not files:
+        return None
+
+    # Build parsed file list once
+    parsed_files = [_parse_filename(f) for f in files]
+
+    seg_lower = segment.strip().lower()
+
+    # ── Strategy 1: extract chapter number from segment ───────────────────────
+    chapter_num = _extract_chapter_number(seg_lower)
+
+    if chapter_num:
+        for pf in parsed_files:
+            if pf['number'] == chapter_num:
+                return pf['original']
+
+    # ── Strategy 2: extract keyword from segment ──────────────────────────────
+    keyword = _extract_keyword(seg_lower)
+
+    if keyword:
+        for pf in parsed_files:
+            if pf['keyword'] == keyword:
+                return pf['original']
+
+        # Special case: "Introduction" often lives in chapter 1
+        if keyword == 'introduction':
+            for pf in parsed_files:
+                if pf['number'] == '1':
+                    return pf['original']
+
+    # ── Strategy 3: normalized partial match ──────────────────────────────────
+    seg_words = set(
+        w for w in re.findall(r'[a-z]{5,}', seg_lower)
+        if w not in {'chapter', 'section', 'selected', 'novels', 'about', 'which', 'their'}
+    )
+    if seg_words:
+        for pf in parsed_files:
+            body_words = set(re.findall(r'[a-z]{5,}', pf['body']))
+            if seg_words & body_words:
+                return pf['original']
+
+    return None
+
+
+def _extract_chapter_number(text: str) -> str | None:
+    """
+    Extracts a chapter number from a segment string.
+    Returns string digit e.g. '2', or None.
+
+    Handles: "chapter 2", "chapter two", "ch. 3", "section 4", "part v",
+             standalone "2", "II", "chapter1"
+    """
+    # Pattern: chapter/section/part + digit
+    m = re.search(
+        r'(?:chapter|ch\.?|section|sec\.?|part)\s*(\d+)',
+        text, re.IGNORECASE
+    )
+    if m:
+        return m.group(1)
+
+    # Try word number after chapter indicator
+    m = re.search(
+        r'(?:chapter|ch\.?|section|sec\.?|part)\s*(' + '|'.join(_WORD_TO_NUM.keys()) + r')\b',
+        text, re.IGNORECASE
+    )
+    if m:
+        return _WORD_TO_NUM[m.group(1).lower()]
+
+    # Try Roman numeral after chapter indicator
+    roman_pattern = r'(?:chapter|ch\.?|section|sec\.?|part)\s*(' + '|'.join(_ROMAN_TO_NUM.keys()) + r')\b'
+    m = re.search(roman_pattern, text, re.IGNORECASE)
+    if m:
+        return _ROMAN_TO_NUM[m.group(1).lower()]
+
+    # Standalone digit
+    m = re.fullmatch(r'\s*(\d+)\s*', text)
+    if m:
+        return m.group(1)
+
+    # Standalone Roman numeral
+    for roman, num in _ROMAN_TO_NUM.items():
+        if re.fullmatch(r'\s*' + roman + r'\s*', text, re.IGNORECASE):
+            return num
+
+    return None
+
+
+def _extract_keyword(text: str) -> str | None:
+    """
+    Extracts a special chapter keyword from a segment string.
+    Returns canonical keyword string or None.
+    """
+    t = text.strip().lower()
+
+    # Multi-word first (longer matches take priority)
+    for phrase in sorted(_KEYWORD_MAP.keys(), key=len, reverse=True):
+        if phrase in t:
+            return _KEYWORD_MAP[phrase]
+
+    return None
+
+
+def _parse_filename(filename: str) -> dict:
+    """
+    Parses a filename like "08_chapter 2.pdf" or "05_preface.pdf" into:
+    {
+        original: "08_chapter 2.pdf",
+        body: "chapter 2",          # after stripping prefix and extension
+        number: "2" or None,        # chapter number if present
+        keyword: "preface" or None, # canonical keyword if present
+    }
+    """
+    original = filename
+    # Strip extension
+    base = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE)
+    # Strip leading NN_ prefix
+    body = re.sub(r'^\d+_', '', base).strip().lower()
+
+    number = None
+    keyword = None
+
+    # Try to extract chapter number from body
+    m = re.search(r'(?:chapter|ch\.?|section|part)\s*(\d+)', body)
+    if m:
+        number = m.group(1)
+    else:
+        m = re.fullmatch(r'(\d+)', body.strip())
+        if m:
+            number = m.group(1)
+
+    # Try keyword
+    if not number:
+        for phrase in sorted(_KEYWORD_MAP.keys(), key=len, reverse=True):
+            if phrase in body:
+                keyword = _KEYWORD_MAP[phrase]
+                break
+
+    return {
+        'original': original,
+        'body': body,
+        'number': number,
+        'keyword': keyword,
+    }
+
+
+
+================================================
+FILE: spo_backend/services/storage.py
+================================================
+"""
+File Storage Service
+--------------------
+All persistence is handled here. No database — just JSON files on disk.
+This is intentional for a personal project: zero infrastructure, 
+portable, human-readable, easy to back up.
+
+Directory layout (under SPO_DATA_DIR, default: ~/spo_data):
+
+  spo_data/
+    thesis_context/
+      synopsis.json
+      chapters/
+        chapter_01.json
+        chapter_02.json
+    source_groups/
+      {group_id}/
+        group_meta.json
+        sources/
+          {source_id}.json
+    consistency_chain/
+      {chapter_id}/
+        {subtopic_id}.json
+"""
+
+import json
+import os
+import shutil
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Any
+
+
+# Base data directory — override with SPO_DATA_DIR env var
+DATA_DIR = Path(os.environ.get("SPO_DATA_DIR", Path.home() / "spo_data"))
+
+
+def _ensure(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _thesis_dir() -> Path:
+    return _ensure(DATA_DIR / "thesis_context")
+
+
+def _chapters_dir() -> Path:
+    return _ensure(DATA_DIR / "thesis_context" / "chapters")
+
+
+def _groups_dir() -> Path:
+    return _ensure(DATA_DIR / "source_groups")
+
+
+def _group_dir(group_id: str) -> Path:
+    return _ensure(DATA_DIR / "source_groups" / group_id)
+
+
+def _sources_dir(group_id: str) -> Path:
+    return _ensure(DATA_DIR / "source_groups" / group_id / "sources")
+
+
+def _chain_dir(chapter_id: str) -> Path:
+    return _ensure(DATA_DIR / "consistency_chain" / chapter_id)
+
+
+# --- Generic read/write ---
+
+def _read(path: Path) -> Optional[dict]:
+    if not path.exists():
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _write(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+
+
+def _list_json(directory: Path) -> list[dict]:
+    if not directory.exists():
+        return []
+    return [
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(directory.glob("*.json"))
+    ]
+
+
+# --- Synopsis ---
+
+def read_synopsis() -> Optional[dict]:
+    return _read(_thesis_dir() / "synopsis.json")
+
+
+def write_synopsis(data: dict) -> dict:
+    data["updated_at"] = datetime.utcnow().isoformat()
+    _write(_thesis_dir() / "synopsis.json", data)
+    return data
+
+
+# --- Chapters ---
+
+def list_chapters() -> list[dict]:
+    return _list_json(_chapters_dir())
+
+
+def read_chapter(chapter_id: str) -> Optional[dict]:
+    return _read(_chapters_dir() / f"{chapter_id}.json")
+
+
+def write_chapter(chapter_id: str, data: dict) -> dict:
+    data["updated_at"] = datetime.utcnow().isoformat()
+    _write(_chapters_dir() / f"{chapter_id}.json", data)
+    return data
+
+
+def delete_chapter(chapter_id: str) -> bool:
+    path = _chapters_dir() / f"{chapter_id}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+# --- Source Groups ---
+
+def list_source_groups() -> list[dict]:
+    groups_dir = _groups_dir()
+    if not groups_dir.exists():
+        return []
+    result = []
+    for group_path in sorted(groups_dir.iterdir()):
+        if group_path.is_dir():
+            meta = _read(group_path / "group_meta.json")
+            if meta:
+                result.append(meta)
+    return result
+
+
+def read_source_group(group_id: str) -> Optional[dict]:
+    meta = _read(_group_dir(group_id) / "group_meta.json")
+    if not meta:
+        return None
+    # Embed sources into the group response
+    meta["sources"] = list_sources(group_id)
+    return meta
+
+
+def write_source_group(group_id: str, data: dict) -> dict:
+    data["updated_at"] = datetime.utcnow().isoformat()
+    # Don't store sources inside group_meta — they live in their own files
+    sources = data.pop("sources", [])
+    _write(_group_dir(group_id) / "group_meta.json", data)
+    data["sources"] = sources
+    return data
+
+
+def delete_source_group(group_id: str) -> bool:
+    group_path = _group_dir(group_id)
+    if group_path.exists():
+        shutil.rmtree(group_path)
+        return True
+    return False
+
+
+# --- Sources ---
+
+def list_sources(group_id: str) -> list[dict]:
+    return _list_json(_sources_dir(group_id))
+
+
+def read_source(group_id: str, source_id: str) -> Optional[dict]:
+    return _read(_sources_dir(group_id) / f"{source_id}.json")
+
+
+def write_source(group_id: str, source_id: str, data: dict) -> dict:
+    data["updated_at"] = datetime.utcnow().isoformat()
+    _write(_sources_dir(group_id) / f"{source_id}.json", data)
+    return data
+
+
+def delete_source(group_id: str, source_id: str) -> bool:
+    path = _sources_dir(group_id) / f"{source_id}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+# --- Index Cards (stored within source file) ---
+
+def write_index_card(group_id: str, source_id: str, card_data: dict) -> Optional[dict]:
+    source = read_source(group_id, source_id)
+    if not source:
+        return None
+    card_data["updated_at"] = datetime.utcnow().isoformat()
+    if "created_at" not in card_data:
+        card_data["created_at"] = datetime.utcnow().isoformat()
+    source["index_card"] = card_data
+    source["has_index_card"] = True
+    write_source(group_id, source_id, source)
+    return card_data
+
+
+def delete_index_card(group_id: str, source_id: str) -> bool:
+    source = read_source(group_id, source_id)
+    if not source:
+        return False
+    source["index_card"] = None
+    source["has_index_card"] = False
+    write_source(group_id, source_id, source)
+    return True
+
+
+# --- Consistency Chain ---
+
+def list_section_summaries(chapter_id: str) -> list[dict]:
+    return _list_json(_chain_dir(chapter_id))
+
+
+def read_section_summary(chapter_id: str, subtopic_id: str) -> Optional[dict]:
+    return _read(_chain_dir(chapter_id) / f"{subtopic_id}.json")
+
+
+def write_section_summary(chapter_id: str, subtopic_id: str, data: dict) -> dict:
+    data["chapter_id"] = chapter_id
+    data["subtopic_id"] = subtopic_id
+    data["created_at"] = datetime.utcnow().isoformat()
+    _write(_chain_dir(chapter_id) / f"{subtopic_id}.json", data)
+    return data
+
+
+def delete_section_summary(chapter_id: str, subtopic_id: str) -> bool:
+    path = _chain_dir(chapter_id) / f"{subtopic_id}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+# --- Cross-cutting: find sources by subtopic ---
+
+def find_sources_for_subtopic(subtopic_id: str) -> list[dict]:
+    """
+    Scan all index cards across all source groups and return sources
+    whose index_card.relevant_subtopics includes this subtopic_id.
+    Used for auto-suggesting sources when compiling prompts.
+    """
+    matches = []
+    groups_dir = _groups_dir()
+    if not groups_dir.exists():
+        return matches
+    for group_path in groups_dir.iterdir():
+        if not group_path.is_dir():
+            continue
+        sources_path = group_path / "sources"
+        if not sources_path.exists():
+            continue
+        for source_file in sources_path.glob("*.json"):
+            source = json.loads(source_file.read_text(encoding="utf-8"))
+            card = source.get("index_card")
+            if card and subtopic_id in card.get("relevant_subtopics", []):
+                matches.append(source)
+    return matches
+
+
+def find_sources_by_theme(theme: str) -> list[dict]:
+    """
+    Find all sources whose index card contains a specific theme tag.
+    """
+    matches = []
+    groups_dir = _groups_dir()
+    if not groups_dir.exists():
+        return matches
+    for group_path in groups_dir.iterdir():
+        if not group_path.is_dir():
+            continue
+        sources_path = group_path / "sources"
+        if not sources_path.exists():
+            continue
+        for source_file in sources_path.glob("*.json"):
+            source = json.loads(source_file.read_text(encoding="utf-8"))
+            card = source.get("index_card")
+            if card and theme in card.get("themes", []):
+                matches.append(source)
+    return matches
+
+
+# --- Library Bulk View ---
+
+def get_entire_library_data() -> dict:
+    """
+    Reads the entire source library (groups, sources, index cards, and notes)
+    in a single pass to prevent N+1 HTTP/disk issues on the frontend.
+    Returns:
+    {
+        "groups": [
+            {
+                ...group_meta,
+                "sources": [ ...sources_with_embedded_index_cards... ]
+            }
+        ],
+        "notes": {
+            "source_group": { "group_id": [note1, note2] },
+            "source": { "source_id": [note1, note2] }
+        }
+    }
+    """
+    # 1. Gather all notes first (organized by entity_id)
+    notes_by_scope_and_id: dict[str, dict[str, list[dict]]] = {"source_group": {}, "source": {}}
+    for scope in ["source_group", "source"]:
+        notes_dir = _notes_dir(scope)
+        if notes_dir.exists():
+            for p in sorted(notes_dir.glob("*.json")):
+                note = _read(p)
+                if note:
+                    entity_id = note.get("entity_id")
+                    if entity_id:
+                        if entity_id not in notes_by_scope_and_id[scope]:
+                            notes_by_scope_and_id[scope][entity_id] = []
+                        notes_by_scope_and_id[scope][entity_id].append(note)
+
+    # 2. Gather groups and their sources
+    groups_data = []
+    groups_dir = _groups_dir()
+    if groups_dir.exists():
+        for group_path in sorted(groups_dir.iterdir()):
+            if group_path.is_dir():
+                # Read group metadata
+                meta = _read(group_path / "group_meta.json")
+                if meta:
+                    group_id = meta["group_id"]
+                    
+                    # Read all sources for this group (index cards are already embedded)
+                    sources = _list_json(_sources_dir(group_id))
+                    meta["sources"] = sources
+                    
+                    # Calculate counts for backward compatibility with list_groups UI bindings
+                    meta["source_count"] = len(sources)
+                    meta["ready_count"] = sum(1 for s in sources if s.get("has_index_card"))
+                    
+                    groups_data.append(meta)
+
+    return {
+        "groups": groups_data,
+        "notes": notes_by_scope_and_id
+    }
+
+
+# --- Notes (free-text scratch pad per entity) ---
+
+def _notes_dir(scope: str) -> Path:
+    return _ensure(DATA_DIR / "notes" / scope)
+
+
+def list_notes(scope: str, entity_id: str) -> list[dict]:
+    notes_dir = _notes_dir(scope)
+    return [
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(notes_dir.glob(f"{entity_id}_*.json"))
+    ]
+
+
+def read_note(scope: str, note_id: str) -> Optional[dict]:
+    # note_id encodes entity: e.g. "grp123_n001"
+    # We store as {note_id}.json directly under scope dir
+    return _read(_notes_dir(scope) / f"{note_id}.json")
+
+
+def write_note(scope: str, note_id: str, data: dict) -> dict:
+    data["updated_at"] = datetime.utcnow().isoformat()
+    _write(_notes_dir(scope) / f"{note_id}.json", data)
+    return data
+
+
+def delete_note(scope: str, note_id: str) -> bool:
+    path = _notes_dir(scope) / f"{note_id}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+# --- Misc key-value store (used by drive scanner, etc.) ---
+
+def _misc_dir() -> Path:
+    return _ensure(DATA_DIR / "misc")
+
+
+def read_misc(key: str) -> Optional[dict]:
+    """Read a misc JSON value by key. Returns None if not found."""
+    safe_key = key.replace("/", "_").replace("\\", "_")
+    return _read(_misc_dir() / f"{safe_key}.json")
+
+
+def write_misc(key: str, data: dict) -> dict:
+    """Write a misc JSON value by key. Returns the data written."""
+    safe_key = key.replace("/", "_").replace("\\", "_")
+    _write(_misc_dir() / f"{safe_key}.json", data)
+    return data
+
+
+# --- Section Draft Storage ---
+
+def _drafts_dir(chapter_id: str) -> Path:
+    return _ensure(DATA_DIR / "sections" / chapter_id)
+
+
+def read_section_draft(chapter_id: str, subtopic_id: str) -> Optional[dict]:
+    path = _drafts_dir(chapter_id) / f"{subtopic_id}_draft.json"
+    return _read(path)
+
+
+def write_section_draft(chapter_id: str, subtopic_id: str, data: dict) -> dict:
+    path = _drafts_dir(chapter_id) / f"{subtopic_id}_draft.json"
+    _write(path, data)
+    return data
+
+
+def delete_section_draft(chapter_id: str, subtopic_id: str) -> bool:
+    path = _drafts_dir(chapter_id) / f"{subtopic_id}_draft.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+# --- Drive Link Resolution (delegated to source_resolver service) ---
+
+def resolve_source_files(thesis_name: str, chapter_id_raw: str) -> list[dict]:
+    """
+    Resolves chapterization source_ids + chapter references to local filenames
+    and Drive links. All matching logic lives in services/source_resolver.py.
+    """
+    from services.source_resolver import resolve_source_files as _resolve
+    scan = read_misc("drive_scan_result")
+    return _resolve(thesis_name, chapter_id_raw, scan or {})
+

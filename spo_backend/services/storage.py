@@ -426,6 +426,29 @@ def delete_section_draft(chapter_id: str, subtopic_id: str) -> bool:
         return True
     return False
 
+
+def _nlm_state_dir(chapter_id: str) -> "Path":
+    return _ensure(DATA_DIR / "sections" / chapter_id)
+
+
+def read_nlm_state(chapter_id: str, subtopic_id: str) -> "Optional[dict]":
+    path = _nlm_state_dir(chapter_id) / f"{subtopic_id}_nlm_state.json"
+    return _read(path)
+
+
+def write_nlm_state(chapter_id: str, subtopic_id: str, data: dict) -> dict:
+    path = _nlm_state_dir(chapter_id) / f"{subtopic_id}_nlm_state.json"
+    _write(path, data)
+    return data
+
+
+def delete_nlm_state(chapter_id: str, subtopic_id: str) -> bool:
+    path = _nlm_state_dir(chapter_id) / f"{subtopic_id}_nlm_state.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
 # --- Drive Link Resolution (delegated to source_resolver service) ---
 
 def resolve_source_files(thesis_name: str, chapter_id_raw: str) -> list[dict]:

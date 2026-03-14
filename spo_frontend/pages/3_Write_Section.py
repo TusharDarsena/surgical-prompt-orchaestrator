@@ -4,6 +4,7 @@ Direct flow — chapterization data → NotebookLM prompt → write → save dra
 No intermediate Architect/Task.md step.
 """
 
+import time
 import streamlit as st
 import streamlit.components.v1 as components
 import api
@@ -275,6 +276,137 @@ with col_main:
                 "word_count_target": nlm_meta.get("word_count_target"),
                 "required_sources":  nlm_meta.get("required_sources"),
             })
+
+    # ══════════════════════════════════════════════════════════════════════
+    # AUTOMATED RUN PANEL
+    # ══════════════════════════════════════════════════════════════════════
+    st.markdown("")
+    with st.expander("🤖 Automated Run — let SPO drive NotebookLM directly", expanded=False):
+        st.caption(
+            "Requires `notebooklm-py` installed and `notebooklm login` completed once. "
+            "SPO will create the notebook, upload PDFs, send the prompt, and save the draft automatically."
+        )
+
+        # ── Credential status ──────────────────────────────────────────────
+        if st.button("🔍 Check NotebookLM Credentials", key="nlm_check_creds"):
+            with st.spinner("Checking…"):
+                cred_status = api.nlm_status()
+            if cred_status.get("ok"):
+                st.success(cred_status.get("message", "Client ready."), icon="✅")
+            else:
+                st.error(cred_status.get("message", "Not configured."), icon="❌")
+                st.code("notebooklm login", language="bash")
+
+        st.divider()
+
+        # ── Run configuration ──────────────────────────────────────────────
+        auto_c1, auto_c2 = st.columns([1, 2])
+        with auto_c1:
+            default_wc_auto = (subtopic.get("estimated_pages", 0) or 0) * 250
+            auto_wc = st.number_input(
+                "Word count",
+                min_value=0, max_value=5000,
+                value=default_wc_auto if default_wc_auto > 0 else 800,
+                step=100,
+                key="auto_wc",
+            )
+        with auto_c2:
+            auto_style = st.text_input(
+                "Style notes (optional)",
+                placeholder="e.g. More analytical, less descriptive",
+                key="auto_style",
+            )
+
+        # ── Live state ─────────────────────────────────────────────────────
+        nlm_run_state = api.nlm_state(chapter_id, subtopic_id)
+        run_status = nlm_run_state.get("status", "idle")
+
+        # Auto-populate draft from a fresh 'done' state (first time we see it)
+        _seen_done_key = f"_nlm_done_seen_{subtopic_id}"
+        if run_status == "done" and not st.session_state.get(_seen_done_key):
+            fresh_draft = api.get_section_draft(chapter_id, subtopic_id)
+            if fresh_draft and fresh_draft.get("source") == "notebooklm_automated":
+                st.session_state["draft_text"] = fresh_draft.get("text", "")
+            st.session_state[_seen_done_key] = True
+
+        # Status badge
+        _status_badge = {
+            "idle":    "⬜ Idle — no run yet",
+            "running": "🔄 Running… (auto-refreshes every 3 s)",
+            "done":    "✅ Done — draft saved",
+            "error":   "❌ Error",
+        }
+        st.info(_status_badge.get(run_status, run_status))
+
+        if run_status == "running":
+            # Show partial progress while running
+            uploaded = nlm_run_state.get("sources_uploaded", [])
+            if uploaded:
+                st.caption(f"Uploaded so far: {', '.join(uploaded)}")  
+            time.sleep(3)
+            st.rerun()
+
+        if run_status == "done":
+            # Upload audit
+            uploaded  = nlm_run_state.get("sources_uploaded", [])
+            failed    = nlm_run_state.get("sources_failed", [])
+            nb_id     = nlm_run_state.get("notebook_id", "")
+            run_count = nlm_run_state.get("run_count", 1)
+
+            if nb_id:
+                st.caption(f"Notebook ID: `{nb_id}` · Run #{run_count}")
+            if uploaded:
+                st.caption(f"✅ Uploaded ({len(uploaded)}): {', '.join(uploaded)}")
+            if failed:
+                for f_entry in failed:
+                    st.caption(f"⚠️ {f_entry.get('file')}: {f_entry.get('reason')}")
+
+            # Prompt 2 from automation result
+            auto_p2 = nlm_run_state.get("prompt_2", "")
+            if auto_p2:
+                st.markdown("**Stage 2 prompt (Gemini) is ready:**")
+                copy_button(auto_p2, "📋 Copy Stage 2 Prompt", key="auto_copy_p2")
+
+            # Draft preview
+            preview = nlm_run_state.get("draft_preview", "")
+            if preview:
+                with st.expander("Draft preview (first 300 chars)"):
+                    st.text(preview)
+
+        if run_status == "error":
+            st.error(nlm_run_state.get("error", "Unknown error."))
+
+        st.markdown("")
+
+        # ── Action buttons ─────────────────────────────────────────────────
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            run_label = "▶️ Run Again" if run_status in ("done", "error") else "▶️ Start Automated Run"
+            can_run = run_status != "running"
+            if st.button(run_label, use_container_width=True, type="primary", disabled=not can_run, key="nlm_run_btn"):
+                # Clear the 'done seen' flag so we re-populate draft on next completion
+                st.session_state.pop(_seen_done_key, None)
+                result = api.nlm_run(
+                    chapter_id,
+                    subtopic_id,
+                    word_count=int(auto_wc) if auto_wc else None,
+                    academic_style_notes=auto_style or None,
+                )
+                if result:
+                    st.rerun()
+
+        with btn_col2:
+            if run_status in ("done", "error") and nlm_run_state.get("notebook_id"):
+                if st.button("🗑️ Delete Notebook & Reset", use_container_width=True, key="nlm_delete_btn"):
+                    if st.session_state.get("_confirm_nlm_delete"):
+                        api.nlm_delete_notebook(chapter_id, subtopic_id)
+                        st.session_state.pop("_confirm_nlm_delete", None)
+                        st.session_state.pop(_seen_done_key, None)
+                        ui.success("Notebook deleted. State reset.")
+                        st.rerun()
+                    else:
+                        st.session_state["_confirm_nlm_delete"] = True
+                        st.warning("Click again to confirm deletion.")
 
     st.divider()
 
