@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Write Section · SPO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/write_section.css"/>
+
+  {# Pass backend URL and chapter data to JS — avoids an extra round-trip #}
+  <script id="spo-chapters-data" type="application/json">
+    {{ chapters | tojson }}
+  </script>
+  <script>
+    window.SPO_API_BASE = "{{ api_base }}";
+    window.SPO_CHAPTERS = JSON.parse(document.getElementById('spo-chapters-data').textContent);
+  </script>
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="accent">SPO</span><span class="dim">.write</span>
+  </div>
+  <div class="nav-group-label">Workspace</div>
+  <a href="/app"            class="nav-item"><span class="nav-icon">◈</span>App</a>
+  <a href="/thesis-setup"   class="nav-item"><span class="nav-icon">⬡</span>Thesis Setup</a>
+  <a href="/source-library" class="nav-item"><span class="nav-icon">◫</span>Source Library</a>
+  <a href="/write-section"  class="nav-item active"><span class="nav-icon">✦</span>Write Section</a>
+  <a href="/consistency"    class="nav-item"><span class="nav-icon">⇄</span>Consistency Chain</a>
+</aside>
+
+<!-- ── SHELL ── -->
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span>SPO</span>
+      <span class="sep">/</span>
+      <span class="crumb-active">Write Section</span>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body-layout">
+
+    <!-- WORKSPACE -->
+    <main class="workspace">
+
+      <!-- ── CONTEXT STRIP ── -->
+      <div class="context-strip">
+        <div class="ctx-selects">
+
+          <!-- Chapter — options server-rendered by Jinja2 -->
+          <div class="ctx-select-wrap">
+            <div class="ctx-label">Chapter</div>
+            <select id="chapterSelect">
+              {% if chapters %}
+                {% for ch in chapters %}
+                  <option value="{{ ch.chapter_id }}">
+                    Ch.{{ ch.number }} — {{ ch.title }}
+                  </option>
+                {% endfor %}
+              {% else %}
+                <option value="">— No chapters —</option>
+              {% endif %}
+            </select>
+          </div>
+
+          <!-- Active subtopic — populated by JS on chapter select -->
+          <div class="ctx-select-wrap">
+            <div class="ctx-label">Active Subtopic</div>
+            <select id="subtopicSelect">
+              <option value="">— select chapter —</option>
+            </select>
+          </div>
+
+        </div>
+
+        <!-- Stats pills -->
+        <div class="ctx-pills">
+          <div class="ctx-pill">
+            <div class="ctx-pill-val" id="pillSources">—</div>
+            <div class="ctx-pill-key">Sources</div>
+          </div>
+          <div class="ctx-pill">
+            <div class="ctx-pill-val" id="pillPages">—</div>
+            <div class="ctx-pill-key">Est. Pages</div>
+          </div>
+          <div class="ctx-pill">
+            <div class="ctx-pill-val" id="pillDone">—</div>
+            <div class="ctx-pill-key">Done</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ CARD 01: CONFIGURE ══ -->
+      <div class="card done" id="card01">
+        <div class="card-header" data-card="card01">
+          <span class="card-num">01</span>
+          <span class="card-title">Configure</span>
+          <span class="pill pill-done" id="configurePill">✓ Saved</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+          <div class="form-row">
+            <div class="form-group" style="max-width:180px;">
+              <label class="form-label">Word count target</label>
+              <div class="num-input">
+                <button id="btnWcMinus" type="button">−</button>
+                <span class="num-val" id="wcValue">750</span>
+                <button id="btnWcPlus" type="button">+</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                Style notes
+                <span class="opt">&nbsp;(optional)</span>
+              </label>
+              <input
+                type="text"
+                id="styleNotesInput"
+                placeholder="e.g. More analytical, less descriptive"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ CARD 02: GENERATE DRAFTS ══ -->
+      <div class="card active" id="card02">
+        <div class="card-header" data-card="card02">
+          <span class="card-num">02</span>
+          <span class="card-title">Generate Drafts</span>
+          <span class="pill pill-idle" id="generatePill">—</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+
+          <div class="run-all-row">
+            <button class="btn btn-run" id="btnRunAll" type="button">
+              ⚡ Run All Idle
+            </button>
+          </div>
+
+          <!-- Run table — rows injected by JS -->
+          <div class="run-table">
+            <div id="runTableBody"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ══ CARD 03: EDIT DRAFT ══ -->
+      <div class="card" id="card03">
+        <div class="card-header" data-card="card03">
+          <span class="card-num">03</span>
+          <span class="card-title">Edit Draft</span>
+          <span class="pill pill-idle" id="draftSubtopicPill">—</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+          <div class="draft-toolbar">
+            <span class="word-count" id="wordCount">~0 words</span>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-ghost" id="btnClearDraft" type="button">Clear</button>
+              <button class="btn btn-success" id="btnSaveDraft" type="button">💾 Save</button>
+            </div>
+          </div>
+          <textarea
+            class="draft-textarea"
+            id="draftTextarea"
+            placeholder="Paste draft here, or open via ↗ in the generate table above…"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- ══ CARD 04: CONSISTENCY SUMMARY ══ -->
+      <div class="card" id="card04">
+        <div class="card-header" data-card="card04">
+          <span class="card-num">04</span>
+          <span class="card-title">Consistency Summary</span>
+          <span class="pill pill-idle">Pending</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+          <p style="font-size:11.5px;color:var(--muted);margin-bottom:16px;">
+            Run via NotebookLM — generates a consistency summary and saves it to your summary doc.
+          </p>
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <button
+              class="btn btn-primary btn-full"
+              id="btnGenerateConsistency"
+              type="button"
+            >
+              ⚡ Generate Summary via NotebookLM
+            </button>
+          </div>
+          <div class="summary-saved-box" id="consistencySavedBox">
+            <div class="summary-saved-text">No summary saved yet for this subtopic.</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ── SOURCES PANEL ── -->
+    <aside class="sources-panel">
+      <div class="sp-head">
+        <div class="sp-title">Sources</div>
+        <div class="sp-count">
+          <span id="sourcesCount">—</span>
+          <span id="sourcesCountSub"></span>
+        </div>
+      </div>
+      <div class="sp-list" id="sourcesList">
+        <p class="sp-empty">Compile a prompt to resolve sources.</p>
+      </div>
+    </aside>
+
+  </div><!-- /body-layout -->
+</div><!-- /shell -->
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script type="module" src="/static/js/write_section.js"></script>
+</body>
+</html>

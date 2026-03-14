@@ -15,9 +15,11 @@ load_dotenv(find_dotenv())  # walks up from spo_backend/ to find .env at project
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from routers import thesis, sources, consistency, notes, compiler, importer, drive, sections
 from routers import notebooklm
+from routers.write_section import router as write_section_router
 
 app = FastAPI(
     title="SPO — Surgical Prompt Orchestrator",
@@ -47,6 +49,9 @@ app.include_router(importer.router)
 app.include_router(drive.router)
 app.include_router(sections.router)
 app.include_router(notebooklm.router)
+app.include_router(write_section_router)
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.get("/", tags=["Health"])
