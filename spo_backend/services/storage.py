@@ -2,7 +2,7 @@
 File Storage Service
 --------------------
 All persistence is handled here. No database — just JSON files on disk.
-This is intentional for a personal project: zero infrastructure, 
+This is intentional for a personal project: zero infrastructure,
 portable, human-readable, easy to back up.
 
 Directory layout (under SPO_DATA_DIR, default: ~/spo_data):
@@ -21,6 +21,34 @@ Directory layout (under SPO_DATA_DIR, default: ~/spo_data):
     consistency_chain/
       {chapter_id}/
         {subtopic_id}.json
+
+Cache design
+------------
+Three independent caches — each tracks only what it owns:
+
+  _groups_cache : dict[group_id, {meta + sources[]}]
+      Populated lazily on first access, invalidated per-group on write/delete.
+      Cross-group scans (find_sources_*) use the warmed cache directly.
+
+  _notes_cache  : dict[scope, dict[entity_id, list[note]]]
+      Completely separate from groups. Notes reads never touch source_groups/,
+      source reads never rebuild notes.
+
+  _drive_scan_cache : dict | None
+      drive_scan_result.json is read once and held. Invalidated on write_misc
+      for that specific key. resolve_source_files never hits disk in a loop.
+
+Fine-grained invalidation means a single source write only evicts that group's
+cache entry, not the whole library. Notes writes only evict the notes cache.
+
+Multi-process note
+------------------
+These caches are per-process. In a multi-worker server (gunicorn, uvicorn)
+each worker maintains its own copy. For a personal/single-user project this
+is acceptable; the cost of a stale read is one outdated response before the
+next write refreshes that worker's entry. If you later need cross-process
+consistency, replace the dicts below with a shared memory backend (e.g. Redis)
+without changing any of the public function signatures.
 """
 
 import json
@@ -28,10 +56,13 @@ import os
 import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional
 
 
-# Base data directory — override with SPO_DATA_DIR env var
+# ---------------------------------------------------------------------------
+# Base path
+# ---------------------------------------------------------------------------
+
 DATA_DIR = Path(os.environ.get("SPO_DATA_DIR", Path.home() / "spo_data"))
 
 
@@ -40,31 +71,44 @@ def _ensure(path: Path) -> Path:
     return path
 
 
+# ---------------------------------------------------------------------------
+# Directory helpers
+# ---------------------------------------------------------------------------
+
 def _thesis_dir() -> Path:
     return _ensure(DATA_DIR / "thesis_context")
-
 
 def _chapters_dir() -> Path:
     return _ensure(DATA_DIR / "thesis_context" / "chapters")
 
-
 def _groups_dir() -> Path:
     return _ensure(DATA_DIR / "source_groups")
-
 
 def _group_dir(group_id: str) -> Path:
     return _ensure(DATA_DIR / "source_groups" / group_id)
 
-
 def _sources_dir(group_id: str) -> Path:
     return _ensure(DATA_DIR / "source_groups" / group_id / "sources")
-
 
 def _chain_dir(chapter_id: str) -> Path:
     return _ensure(DATA_DIR / "consistency_chain" / chapter_id)
 
+def _notes_dir(scope: str) -> Path:
+    return _ensure(DATA_DIR / "notes" / scope)
 
-# --- Generic read/write ---
+def _misc_dir() -> Path:
+    return _ensure(DATA_DIR / "misc")
+
+def _drafts_dir(chapter_id: str) -> Path:
+    return _ensure(DATA_DIR / "sections" / chapter_id)
+
+def _nlm_state_dir(chapter_id: str) -> Path:
+    return _ensure(DATA_DIR / "sections" / chapter_id)
+
+
+# ---------------------------------------------------------------------------
+# Generic read / write
+# ---------------------------------------------------------------------------
 
 def _read(path: Path) -> Optional[dict]:
     if not path.exists():
@@ -75,8 +119,10 @@ def _read(path: Path) -> Optional[dict]:
 
 def _write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+    tmp.replace(path)          # atomic on POSIX; best-effort on Windows
 
 
 def _list_json(directory: Path) -> list[dict]:
@@ -88,7 +134,155 @@ def _list_json(directory: Path) -> list[dict]:
     ]
 
 
-# --- Synopsis ---
+# ---------------------------------------------------------------------------
+# Cache 1 — groups (meta + embedded sources, keyed by group_id)
+#
+# Structure:
+#   _groups_cache = {
+#       group_id: {
+#           **group_meta,
+#           "sources": [...],
+#           "source_count": int,
+#           "ready_count": int,
+#       },
+#       ...
+#   }
+#   _groups_cache_loaded = False   # True once we've done the initial full scan
+#
+# Invariant: if _groups_cache_loaded is True, _groups_cache contains every
+# group that exists on disk. Individual entries are evicted on write/delete
+# and re-read from disk on next access; a new full scan is never needed again
+# because we track individual entries.
+# ---------------------------------------------------------------------------
+
+_groups_cache: dict[str, dict] = {}
+_groups_cache_loaded: bool = False
+
+
+def _load_group_from_disk(group_id: str) -> Optional[dict]:
+    """Read one group (meta + sources) from disk and return the assembled entry."""
+    meta = _read(_group_dir(group_id) / "group_meta.json")
+    if not meta:
+        return None
+    sources = _list_json(_sources_dir(group_id))
+    meta["sources"] = sources
+    meta["source_count"] = len(sources)
+    meta["ready_count"] = sum(1 for s in sources if s.get("has_index_card"))
+    return meta
+
+
+def _ensure_groups_loaded() -> None:
+    """
+    Populate _groups_cache with every group on disk — exactly once.
+    After this call, individual entries are kept current via fine-grained
+    eviction; no second full scan ever happens during the process lifetime.
+    """
+    global _groups_cache_loaded
+    if _groups_cache_loaded:
+        return
+    groups_dir = _groups_dir()
+    if groups_dir.exists():
+        for group_path in sorted(groups_dir.iterdir()):
+            if group_path.is_dir():
+                group_id = group_path.name
+                entry = _load_group_from_disk(group_id)
+                if entry is not None:
+                    _groups_cache[group_id] = entry
+    _groups_cache_loaded = True
+
+
+def _evict_group(group_id: str) -> None:
+    """Remove one group entry from cache so it is re-read on next access."""
+    _groups_cache.pop(group_id, None)
+
+
+def _get_group_entry(group_id: str) -> Optional[dict]:
+    """Return the cached entry for one group, loading from disk if needed."""
+    _ensure_groups_loaded()
+    if group_id not in _groups_cache:
+        entry = _load_group_from_disk(group_id)
+        if entry is not None:
+            _groups_cache[group_id] = entry
+    return _groups_cache.get(group_id)
+
+
+# ---------------------------------------------------------------------------
+# Cache 2 — notes (keyed by scope → entity_id → list[note])
+#
+# Completely independent of the groups cache. A notes read never touches
+# source_groups/, and a source write never evicts notes.
+# ---------------------------------------------------------------------------
+
+_notes_cache: dict[str, dict[str, list[dict]]] = {}
+_notes_cache_loaded: set[str] = set()   # scopes that have been fully scanned
+
+
+def _ensure_notes_loaded(scope: str) -> None:
+    """Load all notes for a scope into cache — once per scope."""
+    if scope in _notes_cache_loaded:
+        return
+    notes_dir = _notes_dir(scope)
+    scope_map: dict[str, list[dict]] = {}
+    if notes_dir.exists():
+        for p in sorted(notes_dir.glob("*.json")):
+            note = _read(p)
+            if note:
+                entity_id = note.get("entity_id")
+                if entity_id:
+                    scope_map.setdefault(entity_id, []).append(note)
+    _notes_cache[scope] = scope_map
+    _notes_cache_loaded.add(scope)
+
+
+def _evict_note(scope: str, entity_id: str, note_id: str) -> None:
+    """
+    Remove a single note from cache by note_id.
+    If the scope hasn't been loaded yet, nothing to evict.
+    """
+    if scope not in _notes_cache:
+        return
+    entity_notes = _notes_cache[scope].get(entity_id, [])
+    _notes_cache[scope][entity_id] = [
+        n for n in entity_notes if n.get("note_id") != note_id
+    ]
+
+
+def _upsert_note_in_cache(scope: str, entity_id: str, note: dict) -> None:
+    """Insert or replace a note in cache without a disk re-read."""
+    if scope not in _notes_cache_loaded:
+        return  # scope not yet loaded; will be populated on first read
+    note_id = note.get("note_id")
+    entity_notes = _notes_cache[scope].setdefault(entity_id, [])
+    _notes_cache[scope][entity_id] = [
+        n for n in entity_notes if n.get("note_id") != note_id
+    ] + [note]
+
+
+# ---------------------------------------------------------------------------
+# Cache 3 — drive scan result (single JSON blob, invalidated by key)
+# ---------------------------------------------------------------------------
+
+_drive_scan_cache: Optional[dict] = None
+_drive_scan_loaded: bool = False
+
+
+def _get_drive_scan() -> dict:
+    global _drive_scan_cache, _drive_scan_loaded
+    if not _drive_scan_loaded:
+        _drive_scan_cache = _read(_misc_dir() / "drive_scan_result.json") or {}
+        _drive_scan_loaded = True
+    return _drive_scan_cache or {}
+
+
+def _invalidate_drive_scan() -> None:
+    global _drive_scan_cache, _drive_scan_loaded
+    _drive_scan_cache = None
+    _drive_scan_loaded = False
+
+
+# ---------------------------------------------------------------------------
+# Synopsis
+# ---------------------------------------------------------------------------
 
 def read_synopsis() -> Optional[dict]:
     return _read(_thesis_dir() / "synopsis.json")
@@ -100,7 +294,9 @@ def write_synopsis(data: dict) -> dict:
     return data
 
 
-# --- Chapters ---
+# ---------------------------------------------------------------------------
+# Chapters
+# ---------------------------------------------------------------------------
 
 def list_chapters() -> list[dict]:
     return _list_json(_chapters_dir())
@@ -124,36 +320,39 @@ def delete_chapter(chapter_id: str) -> bool:
     return False
 
 
-# --- Source Groups ---
+# ---------------------------------------------------------------------------
+# Source Groups
+# ---------------------------------------------------------------------------
 
 def list_source_groups() -> list[dict]:
-    groups_dir = _groups_dir()
-    if not groups_dir.exists():
-        return []
+    """
+    Return group meta + counts for all groups.
+    Sources list is stripped — callers that need sources use read_source_group().
+    Zero disk reads when cache is warm.
+    """
+    _ensure_groups_loaded()
     result = []
-    for group_path in sorted(groups_dir.iterdir()):
-        if group_path.is_dir():
-            meta = _read(group_path / "group_meta.json")
-            if meta:
-                result.append(meta)
+    for entry in sorted(_groups_cache.values(), key=lambda g: g.get("group_id", "")):
+        meta = {k: v for k, v in entry.items() if k != "sources"}
+        meta["source_count"] = entry.get("source_count", 0)
+        meta["ready_count"] = entry.get("ready_count", 0)
+        result.append(meta)
     return result
 
 
 def read_source_group(group_id: str) -> Optional[dict]:
-    meta = _read(_group_dir(group_id) / "group_meta.json")
-    if not meta:
-        return None
-    # Embed sources into the group response
-    meta["sources"] = list_sources(group_id)
-    return meta
+    """Return a single group with sources embedded. Zero disk reads when warm."""
+    return _get_group_entry(group_id)
 
 
 def write_source_group(group_id: str, data: dict) -> dict:
     data["updated_at"] = datetime.utcnow().isoformat()
-    # Don't store sources inside group_meta — they live in their own files
     sources = data.pop("sources", [])
     _write(_group_dir(group_id) / "group_meta.json", data)
     data["sources"] = sources
+    # Evict this group so the next read gets a fresh assembled entry.
+    # Other groups are unaffected.
+    _evict_group(group_id)
     return data
 
 
@@ -161,23 +360,38 @@ def delete_source_group(group_id: str) -> bool:
     group_path = _group_dir(group_id)
     if group_path.exists():
         shutil.rmtree(group_path)
+        _evict_group(group_id)
         return True
     return False
 
 
-# --- Sources ---
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
 
 def list_sources(group_id: str) -> list[dict]:
+    """Zero disk reads when cache is warm."""
+    entry = _get_group_entry(group_id)
+    if entry is not None:
+        return entry.get("sources", [])
     return _list_json(_sources_dir(group_id))
 
 
 def read_source(group_id: str, source_id: str) -> Optional[dict]:
+    entry = _get_group_entry(group_id)
+    if entry is not None:
+        for s in entry.get("sources", []):
+            if s.get("source_id") == source_id:
+                return s
+    # Cache miss (group not found) — fall back to direct disk read
     return _read(_sources_dir(group_id) / f"{source_id}.json")
 
 
 def write_source(group_id: str, source_id: str, data: dict) -> dict:
     data["updated_at"] = datetime.utcnow().isoformat()
     _write(_sources_dir(group_id) / f"{source_id}.json", data)
+    # Evict only the owning group — every other group's cache is untouched
+    _evict_group(group_id)
     return data
 
 
@@ -185,11 +399,14 @@ def delete_source(group_id: str, source_id: str) -> bool:
     path = _sources_dir(group_id) / f"{source_id}.json"
     if path.exists():
         path.unlink()
+        _evict_group(group_id)
         return True
     return False
 
 
-# --- Index Cards (stored within source file) ---
+# ---------------------------------------------------------------------------
+# Index Cards  (stored within the source file)
+# ---------------------------------------------------------------------------
 
 def write_index_card(group_id: str, source_id: str, card_data: dict) -> Optional[dict]:
     source = read_source(group_id, source_id)
@@ -200,7 +417,7 @@ def write_index_card(group_id: str, source_id: str, card_data: dict) -> Optional
         card_data["created_at"] = datetime.utcnow().isoformat()
     source["index_card"] = card_data
     source["has_index_card"] = True
-    write_source(group_id, source_id, source)
+    write_source(group_id, source_id, source)   # evicts group cache
     return card_data
 
 
@@ -210,11 +427,13 @@ def delete_index_card(group_id: str, source_id: str) -> bool:
         return False
     source["index_card"] = None
     source["has_index_card"] = False
-    write_source(group_id, source_id, source)
+    write_source(group_id, source_id, source)   # evicts group cache
     return True
 
 
-# --- Consistency Chain ---
+# ---------------------------------------------------------------------------
+# Consistency Chain
+# ---------------------------------------------------------------------------
 
 def list_section_summaries(chapter_id: str) -> list[dict]:
     return _list_json(_chain_dir(chapter_id))
@@ -240,26 +459,22 @@ def delete_section_summary(chapter_id: str, subtopic_id: str) -> bool:
     return False
 
 
-# --- Cross-cutting: find sources by subtopic ---
+# ---------------------------------------------------------------------------
+# Cross-cutting: find sources by subtopic / theme
+#
+# Both functions use the warmed groups cache — zero disk reads after the
+# first call to any groups accessor in this process.
+# ---------------------------------------------------------------------------
 
 def find_sources_for_subtopic(subtopic_id: str) -> list[dict]:
     """
-    Scan all index cards across all source groups and return sources
-    whose index_card.relevant_subtopics includes this subtopic_id.
-    Used for auto-suggesting sources when compiling prompts.
+    Scan all index cards across all groups for relevant_subtopics membership.
+    Uses in-memory cache — O(total_sources) with zero disk I/O when warm.
     """
+    _ensure_groups_loaded()
     matches = []
-    groups_dir = _groups_dir()
-    if not groups_dir.exists():
-        return matches
-    for group_path in groups_dir.iterdir():
-        if not group_path.is_dir():
-            continue
-        sources_path = group_path / "sources"
-        if not sources_path.exists():
-            continue
-        for source_file in sources_path.glob("*.json"):
-            source = json.loads(source_file.read_text(encoding="utf-8"))
+    for entry in _groups_cache.values():
+        for source in entry.get("sources", []):
             card = source.get("index_card")
             if card and subtopic_id in card.get("relevant_subtopics", []):
                 matches.append(source)
@@ -268,154 +483,119 @@ def find_sources_for_subtopic(subtopic_id: str) -> list[dict]:
 
 def find_sources_by_theme(theme: str) -> list[dict]:
     """
-    Find all sources whose index card contains a specific theme tag.
+    Scan all index cards across all groups for a specific theme tag.
+    Uses in-memory cache — O(total_sources) with zero disk I/O when warm.
     """
+    _ensure_groups_loaded()
     matches = []
-    groups_dir = _groups_dir()
-    if not groups_dir.exists():
-        return matches
-    for group_path in groups_dir.iterdir():
-        if not group_path.is_dir():
-            continue
-        sources_path = group_path / "sources"
-        if not sources_path.exists():
-            continue
-        for source_file in sources_path.glob("*.json"):
-            source = json.loads(source_file.read_text(encoding="utf-8"))
+    for entry in _groups_cache.values():
+        for source in entry.get("sources", []):
             card = source.get("index_card")
             if card and theme in card.get("themes", []):
                 matches.append(source)
     return matches
 
 
-# --- Library Bulk View ---
+# ---------------------------------------------------------------------------
+# Library Bulk View
+#
+# Composes from the two independent caches. Notes and groups are loaded
+# separately; loading one never triggers a read of the other.
+# ---------------------------------------------------------------------------
 
 def get_entire_library_data() -> dict:
     """
-    Reads the entire source library (groups, sources, index cards, and notes)
-    in a single pass to prevent N+1 HTTP/disk issues on the frontend.
-    Returns:
+    Return the full library snapshot used by the frontend.
+
+    Structure:
     {
-        "groups": [
-            {
-                ...group_meta,
-                "sources": [ ...sources_with_embedded_index_cards... ]
-            }
-        ],
+        "groups": [{...group_meta, "sources": [...]}],
         "notes": {
-            "source_group": { "group_id": [note1, note2] },
-            "source": { "source_id": [note1, note2] }
+            "source_group": {"group_id": [note, ...]},
+            "source":       {"source_id": [note, ...]},
         }
     }
+
+    Both slices are served from cache after the first call.
+    A notes write never triggers a groups re-read and vice-versa.
     """
-    # 1. Gather all notes first (organized by entity_id)
-    notes_by_scope_and_id: dict[str, dict[str, list[dict]]] = {"source_group": {}, "source": {}}
-    for scope in ["source_group", "source"]:
-        notes_dir = _notes_dir(scope)
-        if notes_dir.exists():
-            for p in sorted(notes_dir.glob("*.json")):
-                note = _read(p)
-                if note:
-                    entity_id = note.get("entity_id")
-                    if entity_id:
-                        if entity_id not in notes_by_scope_and_id[scope]:
-                            notes_by_scope_and_id[scope][entity_id] = []
-                        notes_by_scope_and_id[scope][entity_id].append(note)
+    _ensure_groups_loaded()
+    _ensure_notes_loaded("source_group")
+    _ensure_notes_loaded("source")
 
-    # 2. Gather groups and their sources
-    groups_data = []
-    groups_dir = _groups_dir()
-    if groups_dir.exists():
-        for group_path in sorted(groups_dir.iterdir()):
-            if group_path.is_dir():
-                # Read group metadata
-                meta = _read(group_path / "group_meta.json")
-                if meta:
-                    group_id = meta["group_id"]
-                    
-                    # Read all sources for this group (index cards are already embedded)
-                    sources = _list_json(_sources_dir(group_id))
-                    meta["sources"] = sources
-                    
-                    # Calculate counts for backward compatibility with list_groups UI bindings
-                    meta["source_count"] = len(sources)
-                    meta["ready_count"] = sum(1 for s in sources if s.get("has_index_card"))
-                    
-                    groups_data.append(meta)
-
-    return {
-        "groups": groups_data,
-        "notes": notes_by_scope_and_id
+    groups_data = sorted(_groups_cache.values(), key=lambda g: g.get("group_id", ""))
+    notes_data = {
+        "source_group": _notes_cache.get("source_group", {}),
+        "source":       _notes_cache.get("source", {}),
     }
+    return {"groups": groups_data, "notes": notes_data}
 
 
-# --- Notes (free-text scratch pad per entity) ---
-
-def _notes_dir(scope: str) -> Path:
-    return _ensure(DATA_DIR / "notes" / scope)
-
+# ---------------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------------
 
 def list_notes(scope: str, entity_id: str) -> list[dict]:
-    notes_dir = _notes_dir(scope)
-    return [
-        json.loads(p.read_text(encoding="utf-8"))
-        for p in sorted(notes_dir.glob(f"{entity_id}_*.json"))
-    ]
+    """Zero disk reads when the scope cache is warm."""
+    _ensure_notes_loaded(scope)
+    return _notes_cache.get(scope, {}).get(entity_id, [])
 
 
 def read_note(scope: str, note_id: str) -> Optional[dict]:
-    # note_id encodes entity: e.g. "grp123_n001"
-    # We store as {note_id}.json directly under scope dir
     return _read(_notes_dir(scope) / f"{note_id}.json")
 
 
 def write_note(scope: str, note_id: str, data: dict) -> dict:
     data["updated_at"] = datetime.utcnow().isoformat()
     _write(_notes_dir(scope) / f"{note_id}.json", data)
+    # Update cache in-place — no re-scan of the notes directory
+    entity_id = data.get("entity_id")
+    if entity_id:
+        _upsert_note_in_cache(scope, entity_id, data)
     return data
 
 
 def delete_note(scope: str, note_id: str) -> bool:
     path = _notes_dir(scope) / f"{note_id}.json"
-    if path.exists():
-        path.unlink()
-        return True
-    return False
+    if not path.exists():
+        return False
+    # Read entity_id before unlinking so we can evict from cache
+    note = _read(path)
+    path.unlink()
+    if note:
+        entity_id = note.get("entity_id")
+        if entity_id:
+            _evict_note(scope, entity_id, note_id)
+    return True
 
 
-# --- Misc key-value store (used by drive scanner, etc.) ---
-
-def _misc_dir() -> Path:
-    return _ensure(DATA_DIR / "misc")
-
+# ---------------------------------------------------------------------------
+# Misc key-value store
+# ---------------------------------------------------------------------------
 
 def read_misc(key: str) -> Optional[dict]:
-    """Read a misc JSON value by key. Returns None if not found."""
     safe_key = key.replace("/", "_").replace("\\", "_")
     return _read(_misc_dir() / f"{safe_key}.json")
 
 
 def write_misc(key: str, data: dict) -> dict:
-    """Write a misc JSON value by key. Returns the data written."""
     safe_key = key.replace("/", "_").replace("\\", "_")
     _write(_misc_dir() / f"{safe_key}.json", data)
+    if safe_key == "drive_scan_result":
+        _invalidate_drive_scan()
     return data
 
 
-# --- Section Draft Storage ---
-
-def _drafts_dir(chapter_id: str) -> Path:
-    return _ensure(DATA_DIR / "sections" / chapter_id)
-
+# ---------------------------------------------------------------------------
+# Section Draft Storage
+# ---------------------------------------------------------------------------
 
 def read_section_draft(chapter_id: str, subtopic_id: str) -> Optional[dict]:
-    path = _drafts_dir(chapter_id) / f"{subtopic_id}_draft.json"
-    return _read(path)
+    return _read(_drafts_dir(chapter_id) / f"{subtopic_id}_draft.json")
 
 
 def write_section_draft(chapter_id: str, subtopic_id: str, data: dict) -> dict:
-    path = _drafts_dir(chapter_id) / f"{subtopic_id}_draft.json"
-    _write(path, data)
+    _write(_drafts_dir(chapter_id) / f"{subtopic_id}_draft.json", data)
     return data
 
 
@@ -427,18 +607,12 @@ def delete_section_draft(chapter_id: str, subtopic_id: str) -> bool:
     return False
 
 
-def _nlm_state_dir(chapter_id: str) -> "Path":
-    return _ensure(DATA_DIR / "sections" / chapter_id)
-
-
-def read_nlm_state(chapter_id: str, subtopic_id: str) -> "Optional[dict]":
-    path = _nlm_state_dir(chapter_id) / f"{subtopic_id}_nlm_state.json"
-    return _read(path)
+def read_nlm_state(chapter_id: str, subtopic_id: str) -> Optional[dict]:
+    return _read(_nlm_state_dir(chapter_id) / f"{subtopic_id}_nlm_state.json")
 
 
 def write_nlm_state(chapter_id: str, subtopic_id: str, data: dict) -> dict:
-    path = _nlm_state_dir(chapter_id) / f"{subtopic_id}_nlm_state.json"
-    _write(path, data)
+    _write(_nlm_state_dir(chapter_id) / f"{subtopic_id}_nlm_state.json", data)
     return data
 
 
@@ -449,13 +623,23 @@ def delete_nlm_state(chapter_id: str, subtopic_id: str) -> bool:
         return True
     return False
 
-# --- Drive Link Resolution (delegated to source_resolver service) ---
 
-def resolve_source_files(thesis_name: str, chapter_id_raw: str) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Drive Link Resolution
+# ---------------------------------------------------------------------------
+
+def resolve_source_files(
+    thesis_name: str,
+    chapter_id_raw: str,
+    scan: Optional[dict] = None,
+) -> list[dict]:
     """
-    Resolves chapterization source_ids + chapter references to local filenames
-    and Drive links. All matching logic lives in services/source_resolver.py.
+    Resolve source_ids and chapter references to local filenames and Drive links.
+    Matching logic lives in services/source_resolver.py.
+
+    `scan` is accepted for call-site compatibility but ignored — the drive scan
+    result is held in _drive_scan_cache and read from disk at most once per
+    process lifetime, so callers in a loop pay zero extra disk reads.
     """
     from services.source_resolver import resolve_source_files as _resolve
-    scan = read_misc("drive_scan_result")
-    return _resolve(thesis_name, chapter_id_raw, scan or {})
+    return _resolve(thesis_name, chapter_id_raw, _get_drive_scan())

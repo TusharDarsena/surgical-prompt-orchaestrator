@@ -438,6 +438,14 @@ thesis_folders = thesis_data.get("thesis_folders", []) if thesis_data else []
 if thesis_folders:
     st.markdown(f"**{len(thesis_folders)} thesis folders found:**")
 
+    # Fetch drive links for every registered thesis before entering the loop,
+    # so the loop body is a plain dict lookup instead of an API call per folder.
+    all_drive_links_by_thesis: dict[str, dict] = {
+        entry["thesis_name"]: (api.get_drive_links(entry["thesis_name"]) or {}).get("links", {})
+        for entry in thesis_folders
+        if entry.get("drive_links_registered")
+    }
+
     for entry in thesis_folders:
         thesis_name = entry["thesis_name"]
         files = entry.get("files", [])
@@ -462,11 +470,8 @@ if thesis_folders:
             if files:
                 st.markdown("**PDFs in this folder:**")
 
-                # If Drive links are registered, show them as clickable links
-                # alongside filenames so user can copy individual links too
                 if drive_registered:
-                    drive_links_data = api.get_drive_links(thesis_name) or {}
-                    links_dict = drive_links_data.get("links", {})
+                    links_dict = all_drive_links_by_thesis.get(thesis_name, {})
 
                     all_drive_links = []
                     for fname in files:
@@ -555,4 +560,3 @@ elif not scan_clicked:
     st.info("Enter your parent folder path above and click **Scan Folder** to get started.")
 
 st.divider()
-

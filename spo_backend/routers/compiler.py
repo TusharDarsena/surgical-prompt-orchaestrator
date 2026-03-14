@@ -142,12 +142,14 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
     to a local filename (and Drive link if available) using the scan dictionary.
     """
     results = []
+    # Load the scan once — avoids N+1 disk reads of drive_scan_result.json
+    scan = storage.read_misc("drive_scan_result") or {}
     for entry in source_ids:
         thesis_name = entry.get("source_id", "")
         chapter_id_raw = entry.get("chapter_id", "")
         source_guidance = entry.get("source_guidance", "")
 
-        resolved = storage.resolve_source_files(thesis_name, chapter_id_raw)
+        resolved = storage.resolve_source_files(thesis_name, chapter_id_raw, scan=scan)
 
         if not resolved:
             results.append({

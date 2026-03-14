@@ -8,3 +8,17 @@ __pycache__/
 
 # Data
 spo_data/
+
+
+# Python Caches & Environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+ENV/
+env/
