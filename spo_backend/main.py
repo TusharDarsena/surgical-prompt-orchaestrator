@@ -6,6 +6,8 @@ Run from the spo_backend directory:
 
 # ── Windows asyncio fix — must be FIRST, before any asyncio import ────────────
 import sys
+import os
+
 if sys.platform == "win32":
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -16,10 +18,15 @@ load_dotenv(find_dotenv())  # walks up from spo_backend/ to find .env at project
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+# Paths to frontend static files
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "..", "spo_frontend")
 
 from routers import thesis, sources, consistency, notes, compiler, importer, drive, sections
 from routers import notebooklm
-from routers.write_section import router as write_section_router
+from spo_frontend.new_pages.write_section import router as write_section_router
 
 app = FastAPI(
     title="SPO — Surgical Prompt Orchestrator",
@@ -51,7 +58,9 @@ app.include_router(sections.router)
 app.include_router(notebooklm.router)
 app.include_router(write_section_router)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Frontend static files (HTML/CSS/JS)
+templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
+app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
 
 
 @app.get("/", tags=["Health"])

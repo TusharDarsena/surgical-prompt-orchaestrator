@@ -14,7 +14,11 @@ import httpx
 import os
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+
+# Path to frontend templates
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FRONTEND_DIR = os.path.join(BASE_DIR, "spo_frontend")
+templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
 
 _BACKEND = os.environ.get("SPO_API_URL", "http://localhost:8000")
 

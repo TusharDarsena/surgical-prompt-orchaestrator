@@ -330,8 +330,15 @@ const actions = {
     state.subtopics        = chapter.subtopics ?? [];
     state.runStates        = {};
     state.drafts           = {};
-    state.sources          = [];
     state.activeSubtopicId = state.subtopics[0]?.subtopic_id ?? null;
+
+    // Load sources from active subtopic's source_ids
+    const firstSub = state.subtopics[0];
+    state.sources = (firstSub?.source_ids ?? []).map(s => ({
+      ...s,
+      file_name: null,
+      drive_link: null
+    }));
 
     // Load chain
     try {
@@ -350,8 +357,7 @@ const actions = {
     renderContextPills();
     renderGeneratePill();
 
-    // If active subtopic has a prior compile result in cache, sources already loaded.
-    // Otherwise show empty panel until user compiles or runs.
+    // Show sources from source_ids (resolved after compile if needed)
     renderSources();
     renderConsistencyCard();
 
@@ -361,6 +367,14 @@ const actions = {
 
   async selectActiveSubtopic(subtopicId) {
     state.activeSubtopicId = subtopicId;
+
+    // Load sources from selected subtopic's source_ids
+    const sub = getActiveSubtopic();
+    state.sources = (sub?.source_ids ?? []).map(s => ({
+      ...s,
+      file_name: null,
+      drive_link: null
+    }));
 
     // Load draft if not cached
     if (state.drafts[subtopicId] === undefined) {
@@ -373,6 +387,7 @@ const actions = {
     renderSubtopicSelect();
     renderDraftCard();
     renderContextPills();
+    renderSources();
     renderConsistencyCard();
   },
 
@@ -627,6 +642,23 @@ function init() {
   });
 
   // ── Generate (card-02) ───────────────────────────────────────────────────
+  $("btnCheckCreds").addEventListener("click", async () => {
+    const statusEl = $("credStatus");
+    statusEl.textContent = "Checking...";
+    try {
+      const res = await API.nlmStatus();
+      if (res.ok) {
+        statusEl.textContent = "✅ Ready";
+        statusEl.style.color = "var(--success)";
+      } else {
+        statusEl.textContent = "❌ Not configured";
+        statusEl.style.color = "#f87171";
+      }
+    } catch (err) {
+      statusEl.textContent = "❌ Error";
+      statusEl.style.color = "#f87171";
+    }
+  });
   $("btnRunAll").addEventListener("click", () => actions.runAllIdle());
 
   // ── Draft (card-03) ──────────────────────────────────────────────────────

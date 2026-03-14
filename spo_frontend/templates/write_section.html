@@ -142,7 +142,11 @@
         <div class="card-body">
           <div class="card-divider"></div>
 
-          <div class="run-all-row">
+          <div class="run-all-row" style="justify-content: space-between; align-items: center;">
+            <button class="btn btn-ghost" id="btnCheckCreds" type="button">
+              🔍 Check NLM Credentials
+            </button>
+            <span id="credStatus" style="font-size:11.5px;color:var(--muted);"></span>
             <button class="btn btn-run" id="btnRunAll" type="button">
               ⚡ Run All Idle
             </button>
