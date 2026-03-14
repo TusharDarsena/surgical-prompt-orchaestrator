@@ -19,8 +19,6 @@ def resolve_source_files(thesis_name: str, chapter_id_raw: str, scan: dict) -> l
         [{ "segment": "Chapter Two: ...", "file_name": "08_chapter 2.pdf", "drive_link": "https://..." or None }]
 
     Handles:
-      - Thesis name normalization (strips author/year parentheticals, punctuation, case, underscores)
-      - Prefix fallback for truncated folder names
       - AND / and / & splitting for multi-chapter references
       - Chapter number extraction: digits, word numbers, Roman numerals
       - Special chapter keywords: Introduction, Abstract, Preface, Conclusion, Bibliography etc.
@@ -61,82 +59,21 @@ def _match_thesis_name(source_id: str, scan: dict) -> dict | None:
     """
     Matches source_id (from chapterization) to a key in the scan dictionary.
     Tries in order:
-      1. Exact match
-      2. Case-insensitive exact match
-      3. Normalized match (strip parentheticals, punctuation, underscores, lowercase)
-      4. Prefix match — normalized folder name is prefix of normalized source_id or vice versa
+      1. Exact match — always hits when chapterization source_ids match folder names exactly
+      2. Case-insensitive fallback — protects against accidental casing differences
     Returns the scan entry dict, or None if no match found.
     """
-    # Build normalized versions of all scan keys once
-    norm_map = {_normalize_thesis_name(k): k for k in scan}
-
     # 1. Exact
     if source_id in scan:
         return scan[source_id]
 
-    # 2. Case-insensitive exact
+    # 2. Case-insensitive
     lower_id = source_id.lower()
     for k in scan:
         if k.lower() == lower_id:
             return scan[k]
 
-    # 3. Normalized match
-    norm_source = _normalize_thesis_name(source_id)
-    if norm_source in norm_map:
-        return scan[norm_map[norm_source]]
-
-    # 4. Prefix match — handles truncated folder names
-    # e.g. folder "...Cry_ the P" normalized matches start of normalized source_id
-    # Require minimum 20 chars to avoid false positives on short common words
-    MIN_PREFIX = 20
-    for norm_key, original_key in norm_map.items():
-        short, long = (
-            (norm_key, norm_source) if len(norm_key) <= len(norm_source)
-            else (norm_source, norm_key)
-        )
-        if len(short) >= MIN_PREFIX and long.startswith(short):
-            return scan[original_key]
-
     return None
-
-
-def _normalize_thesis_name(name: str) -> str:
-    """
-    Normalizes a thesis name for matching.
-    Steps:
-      1. Strip trailing parenthetical (author, year)
-      2. Replace underscores with spaces
-      3. Replace punctuation chars with spaces
-      4. Collapse multiple spaces
-      5. Lowercase
-      6. Remove leading articles (a, an, the)
-      7. Remove all spaces
-    """
-    s = name.strip()
-
-    # Strip trailing parentheticals like (Puhan, 2018) or (author unlisted) or (2019)
-    while True:
-        stripped = re.sub(r'\s*\([^)]*\)\s*$', '', s).strip()
-        if stripped == s:
-            break
-        s = stripped
-
-    # Replace underscores with spaces
-    s = s.replace('_', ' ')
-
-    # Replace punctuation with spaces
-    s = re.sub(r"[:\-,.'\"''\u2018\u2019\u201c\u201d/\\()\[\]{}]", ' ', s)
-
-    # Collapse whitespace and lowercase
-    s = re.sub(r'\s+', ' ', s).strip().lower()
-
-    # Remove leading articles
-    s = re.sub(r'^(a|an|the)\s+', '', s)
-
-    # Remove all spaces
-    s = s.replace(' ', '')
-
-    return s
 
 
 # ── Chapter reference splitting ────────────────────────────────────────────────

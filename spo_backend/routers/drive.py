@@ -8,21 +8,13 @@ Two responsibilities:
      to clickable links
 
 Expected folder structure (local):
-    parent_folder/
-        my_thesis_1/
-            my_thesis_1_sources/
-                actual_thesis_folder/     ← level-4: thesis name
-                    07_chapter 1.pdf
-                    08_chapter 2.pdf
-            index_cards/                  ← created by app if missing
-                actual_thesis_folder.json
+    Any directory structure is supported. scan-local uses rglob to find every
+    PDF in the tree and groups them by their immediate parent folder.
 
-Google Drive structure (mirrors local):
-    phd/
-        my_thesis_1/
-            original_sources/
-                actual_thesis_folder/
-                    07_chapter 1.pdf
+Google Drive structure:
+    Any structure is supported. register-links recursively walks the Drive
+    parent folder at any depth and matches leaf folders (folders that contain
+    files) to scan keys by folder name.
 
 Endpoints:
     POST /drive/scan-local              ← scan local parent folder
@@ -121,20 +113,13 @@ class ScanRequest(BaseModel):
 
 class SaveIndexCardRequest(BaseModel):
     thesis_name: str
-    # 'data' receives the parsed JSON object directly — FastAPI/Pydantic handles
-    # deserialization, so no manual json.loads() + JSONDecodeError is needed.
     data: dict
 
 
 class RegisterLinksRequest(BaseModel):
-    # The Google Drive folder ID of the PARENT folder —
-    # the same top-level folder you configured in scan-local.
-    # Drive structure expected (mirrors local):
-    #   parent_folder/               ← pass THIS folder's ID
-    #     my_thesis_1/
-    #       my_thesis_1_sources/
-    #         actual_thesis_folder/  ← level-4, matched to thesis_name in scan
-    #           07_chapter 1.pdf
+    # The Google Drive folder ID of the parent folder — any structure beneath
+    # it is supported. register-links walks recursively and matches leaf folders
+    # (folders that directly contain files) to scan keys by folder name.
     drive_parent_folder_id: str
 
 
@@ -144,7 +129,6 @@ class RegisterLinksRequest(BaseModel):
 
 @router.post("/scan-local")
 def scan_local(req: ScanRequest):
-    # ── Fix 2: path traversal guard ───────────────────────────────────────────
     root = Path(req.root_path.strip()).resolve()
 
     if BASE_SCAN_DIR is not None and not root.is_relative_to(BASE_SCAN_DIR):
@@ -190,7 +174,6 @@ def scan_local(req: ScanRequest):
 
 @router.get("/local-files", summary="Return stored file tree with Drive link status")
 def get_local_files():
-    # ── Fix 3: single storage read — all state lives in the unified scan dict ─
     scan = _read_scan()
 
     result = []
@@ -226,8 +209,6 @@ def save_index_card(req: SaveIndexCardRequest):
         )
 
     thesis_entry = scan[req.thesis_name]
-
-    # req.data is already a parsed dict — no json.loads() needed (Fix 1)
     parsed = req.data
 
     level2_path = thesis_entry.get("folder_path", "")
@@ -240,9 +221,8 @@ def save_index_card(req: SaveIndexCardRequest):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(parsed, f, indent=2, ensure_ascii=False)
 
-    import_result, import_error = do_auto_import(parsed)  # Fix 4: top-level import
+    import_result, import_error = do_auto_import(parsed)
 
-    # ── Fix 3: write import status into the unified scan object ───────────────
     thesis_entry["import_status"] = {
         "imported": import_result is not None,
         "imported_at": datetime.utcnow().isoformat() if import_result else None,
@@ -275,19 +255,15 @@ def save_index_card(req: SaveIndexCardRequest):
 # GOOGLE DRIVE LINK REGISTRATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/register-links", summary="Walk Drive parent folder and register shareable links for all thesis folders")
+@router.post("/register-links", summary="Recursively walk Drive parent folder and register shareable links for all thesis folders")
 def register_drive_links(req: RegisterLinksRequest):
     """
-    Walks the Drive parent folder (4 levels deep, mirroring the local structure)
-    and for every level-4 thesis folder found, fetches all PDF file IDs and
-    stores shareable links as { filename: link }.
+    Recursively walks the Drive parent folder at any depth. Any folder that
+    directly contains files (not just subfolders) is treated as a thesis folder
+    and matched to the local scan by folder name.
 
-    Drive structure walked:
-      parent/                        level-1 (drive_parent_folder_id)
-        my_thesis_1/                 level-2
-          my_thesis_1_sources/       level-3 (any folder at this level)
-            actual_thesis_folder/    level-4 → matched to thesis_name in local scan
-              07_chapter 1.pdf       → registered
+    This mirrors the rglob behaviour of scan-local — the Drive structure does
+    not need to follow any specific depth or naming convention.
 
     Only thesis names already present in the local scan are registered.
     Unknown Drive folders are skipped and reported.
@@ -297,81 +273,19 @@ def register_drive_links(req: RegisterLinksRequest):
     service = _get_drive_service()
     scan = _read_scan()
 
-    registered = []   # { thesis_name, files_registered }
-    skipped = []      # { folder_name, reason }
+    registered = []
+    skipped = []
 
-    # ── Level-2: list folders inside parent ───────────────────────────────────
-    l2_folders = _list_drive_folders(service, req.drive_parent_folder_id)
-    if l2_folders is None:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Could not list Drive folder '{req.drive_parent_folder_id}'. Check folder ID and sharing settings."
-        )
+    # Recursively find all leaf folders (folders that contain files)
+    _walk_drive_folder(
+        service=service,
+        folder_id=req.drive_parent_folder_id,
+        scan=scan,
+        registered=registered,
+        skipped=skipped,
+    )
 
-    for l2 in l2_folders:
-        # ── Level-3: find the *_sources folder inside each level-2 ───────────
-        l3_folders = _list_drive_folders(service, l2["id"])
-        if l3_folders is None:
-            skipped.append({"folder": l2["name"], "reason": "could not list level-3 subfolders"})
-            continue
-
-        if not l3_folders:
-            skipped.append({"folder": l2["name"], "reason": "no level-3 subfolder found"})
-            continue
-
-        l3 = l3_folders[0]
-
-        # ── Level-4: thesis folders inside sources folder ─────────────────────
-        l4_folders = _list_drive_folders(service, l3["id"])
-        if l4_folders is None:
-            skipped.append({"folder": l2["name"], "reason": "could not list level-4 thesis folders"})
-            continue
-
-        for l4 in l4_folders:
-            thesis_name = l4["name"]
-
-            # Only register theses that exist in the local scan
-            if thesis_name not in scan:
-                matched = next(
-                    (k for k in scan if k.lower() == thesis_name.lower()),
-                    None
-                )
-                if not matched:
-                    skipped.append({
-                        "folder": thesis_name,
-                        "reason": "not in local scan — run scan-local first or check folder name"
-                    })
-                    continue
-                thesis_name = matched  # use the scan key casing
-
-            # ── Fetch files inside level-4 ────────────────────────────────────
-            files = _list_drive_files(service, l4["id"])
-            if files is None:
-                skipped.append({"folder": thesis_name, "reason": "could not list files in Drive folder"})
-                continue
-
-            if not files:
-                skipped.append({"folder": thesis_name, "reason": "no files found in Drive folder"})
-                continue
-
-            # Build filename → shareable link
-            links = {
-                f["name"]: f"https://drive.google.com/file/d/{f['id']}/view"
-                for f in files
-            }
-
-            # ── Fix 3: write directly into the unified scan entry ─────────────
-            scan[thesis_name]["drive_links"] = links
-            scan[thesis_name]["drive_links_registered_at"] = datetime.utcnow().isoformat()
-            scan[thesis_name]["drive_folder_id"] = l4["id"]
-
-            registered.append({
-                "thesis_name": thesis_name,
-                "drive_folder_id": l4["id"],
-                "files_registered": len(links),
-            })
-
-    _write_scan(scan)  # single write covers all registered theses
+    _write_scan(scan)
 
     return {
         "registered_count": len(registered),
@@ -379,6 +293,85 @@ def register_drive_links(req: RegisterLinksRequest):
         "registered": registered,
         "skipped": skipped,
     }
+
+
+def _walk_drive_folder(
+    service,
+    folder_id: str,
+    scan: dict,
+    registered: list,
+    skipped: list,
+):
+    """
+    Recursively walks a Drive folder. For each folder encountered:
+      - If it contains files → treat it as a thesis folder, match to scan
+      - If it contains subfolders → recurse into them
+      - Both can be true (a folder can have files and subfolders)
+
+    This makes the function depth-agnostic — any structure works.
+    """
+    # List subfolders
+    subfolders = _list_drive_folders(service, folder_id)
+    if subfolders is None:
+        # Can't list this folder — skip silently (already logged at call site)
+        return
+
+    # Recurse into subfolders first
+    for subfolder in subfolders:
+        _walk_drive_folder(
+            service=service,
+            folder_id=subfolder["id"],
+            scan=scan,
+            registered=registered,
+            skipped=skipped,
+        )
+
+    # Check if this folder directly contains files
+    files = _list_drive_files(service, folder_id)
+    if not files:
+        return  # no files here — not a thesis folder
+
+    # Need the folder's own name to match against scan keys.
+    # We get it from the Drive API metadata.
+    folder_meta = _get_folder_metadata(service, folder_id)
+    if not folder_meta:
+        skipped.append({
+            "folder_id": folder_id,
+            "reason": "could not fetch folder metadata"
+        })
+        return
+
+    thesis_name = folder_meta["name"]
+
+    # Match to scan — exact first, then case-insensitive
+    if thesis_name not in scan:
+        matched = next(
+            (k for k in scan if k.lower() == thesis_name.lower()),
+            None
+        )
+        if not matched:
+            skipped.append({
+                "folder": thesis_name,
+                "reason": "not in local scan — run scan-local first or check folder name"
+            })
+            return
+        thesis_name = matched  # use the scan key casing
+
+    # Build filename → shareable link
+    links = {
+        f["name"]: f"https://drive.google.com/file/d/{f['id']}/view"
+        for f in files
+    }
+
+    scan[thesis_name]["drive_links"] = links
+    scan[thesis_name]["drive_links_registered_at"] = datetime.utcnow().isoformat()
+    scan[thesis_name]["drive_folder_id"] = folder_id
+
+    registered.append({
+        "thesis_name": thesis_name,
+        "drive_folder_id": folder_id,
+        "files_registered": len(links),
+    })
 
 
 @router.get("/links/{thesis_name}", summary="Return stored Drive links for a thesis")
@@ -404,7 +397,6 @@ def delete_drive_links(thesis_name: str):
     if thesis_name not in scan or not scan[thesis_name].get("drive_links"):
         raise HTTPException(status_code=404, detail=f"No links found for '{thesis_name}'.")
 
-    # ── Fix 3: clear within the unified scan entry — single write ─────────────
     scan[thesis_name]["drive_links"] = {}
     scan[thesis_name]["drive_links_registered_at"] = None
     scan[thesis_name]["drive_folder_id"] = None
@@ -414,6 +406,18 @@ def delete_drive_links(thesis_name: str):
 
 
 # ── Drive API helpers ──────────────────────────────────────────────────────────
+
+def _get_folder_metadata(service, folder_id: str) -> dict | None:
+    """Returns {id, name} for a single folder. None on error."""
+    try:
+        result = service.files().get(
+            fileId=folder_id,
+            fields="id, name",
+        ).execute()
+        return result
+    except Exception:
+        return None
+
 
 def _list_drive_folders(service, folder_id: str) -> list | None:
     """Returns list of {id, name} for subfolders of folder_id. None on error."""
@@ -475,7 +479,6 @@ def _get_drive_service():
         )
 
     if service_account_path:
-        # Service account auth — works for both public and private folders
         try:
             from google.oauth2 import service_account
             creds = service_account.Credentials.from_service_account_file(
@@ -489,7 +492,6 @@ def _get_drive_service():
                 detail=f"Service account auth failed: {e}. Check GOOGLE_SERVICE_ACCOUNT_JSON path."
             )
 
-    # API key auth — only works for publicly shared folders
     try:
         return build("drive", "v3", developerKey=api_key)
     except Exception as e:

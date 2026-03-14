@@ -8,6 +8,7 @@ remain fully functional for manual patches and corrections.
 Endpoints:
   POST /import/thesis                  ← thesis.json
   POST /import/chapterization/{ch_id}  ← chapterization.json for one chapter
+  POST /import/chapterization/bulk     ← multiple chapters in one upload
   POST /import/source                  ← source.json for one external work
   GET  /import/status                  ← what has been set up so far
 
@@ -20,12 +21,11 @@ from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
 from datetime import datetime
 from services import storage
-# Models and normalization logic live in the services layer to avoid circular
-# imports with routers/drive.py. Re-exported here so existing callers still work.
 from services.source_importer import (
     _normalize_source_chapter,
     SourceChapterImport,
     SourceImport,
+    do_auto_import,
 )
 
 router = APIRouter(prefix="/import", tags=["JSON Import"])
@@ -71,17 +71,16 @@ class ThesisImport(BaseModel):
     scope_and_limits: Optional[str] = None
 
 
-
 @router.post("/thesis", summary="Import thesis.json")
 def import_thesis(data: ThesisImport):
     record = data.model_dump()
     record["updated_at"] = datetime.utcnow().isoformat()
     storage.write_synopsis(record)
-    
+
     frameworks = []
     if data.methodology and isinstance(data.methodology, dict):
         frameworks = data.methodology.get("theoretical_frameworks", [])
-    
+
     return {
         "imported": "thesis",
         "title": data.title,
@@ -156,6 +155,39 @@ class ChapterizationImport(BaseModel):
     )
 
 
+def _build_chapter_record(chapter_id: str, data: ChapterizationImport) -> dict:
+    """
+    Single authority for turning a ChapterizationImport into a storage record.
+    Called by both import_chapterization and import_chapterization_bulk so
+    subtopic field list never diverges between the two endpoints.
+    """
+    now = datetime.utcnow().isoformat()
+    subtopics = [
+        {
+            "subtopic_id": sub.number.replace(".", "_"),
+            "number": sub.number,
+            "title": sub.title,
+            "goal": sub.goal,
+            "position_in_argument": sub.position_in_argument,
+            "estimated_pages": sub.estimated_pages,
+            "source_ids": list(sub.source_ids),
+        }
+        for sub in data.subtopics
+    ]
+    return {
+        "chapter_id": chapter_id,
+        "number": data.number,
+        "title": data.title,
+        "goal": data.goal,
+        "chapter_arc": data.chapter_arc,
+        "chapter_goal_statement": data.chapter_goal_statement,
+        "subtopics": subtopics,
+        "sources_reserved_for_later_chapters": list(data.sources_reserved_for_later_chapters),
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 @router.post(
     "/chapterization/{chapter_id}",
     summary="Import chapterization.json — sets up chapter arc + all subtopics at once"
@@ -166,39 +198,14 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport):
     If the chapter already exists, it is overwritten.
     Subtopic IDs are auto-generated from the number (e.g. '1.3.2' → '1_3_2').
     """
-    subtopics = []
-    for sub in data.subtopics:
-        subtopics.append({
-            "subtopic_id": sub.number.replace(".", "_"),
-            "number": sub.number,
-            "title": sub.title,
-            "goal": sub.goal,
-            "position_in_argument": sub.position_in_argument,
-            "estimated_pages": sub.estimated_pages,
-            "source_ids": [s for s in sub.source_ids],
-        })
-
-    record = {
-        "chapter_id": chapter_id,
-        "number": data.number,
-        "title": data.title,
-        "goal": data.goal,
-        "chapter_arc": data.chapter_arc,
-        "chapter_goal_statement": data.chapter_goal_statement,
-        "subtopics": subtopics,
-        "sources_reserved_for_later_chapters": [
-            s for s in data.sources_reserved_for_later_chapters
-        ],
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-    }
+    record = _build_chapter_record(chapter_id, data)
     storage.write_chapter(chapter_id, record)
 
     return {
         "imported": "chapter",
         "chapter_id": chapter_id,
         "title": data.title,
-        "subtopics_created": len(subtopics),
+        "subtopics_created": len(record["subtopics"]),
         "chapter_arc_set": True,
         "arc_word_count": len(data.chapter_arc.split()),
         "source_ids_stored": sum(len(s.source_ids) for s in data.subtopics),
@@ -217,38 +224,12 @@ def import_chapterization_bulk(chapters: list[ChapterizationImport]):
     results = []
     for ch_data in chapters:
         chapter_id = f"ch{ch_data.number}"
-        # Reuse the same logic as single import
-        subtopics = []
-        for sub in ch_data.subtopics:
-            subtopics.append({
-                "subtopic_id": sub.number.replace(".", "_"),
-                "number": sub.number,
-                "title": sub.title,
-                "goal": sub.goal,
-                "position_in_argument": sub.position_in_argument,
-                "estimated_pages": sub.estimated_pages,
-                "source_ids": [s for s in sub.source_ids],
-            })
-
-        record = {
-            "chapter_id": chapter_id,
-            "number": ch_data.number,
-            "title": ch_data.title,
-            "goal": ch_data.goal,
-            "chapter_arc": ch_data.chapter_arc,
-            "chapter_goal_statement": ch_data.chapter_goal_statement,
-            "subtopics": subtopics,
-            "sources_reserved_for_later_chapters": [
-                s for s in ch_data.sources_reserved_for_later_chapters
-            ],
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
+        record = _build_chapter_record(chapter_id, ch_data)
         storage.write_chapter(chapter_id, record)
         results.append({
             "chapter_id": chapter_id,
             "title": ch_data.title,
-            "subtopics_created": len(subtopics),
+            "subtopics_created": len(record["subtopics"]),
         })
 
     return {
@@ -259,12 +240,8 @@ def import_chapterization_bulk(chapters: list[ChapterizationImport]):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SOURCE.JSON SCHEMA
+# SOURCE.JSON IMPORT
 # ══════════════════════════════════════════════════════════════════════════════
-
-# _normalize_source_chapter, SourceChapterImport, SourceImport are defined in
-# services/source_importer.py and imported at the top of this file.
-
 
 @router.post("/source", summary="Import source.json — creates group + all sources + index cards in one upload")
 def import_source(data: dict = Body(...)):
@@ -272,113 +249,21 @@ def import_source(data: dict = Body(...)):
     Imports a complete external work:
       1 SourceGroup + N Sources + N IndexCards in one request.
 
-    Accepts raw dict, normalizes alternative field names from NotebookLM
-    output via _normalize_source_chapter(), then validates with Pydantic.
+    Delegates entirely to do_auto_import() in services/source_importer.py —
+    the single authority for this logic, also used by drive.py's save_index_card.
     """
-    import uuid
+    result, error = do_auto_import(data)
 
-    # Normalize chapter fields before Pydantic validation
-    if "chapters" in data:
-        data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
-
-    # ── Work-level junk drawer: sweep extra keys into additional ──────────
-    WORK_CANONICAL_KEYS = {
-        "title", "author", "year", "source_type",
-        "institution_or_publisher", "description", "work_summary", "chapters",
-    }
-    extras = []
-    for k in list(data.keys()):
-        if k not in WORK_CANONICAL_KEYS:
-            val = data.pop(k)
-            if val is not None and val != "" and val != []:
-                extras.append(f"[{k.upper()}]: {val}")
-    if extras:
-        existing = data.get("additional") or ""
-        separator = "\n" if existing else ""
-        data["additional"] = (existing + separator + "\n".join(extras)).strip()
-
-    # ── Coerce null values to defaults ────────────────────────────────────
-    if data.get("title") is None:
-        data["title"] = "Untitled Work"
-    if data.get("author") is None:
-        data["author"] = "Unknown Author"
-    if not data.get("source_type"):
-        data["source_type"] = "other"
-
-    try:
-        data = SourceImport(**data)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
-
-    valid_types = {"thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"}
-    if data.source_type not in valid_types:
-        raise HTTPException(
-            status_code=422,
-            detail=f"source_type must be one of: {', '.join(valid_types)}"
-        )
-
-    group_id = str(uuid.uuid4())[:8]
-    now = datetime.utcnow().isoformat()
-
-    # Write group metadata
-    group_record = {
-        "group_id": group_id,
-        "title": data.title,
-        "author": data.author,
-        "year": data.year,
-        "source_type": data.source_type,
-        "institution_or_publisher": data.institution_or_publisher,
-        "description": data.description,
-        "work_summary": data.work_summary,
-        "additional": data.additional,
-        "created_at": now,
-        "updated_at": now,
-    }
-    storage.write_source_group(group_id, group_record)
-
-    # Write each chapter as a Source + IndexCard
-    created_sources = []
-    for ch in data.chapters:
-        source_id = str(uuid.uuid4())[:8]
-        source_record = {
-            "source_id": source_id,
-            "group_id": group_id,
-            "label": ch.label,
-            "title": ch.title,
-            "chapter_or_section": ch.title,
-            "page_range": ch.page_range,
-            "file_name": ch.file_name,
-            "file_path": None,
-            "index_card": None,
-            "has_index_card": False,
-            "created_at": now,
-            "updated_at": now,
-        }
-        # Attach index card inline
-        index_card = {
-            "key_claims": ch.key_claims,
-            "themes": ch.themes,
-            "time_period_covered": ch.time_period_covered,
-            "relevant_subtopics": ch.relevant_subtopics,
-            "limitations": ch.limitations,
-            "notable_authors_cited": ch.notable_authors_cited,
-            "additional": ch.additional,
-            "your_notes": None,
-            "created_at": now,
-            "updated_at": now,
-        }
-        source_record["index_card"] = index_card
-        source_record["has_index_card"] = True
-        storage.write_source(group_id, source_id, source_record)
-        created_sources.append({"source_id": source_id, "label": ch.label})
+    if error:
+        raise HTTPException(status_code=422, detail=error)
 
     return {
         "imported": "source",
-        "group_id": group_id,
-        "title": data.title,
-        "author": data.author,
-        "sources_created": len(created_sources),
-        "sources": created_sources,
+        "group_id": result["group_id"],
+        "title": result["title"],
+        "author": result["author"],
+        "sources_created": result["sources_created"],
+        "sources": result["sources"],
         "all_indexed": True,
     }
 
@@ -418,7 +303,6 @@ def import_status():
             "indexed_sources": ready,
         })
 
-    # Readiness checks
     warnings = []
     if not synopsis:
         warnings.append("No thesis synopsis. POST /import/thesis")

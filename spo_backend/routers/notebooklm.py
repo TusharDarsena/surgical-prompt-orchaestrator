@@ -63,6 +63,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from services import storage
+from services.source_resolver import _match_thesis_name
 
 logger = logging.getLogger(__name__)
 
@@ -684,15 +685,14 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
     Extends each required_source entry with abs_path — the full local
     filesystem path notebooklm-py needs to call add_file().
 
-    Path resolution:
-      - The scan stores level4_path for nested thesis structures
-        (parent/my_thesis_1/my_thesis_1_sources/thesis_folder/)
-      - Flat structures store level2_path instead (parent/thesis_folder/)
-      - We try level4_path first, fall back to level2_path
+    Path resolution order (first non-None wins):
+      - folder_path   — written by the current rglob-based scan (drive.py)
+      - level4_path   — written by the old nested scan (legacy entries)
+      - level2_path   — written by the old flat scan (legacy entries)
 
-    Thesis name matching:
-      - Exact match first
-      - Case-insensitive fallback
+    Thesis name matching delegates to source_resolver._match_thesis_name:
+      1. Exact match — always hits after chapterization source_ids are corrected
+      2. Case-insensitive fallback
 
     Deduplication:
       - If multiple source_ids resolve to the same PDF, upload only once
@@ -709,17 +709,16 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
         thesis_name = entry.get("source_id", "")
         abs_path = None
 
-        # Match thesis name to scan entry
-        thesis_entry = scan.get(thesis_name)
-        if not thesis_entry:
-            for k, v in scan.items():
-                if k.lower() == thesis_name.lower():
-                    thesis_entry = v
-                    break
+        # Delegate thesis matching to the single authority in source_resolver
+        thesis_entry = _match_thesis_name(thesis_name, scan)
 
         if thesis_entry:
-            # level4_path for nested structure, level2_path for flat
-            folder = thesis_entry.get("level4_path") or thesis_entry.get("level2_path")
+            # folder_path (new rglob scan), level4_path (old nested), level2_path (old flat)
+            folder = (
+                thesis_entry.get("folder_path")
+                or thesis_entry.get("level4_path")
+                or thesis_entry.get("level2_path")
+            )
             if folder:
                 candidate = os.path.join(folder, file_name)
                 if os.path.isfile(candidate):

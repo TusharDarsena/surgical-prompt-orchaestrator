@@ -15,7 +15,6 @@ Previous section context is preserved via the consistency chain
 (storage.read_section_summary).
 """
 
-import re
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from services import storage
@@ -68,7 +67,7 @@ def compile_notebooklm_prompt(
             )
         )
 
-    # ── Previous section summary (preserved from old pipeline) ─────────────
+    # ── Previous section summary ───────────────────────────────────────────
     previous_summary = None
     ids_in_order = [s["subtopic_id"] for s in subtopics]
     if subtopic_id in ids_in_order:
@@ -107,7 +106,7 @@ def compile_notebooklm_prompt(
             "Run Scan Folder on the Source Library page or check thesis folder names."
         )
 
-    # ── Build response with source metadata ────────────────────────────────
+    # ── Build response ─────────────────────────────────────────────────────
     return {
         "prompt": f"{prompt_1}\n\n\n{prompt_2}",
         "prompt_1": prompt_1,
@@ -195,7 +194,13 @@ def _render_notebooklm_prompt(
 
     position_in_argument = subtopic.get("position_in_argument", "Not specified")
     goal                 = subtopic.get("goal", "Not specified")
-    target_page_count    = estimated_pages
+
+    # Stage 2 length instruction — use pages if available, fall back to words
+    if estimated_pages:
+        stage2_length = f"{estimated_pages} pages"
+    else:
+        stage2_length = f"{wc} words"
+
     # ── Build source block (chapter name + source_guidance only) ──────────
     source_ids   = subtopic.get("source_ids", [])
     source_lines = []
@@ -234,7 +239,7 @@ def _render_notebooklm_prompt(
     # ── Style notes ────────────────────────────────────────────────────────
     style_note_line = f"\n* {academic_style_notes}" if academic_style_notes else ""
 
-    # ── Assemble prompt ────────────────────────────────────────────────────
+    # ── Assemble Prompt 1 ──────────────────────────────────────────────────
     prompt_1 = f"""\
 You are writing an academic section of a PhD dissertation in English \
 literature. Your job is structural execution: build the argument exactly \
@@ -259,7 +264,7 @@ existing approach achieves before critiquing it, name what the field \
 loses by maintaining this pattern, and close by signalling what becomes \
 possible once it is overcome."""
 
-    # ── Assemble Stage Two prompt ──────────────────────────────────────────
+    # ── Assemble Prompt 2 ──────────────────────────────────────────────────
     prompt_2 = f"""\
 PROMPT 2 — Gemini (Stage Two: Scholarly Elaboration)
 You are a scholarly editor working on a PhD dissertation in 
@@ -288,6 +293,6 @@ NEVER:
 - Add new scholars, sources, or outside knowledge.
 - Use bullet points, bolding, or subheadings.
 - Let two consecutive paragraphs do the same argumentative work.
-Expand this draft to {target_page_count} pages. All four tasks must be present."""
+Expand this draft to {stage2_length}. All four tasks must be present."""
 
     return {"prompt_1": prompt_1, "prompt_2": prompt_2}
