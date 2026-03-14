@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SPO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/spo_global.css"/>
+  <link rel="stylesheet" href="/static/css/app_home.css"/>
+  <script>
+    window.SPO_API_BASE = "{{ api_base }}";
+  </script>
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="accent">SPO</span><span class="dim">.ai</span>
+  </div>
+  <div class="nav-group-label">Workspace</div>
+  <a href="/app"            class="nav-item active"><span class="nav-icon">◈</span>App</a>
+  <a href="/thesis-setup"   class="nav-item"><span class="nav-icon">⬡</span>Thesis Setup</a>
+  <a href="/source-library" class="nav-item"><span class="nav-icon">◫</span>Source Library</a>
+  <a href="/write-section"  class="nav-item"><span class="nav-icon">✦</span>Write Section</a>
+  <a href="/consistency"    class="nav-item"><span class="nav-icon">⇄</span>Consistency Chain</a>
+</aside>
+
+<!-- ── SHELL ── -->
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span class="crumb-active">SPO</span>
+    </div>
+    <div class="health-dot">
+      <span class="dot offline" id="healthDot"></span>
+      <span id="healthText">Connecting…</span>
+    </div>
+  </div>
+
+  <!-- WORKSPACE -->
+  <main class="workspace">
+
+    <div class="hero">
+      <div class="hero-title"><span class="accent">SPO</span></div>
+      <div class="hero-sub">Surgical Prompt Orchestrator · academic writing pipeline</div>
+    </div>
+
+    <!-- Thesis card — populated by JS -->
+    <div id="thesisCardSlot" style="width:100%;max-width:560px;margin-bottom:12px;">
+      <div class="thesis-card" style="color:var(--muted);font-size:12px;text-align:center;padding:24px;">
+        Loading…
+      </div>
+    </div>
+
+    <!-- Nav grid -->
+    <div class="nav-grid">
+      <a href="/thesis-setup" class="nav-card">
+        <div class="nav-card-icon">⬡</div>
+        <div class="nav-card-title">Thesis Setup</div>
+        <div class="nav-card-sub">Synopsis · chapters · subtopics</div>
+      </a>
+      <a href="/source-library" class="nav-card">
+        <div class="nav-card-icon">◫</div>
+        <div class="nav-card-title">Source Library</div>
+        <div class="nav-card-sub">Import JSONs · Drive links · browse</div>
+      </a>
+      <a href="/write-section" class="nav-card">
+        <div class="nav-card-icon">✦</div>
+        <div class="nav-card-title">Write Section</div>
+        <div class="nav-card-sub">Generate drafts · edit · save</div>
+      </a>
+      <a href="/consistency" class="nav-card">
+        <div class="nav-card-icon">⇄</div>
+        <div class="nav-card-title">Consistency Chain</div>
+        <div class="nav-card-sub">Section summaries · argument thread</div>
+      </a>
+    </div>
+
+  </main>
+</div>
+
+<script type="module" src="/static/js/app_home.js"></script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Thesis Setup · SPO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/spo_global.css"/>
+  <link rel="stylesheet" href="/static/css/thesis_setup.css"/>
+  <script>
+    window.SPO_API_BASE = "{{ api_base }}";
+  </script>
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="accent">SPO</span><span class="dim">.setup</span>
+  </div>
+  <div class="nav-group-label">Workspace</div>
+  <a href="/app"            class="nav-item"><span class="nav-icon">◈</span>App</a>
+  <a href="/thesis-setup"   class="nav-item active"><span class="nav-icon">⬡</span>Thesis Setup</a>
+  <a href="/source-library" class="nav-item"><span class="nav-icon">◫</span>Source Library</a>
+  <a href="/write-section"  class="nav-item"><span class="nav-icon">✦</span>Write Section</a>
+  <a href="/consistency"    class="nav-item"><span class="nav-icon">⇄</span>Consistency Chain</a>
+</aside>
+
+<!-- ── SHELL ── -->
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span>SPO</span>
+      <span class="sep">/</span>
+      <span class="crumb-active">Thesis Setup</span>
+    </div>
+  </div>
+
+  <!-- WORKSPACE -->
+  <main class="workspace">
+
+    <!-- ── NEW THESIS PANEL (hidden until "+ Import new thesis" selected) ── -->
+    <div class="new-thesis-panel" id="newThesisPanel" style="display:none;">
+      <div class="new-thesis-title">Import a New Thesis</div>
+      <p style="font-size:11.5px;color:var(--muted);margin-bottom:14px;">
+        Drop a <code>synopsis_context.json</code> below. SPO will register it as a new thesis
+        and switch to it automatically. Your existing thesis data is unchanged.
+      </p>
+      <div class="drop-zone" id="newThesisDropZone">
+        <input type="file" id="newThesisFileInput" accept=".json"/>
+        <div class="drop-icon">📄</div>
+        <div class="drop-label">Drop synopsis_context.json here</div>
+        <span class="drop-browse">Browse</span>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btn-ghost" id="btnCancelNewThesis">Cancel</button>
+      </div>
+    </div>
+
+    <!-- ── THESIS SELECTOR STRIP ── -->
+    <div class="thesis-strip">
+      <span class="ts-label">Thesis</span>
+      <div class="ts-select-wrap">
+        <select id="thesisSelect">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+      <div class="ts-pills">
+        <span class="stat-chip" id="pillChapters">— chapters</span>
+        <span class="stat-chip" id="pillSubtopics">— subtopics</span>
+        <span class="stat-chip" id="pillArcs">—</span>
+      </div>
+    </div>
+
+    <!-- ══ CARD 01: SYNOPSIS ══ -->
+    <div class="card active" id="card01">
+      <div class="card-header" data-card="card01">
+        <span class="card-num">01</span>
+        <span class="card-title">Synopsis</span>
+        <span class="pill pill-idle" id="synopsisPill">Not imported</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div class="card-divider"></div>
+
+        <!-- Synopsis display — view and edit share the same DOM nodes -->
+        <div class="synopsis-block" id="synopsisBlock">
+          <div style="color:var(--muted);font-size:12px;font-style:italic;padding:12px 0;">
+            Loading…
+          </div>
+        </div>
+
+        <div class="section-sep"></div>
+
+        <!-- Re-import -->
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.09em;color:var(--muted);font-weight:600;margin-bottom:8px;">
+          Import / Re-import synopsis_context.json
+        </div>
+        <div class="drop-zone" id="synDropZone">
+          <input type="file" id="synFileInput" accept=".json"/>
+          <div class="drop-icon">📄</div>
+          <div class="drop-label">Drop synopsis_context.json here</div>
+          <div class="drop-sub">Creates a new thesis or updates the selected one</div>
+          <span class="drop-browse">Browse</span>
+        </div>
+
+        <!-- Preview panel — shown after file selected -->
+        <div class="preview-panel" id="synPreview" style="display:none;">
+          <div class="preview-label">Preview — synopsis_context.json</div>
+          <div class="preview-grid">
+            <div class="pv-row"><span class="pv-key">Title</span><span class="pv-val" id="pvSynTitle">—</span></div>
+            <div class="pv-row"><span class="pv-key">Author</span><span class="pv-val" id="pvSynAuthor">—</span></div>
+            <div class="pv-row"><span class="pv-key">Field</span><span class="pv-val" id="pvSynField">—</span></div>
+            <div class="pv-row"><span class="pv-key">Scope</span><span class="pv-val" id="pvSynScope">—</span></div>
+          </div>
+          <div class="pv-argument" id="pvSynArg"></div>
+          <div class="preview-actions">
+            <button class="btn btn-primary" onclick="confirmSynImport()">✓ Confirm Import</button>
+            <button class="btn btn-ghost"
+              onclick="document.getElementById('synPreview').style.display='none'">Cancel</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ CARD 02: CHAPTERS & SUBTOPICS ══ -->
+    <div class="card active" id="card02">
+      <div class="card-header" data-card="card02">
+        <span class="card-num">02</span>
+        <span class="card-title">Chapters &amp; Subtopics</span>
+        <span class="pill pill-idle" id="chaptersPill">Loading…</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div class="card-divider"></div>
+
+        <!-- Import chapterization.json -->
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.09em;color:var(--muted);font-weight:600;margin-bottom:8px;">
+          Import chapterization.json
+        </div>
+        <div class="drop-zone" id="chDropZone">
+          <input type="file" id="chFileInput" accept=".json"/>
+          <div class="drop-icon">📄</div>
+          <div class="drop-label">Drop chapterization.json — single chapter or full array</div>
+          <span class="drop-browse">Browse</span>
+        </div>
+
+        <!-- Preview panel -->
+        <div class="preview-panel" id="chPreview" style="display:none;">
+          <div class="preview-label" id="pvChapterLabel">Preview — detecting chapters…</div>
+          <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px;" id="pvChapterList"></div>
+          <div class="preview-actions">
+            <button class="btn btn-primary" onclick="confirmChapterImport()">✓ Confirm Import</button>
+            <button class="btn btn-ghost"
+              onclick="document.getElementById('chPreview').style.display='none'">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Chapter list — populated by JS -->
+        <div class="chapter-list" id="chapterList">
+          <div class="chapters-loading">Loading chapters</div>
+        </div>
+
+        <!-- Add chapter manually -->
+        <div style="margin-top:10px;">
+          <button class="btn btn-secondary" id="btnShowAddChapter">+ Add Chapter Manually</button>
+          <div class="add-chapter-form" id="addChapterForm" style="display:none; margin-top:10px;">
+            <div class="add-chapter-label">Add Chapter</div>
+            <div class="add-ch-grid">
+              <div class="form-group">
+                <label class="form-label">Number ★</label>
+                <input type="text" id="newChNum" placeholder="4"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Title ★</label>
+                <input type="text" id="newChTitle" placeholder="Chapter title…"/>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+              <label class="form-label">Goal ★</label>
+              <textarea id="newChGoal" style="min-height:60px;" placeholder="What must this chapter prove?"></textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+              <label class="form-label">Chapter Arc <span style="font-weight:400;text-transform:none;">(optional — best added via JSON import)</span></label>
+              <textarea id="newChArc" style="min-height:72px;" placeholder="150–200 words. How all subtopics connect argumentatively…"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-primary" id="btnAddChapter">Add Chapter</button>
+              <button class="btn btn-ghost"   id="btnCancelAddChapter">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div><!-- /shell -->
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script type="module" src="/static/js/thesis_setup.js"></script>
+</body>
+</html>

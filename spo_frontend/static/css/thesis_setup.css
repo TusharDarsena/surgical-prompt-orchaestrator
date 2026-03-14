@@ -1,0 +1,259 @@
+/* ============================================================
+   thesis_setup.css — Page-specific styles
+   Shared tokens and layout primitives come from spo_global.css
+   ============================================================ */
+
+/* ── THESIS SELECTOR STRIP ── */
+.thesis-strip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.ts-label {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.ts-select-wrap { flex: 1; }
+
+/* Stat chips in the strip */
+.ts-pills { display: flex; gap: 8px; flex-shrink: 0; border-left: 1px solid var(--border); padding-left: 14px; }
+.stat-chip {
+  font-size: 10.5px; font-weight: 500;
+  padding: 2px 9px; border-radius: 4px;
+  border: 1px solid var(--border2);
+  color: var(--muted2);
+  background: rgba(255,255,255,0.04);
+}
+.stat-chip.ok   { background: rgba(52,211,153,0.08);  color: var(--success); border-color: rgba(52,211,153,0.2); }
+.stat-chip.warn { background: var(--warn-dim);         color: var(--warn);    border-color: rgba(251,191,36,0.2); }
+
+/* New thesis button */
+.ts-new-btn {
+  flex-shrink: 0;
+}
+
+/* ── DROP ZONE ── */
+.drop-zone {
+  border: 1.5px dashed var(--border2);
+  border-radius: 9px;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  text-align: center;
+  position: relative;
+}
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.drop-zone input[type="file"] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+.drop-icon  { font-size: 20px; opacity: 0.45; }
+.drop-label { font-size: 12.5px; font-weight: 500; color: var(--muted2); }
+.drop-sub   { font-size: 11px; color: var(--muted); }
+.drop-browse {
+  font-size: 11px; color: #8aabff; font-weight: 500;
+  background: var(--accent-dim); border: 1px solid rgba(91,127,255,0.25);
+  border-radius: 5px; padding: 3px 10px; cursor: pointer; transition: background 0.15s;
+}
+.drop-browse:hover { background: rgba(91,127,255,0.2); }
+
+/* ── PREVIEW PANEL ── */
+.preview-panel {
+  background: var(--bg);
+  border: 1px solid rgba(91,127,255,0.25);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-top: 10px;
+  animation: fadeSlide 0.18s ease;
+}
+@keyframes fadeSlide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.preview-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: #8aabff; font-weight: 600; margin-bottom: 10px; }
+.preview-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin-bottom: 10px; }
+.pv-row .pv-key { font-size: 11px; color: var(--muted); margin-right: 5px; }
+.pv-row .pv-val { font-size: 12px; color: var(--text); }
+.pv-argument   { font-size: 12px; color: var(--muted2); font-style: italic; padding: 8px 12px; background: var(--surface2); border-radius: 5px; line-height: 1.65; }
+.preview-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ── SYNOPSIS INLINE EDIT ──
+   View mode:  .syn-val shown,  .syn-input hidden
+   Edit mode:  .syn-val hidden, .syn-input shown
+   Toggle via .synopsis-block.editing class — no layout shift.    */
+.synopsis-block {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.synopsis-block-header {
+  display: flex; align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.synopsis-block-label   { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; }
+.synopsis-block-actions { display: flex; gap: 6px; }
+
+.syn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; margin-bottom: 10px; }
+.syn-field       { display: flex; flex-direction: column; gap: 3px; }
+.syn-field-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; }
+
+/* value vs input swap */
+.syn-val   { font-size: 12.5px; color: var(--text); padding: 2px 0; min-height: 20px; }
+.syn-input { display: none; }
+.synopsis-block.editing .syn-val   { display: none; }
+.synopsis-block.editing .syn-input { display: block; }
+
+/* argument row — full width */
+.syn-argument-row  { margin-top: 2px; }
+.syn-argument-val  { font-size: 12.5px; color: var(--muted2); font-style: italic; padding: 8px 12px; background: var(--surface2); border-radius: 5px; line-height: 1.65; min-height: 40px; }
+.syn-argument-input { display: none; min-height: 72px; }
+.synopsis-block.editing .syn-argument-val   { display: none; }
+.synopsis-block.editing .syn-argument-input { display: block; }
+
+/* save/cancel — only visible in edit mode */
+.syn-edit-actions { display: none; gap: 7px; margin-top: 10px; }
+.synopsis-block.editing .syn-edit-actions { display: flex; }
+
+/* empty synopsis state */
+.synopsis-empty {
+  color: var(--muted); font-size: 12px; font-style: italic;
+  padding: 18px 0; text-align: center;
+}
+
+/* ── CHAPTER LIST ── */
+.chapter-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+
+.chapter-row {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.chapter-row.has-arc { border-color: rgba(52,211,153,0.15); }
+
+.chapter-header {
+  display: flex; align-items: center;
+  padding: 10px 14px; cursor: pointer;
+  gap: 10px; user-select: none;
+}
+.chapter-header:hover { background: rgba(255,255,255,0.015); }
+
+.chapter-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--muted);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 8px; flex-shrink: 0;
+}
+.chapter-row.has-arc .chapter-num {
+  color: var(--success);
+  border-color: rgba(52,211,153,0.25);
+  background: var(--success-dim);
+}
+
+.chapter-title-block { flex: 1; min-width: 0; }
+.ch-title-val   { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.4; }
+.ch-title-input { display: none; font-size: 12.5px; font-weight: 600; margin-bottom: 2px; }
+.chapter-row.editing .ch-title-val   { display: none; }
+.chapter-row.editing .ch-title-input { display: block; }
+.chapter-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.chapter-actions { display: flex; gap: 5px; flex-shrink: 0; }
+.chapter-chevron { color: var(--muted); font-size: 10px; transition: transform 0.2s; }
+.chapter-row.open .chapter-chevron { transform: rotate(180deg); }
+
+.chapter-body {
+  display: none;
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+.chapter-row.open .chapter-body { display: block; }
+
+/* Goal + Arc fields — same inline swap pattern */
+.ch-field         { margin-top: 10px; }
+.ch-field-label   { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.ch-val           { font-size: 12px; color: var(--muted2); line-height: 1.65; min-height: 18px; }
+.ch-input         { display: none; }
+.chapter-row.editing .ch-val   { display: none; }
+.chapter-row.editing .ch-input { display: block; }
+
+.arc-val   { font-size: 12px; color: var(--muted2); line-height: 1.7; padding: 8px 12px; background: var(--surface2); border-radius: 6px; min-height: 40px; }
+.arc-input { display: none; min-height: 80px; }
+.chapter-row.editing .arc-val   { display: none; }
+.chapter-row.editing .arc-input { display: block; }
+
+.arc-missing {
+  font-size: 11.5px; color: var(--warn);
+  padding: 7px 12px;
+  background: var(--warn-dim);
+  border: 1px solid rgba(251,191,36,0.2);
+  border-radius: 6px;
+  margin-top: 6px;
+}
+
+/* chapter edit save/cancel — only in edit mode */
+.ch-edit-actions { display: none; gap: 7px; margin-top: 10px; }
+.chapter-row.editing .ch-edit-actions { display: flex; }
+
+/* ── SUBTOPIC LIST ── */
+.subtopic-list   { margin-top: 12px; display: flex; flex-direction: column; gap: 3px; }
+.sub-list-label  { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+
+.subtopic-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.sub-num     { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #8aabff; flex-shrink: 0; min-width: 32px; margin-top: 2px; }
+.sub-body    { flex: 1; min-width: 0; }
+.sub-title   { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.sub-goal    { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.sub-pos     { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 1px; }
+.sub-sources { font-size: 10.5px; font-family: 'JetBrains Mono', monospace; color: var(--muted); margin-top: 3px; }
+
+/* ── ADD CHAPTER / SUBTOPIC FORMS ── */
+.add-chapter-form {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px; margin-top: 10px;
+}
+.add-chapter-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+.add-ch-grid { display: grid; grid-template-columns: 90px 1fr; gap: 10px; margin-bottom: 10px; }
+
+.add-sub-form {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 7px; padding: 12px 14px; margin-top: 8px;
+}
+.add-sub-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.add-sub-grid  { display: grid; grid-template-columns: 80px 1fr; gap: 8px; margin-bottom: 8px; }
+
+/* ── NEW THESIS FORM (modal-like inline panel) ── */
+.new-thesis-panel {
+  background: var(--surface2); border: 1px solid rgba(91,127,255,0.3);
+  border-radius: 10px; padding: 18px 20px; margin-bottom: 10px;
+  animation: fadeSlide 0.18s ease;
+}
+.new-thesis-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 14px; }
+
+/* Loading */
+.chapters-loading { text-align: center; padding: 24px; color: var(--muted); font-size: 12px; }
+.chapters-loading::after { content: ''; display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-left: 8px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Empty chapters state */
+.chapters-empty { color: var(--muted); font-size: 12px; font-style: italic; padding: 20px 0; text-align: center; }
