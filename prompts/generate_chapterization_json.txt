@@ -3,7 +3,7 @@ You are a thesis architecture assistant. I have uploaded:
 1. synopsis_context 
 2. index_cards : except synopsis all sources are index cards
 
-Your task: generate a chapterization for EACH chapter defined in 
+Your task: generate a chapterization for chapter defined in 
 synopsis_context's chapter_structure.
 
 For each chapter, read the chapter's designated focus in the thesis, then 
@@ -53,7 +53,7 @@ Schema — repeat this block for every chapter:
         {
           "source_id": "Name of Thesis",
           "chapter_id": "Name of relevant chapter / section",
-          "source_guidence": "how to use this source
+          "source_guidance": "how to use this source
         }
       ]
     }

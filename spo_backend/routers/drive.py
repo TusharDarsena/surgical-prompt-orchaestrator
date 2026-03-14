@@ -32,6 +32,13 @@ Endpoints:
     GET  /drive/links/{thesis_name}     ← return stored links for one thesis
     DELETE /drive/links/{thesis_name}   ← clear stored links (force re-register)
 
+Security:
+    scan-local accepts root_path from the client. To prevent path traversal,
+    set the environment variable SPO_SCAN_BASE_DIR to the absolute path of your
+    allowed scan root (e.g. D:\\PhD). Requests for paths outside that directory
+    are rejected with HTTP 400.  If SPO_SCAN_BASE_DIR is not set, only the
+    standard is_dir() check is performed (original behavior).
+
 Setup required:
     pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
@@ -53,19 +60,26 @@ Setup required:
 
 import os
 import json
-import uuid
+from pathlib import Path
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from services import storage
+from services.source_importer import do_auto_import  # top-level — no circular dep
+
 
 router = APIRouter(prefix="/drive", tags=["Drive & Local Scanner"])
 
-# ── Storage keys ───────────────────────────────────────────────────────────────
+# ── Storage key ────────────────────────────────────────────────────────────────
+# Single key holds ALL per-thesis state: scan data, import status, drive links.
 SCAN_KEY = "drive_scan_result"
-IMPORT_STATUS_KEY = "drive_import_status"
-LINKS_KEY_PREFIX = "drive_links_"  # + thesis_name
+
+# ── Path traversal guard ───────────────────────────────────────────────────────
+# Set SPO_SCAN_BASE_DIR env var to restrict which directories clients may scan.
+# Leave unset to skip the restriction (any valid local directory is allowed).
+_BASE_SCAN_DIR_ENV = os.environ.get("SPO_SCAN_BASE_DIR", "").strip()
+BASE_SCAN_DIR: Path | None = Path(_BASE_SCAN_DIR_ENV).resolve() if _BASE_SCAN_DIR_ENV else None
 
 
 def _read_scan() -> dict:
@@ -77,19 +91,26 @@ def _write_scan(data: dict):
     storage.write_misc(SCAN_KEY, data)
 
 
-def _read_import_status() -> dict:
-    data = storage.read_misc(IMPORT_STATUS_KEY)
-    return data if data else {}
-
-
-def _write_import_status(data: dict):
-    storage.write_misc(IMPORT_STATUS_KEY, data)
-
-
-def _links_key(thesis_name: str) -> str:
-    # Sanitize for use as a storage key (no spaces, slashes, quotes)
-    safe = thesis_name.replace(" ", "_").replace("/", "-").replace("\\", "-")
-    return f"{LINKS_KEY_PREFIX}{safe[:100]}"
+def _empty_thesis_entry(thesis_name: str, folder_path: str) -> dict:
+    """Returns a fully-initialised unified thesis object."""
+    return {
+        "thesis_name": thesis_name,
+        "folder_path": folder_path,
+        "files": [],
+        "scanned_at": datetime.utcnow().isoformat(),
+        # ── import status sub-object ──────────────────────────────────────────
+        "import_status": {
+            "imported": False,
+            "imported_at": None,
+            "group_id": None,
+            "error": None,
+            "json_path": None,
+        },
+        # ── drive links sub-object ────────────────────────────────────────────
+        "drive_links": {},
+        "drive_links_registered_at": None,
+        "drive_folder_id": None,
+    }
 
 
 # ── Models ─────────────────────────────────────────────────────────────────────
@@ -100,8 +121,9 @@ class ScanRequest(BaseModel):
 
 class SaveIndexCardRequest(BaseModel):
     thesis_name: str
-    level2_path: str
-    json_text: str
+    # 'data' receives the parsed JSON object directly — FastAPI/Pydantic handles
+    # deserialization, so no manual json.loads() + JSONDecodeError is needed.
+    data: dict
 
 
 class RegisterLinksRequest(BaseModel):
@@ -117,130 +139,75 @@ class RegisterLinksRequest(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LOCAL SCAN ENDPOINTS (unchanged)
+# LOCAL SCAN ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/scan-local", summary="Scan local parent folder and build thesis file tree")
+@router.post("/scan-local")
 def scan_local(req: ScanRequest):
-    root = req.root_path.strip()
+    # ── Fix 2: path traversal guard ───────────────────────────────────────────
+    root = Path(req.root_path.strip()).resolve()
 
-    if not os.path.isdir(root):
-        raise HTTPException(status_code=400, detail=f"Path not found or not a directory: {root}")
+    if BASE_SCAN_DIR is not None and not root.is_relative_to(BASE_SCAN_DIR):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Path '{req.root_path}' is outside the allowed scan directory. "
+                "Set SPO_SCAN_BASE_DIR to the base path you want to restrict scanning to."
+            )
+        )
+
+    if not root.is_dir():
+        raise HTTPException(status_code=400, detail="Invalid directory — path does not exist or is not a folder.")
 
     existing_scan = _read_scan()
     added = []
-    skipped = []
 
-    try:
-        level2_entries = [e for e in os.scandir(root) if e.is_dir()]
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=f"Permission denied reading {root}: {e}")
+    # 1. Find EVERY PDF in the entire tree, regardless of depth
+    pdf_files = list(root.rglob("*.pdf"))
 
-    for l2 in level2_entries:
-        try:
-            l3_candidates = [
-                e for e in os.scandir(l2.path)
-                if e.is_dir() and e.name.endswith("_sources")
-            ]
-        except PermissionError:
-            skipped.append({"folder": l2.name, "reason": "permission denied at level-3"})
-            continue
+    # 2. Group PDFs by their parent directory
+    thesis_folders: dict[Path, list[str]] = {}
+    for pdf in pdf_files:
+        parent_dir = pdf.parent
+        thesis_folders.setdefault(parent_dir, []).append(pdf.name)
 
-        if not l3_candidates:
-            # Flat structure fallback: level-2 dir may contain PDFs directly
-            # (e.g. Shodhganga_Downloads/thesis_name/06_chapter 1.pdf)
-            try:
-                pdfs = sorted([
-                    f.name for f in os.scandir(l2.path)
-                    if f.is_file() and f.name.lower().endswith(".pdf")
-                ])
-            except PermissionError:
-                skipped.append({"folder": l2.name, "reason": "permission denied reading PDFs"})
-                continue
+    # 3. Process the discovered folders
+    for folder_path, pdfs in thesis_folders.items():
+        thesis_name = folder_path.name
 
-            if not pdfs:
-                continue  # no PDFs and no *_sources — not a thesis folder
-
-            thesis_name = l2.name
-            if thesis_name in existing_scan:
-                existing_scan[thesis_name]["files"] = pdfs
-                existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
-                skipped.append({"folder": thesis_name, "reason": "already exists — file list updated"})
-            else:
-                existing_scan[thesis_name] = {
-                    "thesis_name": thesis_name,
-                    "level2_path": l2.path,
-                    "level3_path": None,
-                    "level4_path": None,
-                    "files": pdfs,
-                    "scanned_at": datetime.utcnow().isoformat(),
-                }
-                added.append(thesis_name)
-            continue
-
-        l3 = l3_candidates[0]
-
-        try:
-            l4_entries = [e for e in os.scandir(l3.path) if e.is_dir()]
-        except PermissionError:
-            skipped.append({"folder": l2.name, "reason": "permission denied at level-4"})
-            continue
-
-        for l4 in l4_entries:
-            thesis_name = l4.name
-
-            try:
-                pdfs = sorted([
-                    f.name for f in os.scandir(l4.path)
-                    if f.is_file() and f.name.lower().endswith(".pdf")
-                ])
-            except PermissionError:
-                skipped.append({"folder": thesis_name, "reason": "permission denied reading PDFs"})
-                continue
-
-            if thesis_name in existing_scan:
-                existing_scan[thesis_name]["files"] = pdfs
-                existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
-                skipped.append({"folder": thesis_name, "reason": "already exists — file list updated"})
-            else:
-                existing_scan[thesis_name] = {
-                    "thesis_name": thesis_name,
-                    "level2_path": l2.path,
-                    "level3_path": l3.path,
-                    "level4_path": l4.path,
-                    "files": pdfs,
-                    "scanned_at": datetime.utcnow().isoformat(),
-                }
-                added.append(thesis_name)
+        if thesis_name in existing_scan:
+            existing_scan[thesis_name]["files"] = sorted(pdfs)
+            existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
+        else:
+            entry = _empty_thesis_entry(thesis_name, str(folder_path))
+            entry["files"] = sorted(pdfs)
+            existing_scan[thesis_name] = entry
+            added.append(thesis_name)
 
     _write_scan(existing_scan)
-
-    return {
-        "total_thesis_folders": len(existing_scan),
-        "newly_added": len(added),
-        "added": added,
-        "skipped": skipped,
-    }
+    return {"added": added, "total": len(existing_scan)}
 
 
 @router.get("/local-files", summary="Return stored file tree with Drive link status")
 def get_local_files():
+    # ── Fix 3: single storage read — all state lives in the unified scan dict ─
     scan = _read_scan()
-    import_status = _read_import_status()
 
     result = []
     for thesis_name, data in scan.items():
         entry = dict(data)
-        status = import_status.get(thesis_name, {})
+
+        # Flatten import_status sub-object for the API response
+        status = entry.pop("import_status", {})
         entry["imported"] = status.get("imported", False)
         entry["imported_at"] = status.get("imported_at")
         entry["import_group_id"] = status.get("group_id")
         entry["import_error"] = status.get("error")
 
-        # Include Drive link status so the frontend can show register button
-        links = storage.read_misc(_links_key(thesis_name))
+        # Flatten drive_links sub-object
+        links = entry.get("drive_links", {})
         entry["drive_links_registered"] = bool(links)
-        entry["drive_links_count"] = len(links) if links else 0
+        entry["drive_links_count"] = len(links)
 
         result.append(entry)
 
@@ -259,16 +226,11 @@ def save_index_card(req: SaveIndexCardRequest):
         )
 
     thesis_entry = scan[req.thesis_name]
-    level2_path = thesis_entry["level2_path"]
 
-    try:
-        parsed = json.loads(req.json_text)
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid JSON: {e}. File not saved. Fix the JSON and try again."
-        )
+    # req.data is already a parsed dict — no json.loads() needed (Fix 1)
+    parsed = req.data
 
+    level2_path = thesis_entry.get("folder_path", "")
     index_cards_dir = os.path.join(level2_path, "index_cards")
     os.makedirs(index_cards_dir, exist_ok=True)
 
@@ -278,17 +240,17 @@ def save_index_card(req: SaveIndexCardRequest):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(parsed, f, indent=2, ensure_ascii=False)
 
-    import_result, import_error = _auto_import(parsed)
+    import_result, import_error = do_auto_import(parsed)  # Fix 4: top-level import
 
-    import_status = _read_import_status()
-    import_status[req.thesis_name] = {
+    # ── Fix 3: write import status into the unified scan object ───────────────
+    thesis_entry["import_status"] = {
         "imported": import_result is not None,
         "imported_at": datetime.utcnow().isoformat() if import_result else None,
         "group_id": import_result.get("group_id") if import_result else None,
         "error": import_error,
         "json_path": json_path,
     }
-    _write_import_status(import_status)
+    _write_scan(scan)
 
     if import_error:
         return {
@@ -329,7 +291,8 @@ def register_drive_links(req: RegisterLinksRequest):
 
     Only thesis names already present in the local scan are registered.
     Unknown Drive folders are skipped and reported.
-    Results are stored and used automatically by resolve_source_files().
+    Results are stored inside the unified scan object and used automatically
+    by resolve_source_files().
     """
     service = _get_drive_service()
     scan = _read_scan()
@@ -352,7 +315,6 @@ def register_drive_links(req: RegisterLinksRequest):
             skipped.append({"folder": l2["name"], "reason": "could not list level-3 subfolders"})
             continue
 
-        # Mirror local logic: take the first folder at level-3 regardless of name
         if not l3_folders:
             skipped.append({"folder": l2["name"], "reason": "no level-3 subfolder found"})
             continue
@@ -370,7 +332,6 @@ def register_drive_links(req: RegisterLinksRequest):
 
             # Only register theses that exist in the local scan
             if thesis_name not in scan:
-                # Try case-insensitive match
                 matched = next(
                     (k for k in scan if k.lower() == thesis_name.lower()),
                     None
@@ -383,7 +344,7 @@ def register_drive_links(req: RegisterLinksRequest):
                     continue
                 thesis_name = matched  # use the scan key casing
 
-            # ── Fetch PDF files inside level-4 ────────────────────────────────
+            # ── Fetch files inside level-4 ────────────────────────────────────
             files = _list_drive_files(service, l4["id"])
             if files is None:
                 skipped.append({"folder": thesis_name, "reason": "could not list files in Drive folder"})
@@ -399,10 +360,7 @@ def register_drive_links(req: RegisterLinksRequest):
                 for f in files
             }
 
-            # Persist links
-            storage.write_misc(_links_key(thesis_name), links)
-
-            # Also write into scan entry for resolve_source_files()
+            # ── Fix 3: write directly into the unified scan entry ─────────────
             scan[thesis_name]["drive_links"] = links
             scan[thesis_name]["drive_links_registered_at"] = datetime.utcnow().isoformat()
             scan[thesis_name]["drive_folder_id"] = l4["id"]
@@ -413,7 +371,7 @@ def register_drive_links(req: RegisterLinksRequest):
                 "files_registered": len(links),
             })
 
-    _write_scan(scan)
+    _write_scan(scan)  # single write covers all registered theses
 
     return {
         "registered_count": len(registered),
@@ -425,7 +383,9 @@ def register_drive_links(req: RegisterLinksRequest):
 
 @router.get("/links/{thesis_name}", summary="Return stored Drive links for a thesis")
 def get_drive_links(thesis_name: str):
-    links = storage.read_misc(_links_key(thesis_name))
+    scan = _read_scan()
+    entry = scan.get(thesis_name)
+    links = entry.get("drive_links", {}) if entry else {}
     if not links:
         raise HTTPException(
             status_code=404,
@@ -440,20 +400,15 @@ def get_drive_links(thesis_name: str):
 
 @router.delete("/links/{thesis_name}", summary="Clear stored Drive links for a thesis (force re-register)")
 def delete_drive_links(thesis_name: str):
-    # Remove from misc storage
-    existing = storage.read_misc(_links_key(thesis_name))
-    if not existing:
+    scan = _read_scan()
+    if thesis_name not in scan or not scan[thesis_name].get("drive_links"):
         raise HTTPException(status_code=404, detail=f"No links found for '{thesis_name}'.")
 
-    storage.write_misc(_links_key(thesis_name), {})
-
-    # Also clear from scan entry
-    scan = _read_scan()
-    if thesis_name in scan:
-        scan[thesis_name].pop("drive_links", None)
-        scan[thesis_name].pop("drive_links_registered_at", None)
-        scan[thesis_name].pop("drive_folder_id", None)
-        _write_scan(scan)
+    # ── Fix 3: clear within the unified scan entry — single write ─────────────
+    scan[thesis_name]["drive_links"] = {}
+    scan[thesis_name]["drive_links_registered_at"] = None
+    scan[thesis_name]["drive_folder_id"] = None
+    _write_scan(scan)
 
     return {"deleted": True, "thesis_name": thesis_name}
 
@@ -542,82 +497,3 @@ def _get_drive_service():
             status_code=500,
             detail=f"API key auth failed: {e}. Check GOOGLE_DRIVE_API_KEY value."
         )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# AUTO-IMPORT HELPER (unchanged)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _auto_import(data: dict):
-    from routers.importer import _normalize_source_chapter, SourceImport
-    from pydantic import ValidationError
-
-    if "chapters" in data:
-        data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
-
-    try:
-        validated = SourceImport(**data)
-    except ValidationError as e:
-        return None, f"Validation failed: {e.errors()}"
-
-    valid_types = {"thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"}
-    if validated.source_type not in valid_types:
-        return None, f"source_type must be one of: {', '.join(valid_types)}"
-
-    group_id = str(uuid.uuid4())[:8]
-    now = datetime.utcnow().isoformat()
-
-    group_record = {
-        "group_id": group_id,
-        "title": validated.title,
-        "author": validated.author,
-        "year": validated.year,
-        "source_type": validated.source_type,
-        "institution_or_publisher": validated.institution_or_publisher,
-        "description": validated.description,
-        "work_summary": validated.work_summary,
-        "created_at": now,
-        "updated_at": now,
-    }
-    storage.write_source_group(group_id, group_record)
-
-    created_sources = []
-    for ch in validated.chapters:
-        source_id = str(uuid.uuid4())[:8]
-        source_record = {
-            "source_id": source_id,
-            "group_id": group_id,
-            "label": ch.label,
-            "title": ch.title,
-            "chapter_or_section": ch.title,
-            "page_range": ch.page_range,
-            "file_name": ch.file_name,
-            "file_path": None,
-            "index_card": None,
-            "has_index_card": False,
-            "created_at": now,
-            "updated_at": now,
-        }
-        index_card = {
-            "key_claims": ch.key_claims,
-            "themes": ch.themes,
-            "time_period_covered": ch.time_period_covered,
-            "relevant_subtopics": ch.relevant_subtopics,
-            "limitations": ch.limitations,
-            "notable_authors_cited": ch.notable_authors_cited,
-            "your_notes": None,
-            "created_at": now,
-            "updated_at": now,
-        }
-        source_record["index_card"] = index_card
-        source_record["has_index_card"] = True
-        storage.write_source(group_id, source_id, source_record)
-        created_sources.append({"source_id": source_id, "label": ch.label})
-
-    return {
-        "group_id": group_id,
-        "title": validated.title,
-        "author": validated.author,
-        "sources_created": len(created_sources),
-        "sources": created_sources,
-    }, None
