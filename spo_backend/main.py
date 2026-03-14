@@ -27,6 +27,9 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "..", "spo_frontend")
 from routers import thesis, sources, consistency, notes, compiler, importer, drive, sections
 from routers import notebooklm
 from spo_frontend.new_pages.write_section import router as write_section_router
+from spo_frontend.new_pages_already_migrated.source_library_page import router as source_library_router
+app.include_router(source_library_router)
+
 
 app = FastAPI(
     title="SPO — Surgical Prompt Orchestrator",

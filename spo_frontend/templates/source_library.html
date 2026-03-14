@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Source Library · SPO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/spo_global.css"/>
+  <link rel="stylesheet" href="/static/css/source_library.css"/>
+  <script>
+    window.SPO_API_BASE = "{{ api_base }}";
+  </script>
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="accent">SPO</span><span class="dim">.lib</span>
+  </div>
+  <div class="nav-group-label">Workspace</div>
+  <a href="/app"            class="nav-item"><span class="nav-icon">◈</span>App</a>
+  <a href="/thesis-setup"   class="nav-item"><span class="nav-icon">⬡</span>Thesis Setup</a>
+  <a href="/source-library" class="nav-item active"><span class="nav-icon">◫</span>Source Library</a>
+  <a href="/write-section"  class="nav-item"><span class="nav-icon">✦</span>Write Section</a>
+  <a href="/consistency"    class="nav-item"><span class="nav-icon">⇄</span>Consistency Chain</a>
+</aside>
+
+<!-- ── SHELL ── -->
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="breadcrumb">
+      <span>SPO</span>
+      <span class="sep">/</span>
+      <span class="crumb-active">Source Library</span>
+    </div>
+  </div>
+
+  <!-- WORKSPACE -->
+  <main class="workspace">
+
+    <!-- ══ CARD 01: IMPORT SOURCE JSON ══ -->
+    <div class="card active" id="card01">
+      <div class="card-header" data-card="card01">
+        <span class="card-num">01</span>
+        <span class="card-title">Import Source JSON</span>
+        <span class="pill pill-idle">Drop files to import</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div class="card-divider"></div>
+
+        <!-- Target folder selector -->
+        <div class="import-target-row">
+          <label class="form-label" for="importTargetFolder">
+            Import into existing work
+            <span class="opt"> — leave blank to create a new work from the JSON</span>
+          </label>
+          <select id="importTargetFolder">
+            <option value="">— Create a new work from this JSON —</option>
+            {# Options populated dynamically by JS after library loads #}
+          </select>
+          <div class="import-target-hint">
+            Select an existing work to add or replace chapters inside it,
+            or leave blank to create a new top-level work.
+          </div>
+        </div>
+
+        <!-- Drop zone -->
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept=".json" multiple/>
+          <div class="drop-icon">📂</div>
+          <div class="drop-label">Drag &amp; drop source JSON files here</div>
+          <div class="drop-sub">Each JSON = one source group + all chapters + index cards</div>
+          <span class="drop-browse">Browse files</span>
+        </div>
+
+        <!-- File queue — populated by JS -->
+        <div class="file-queue" id="fileQueue"></div>
+
+        <div class="import-action-row">
+          <button class="btn btn-primary" id="btnImportAll" disabled>
+            💾 Import All Queued
+          </button>
+          <span class="import-note">SPO stores metadata only — PDFs go to NotebookLM, not here.</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ CARD 02: DRIVE SETUP ══ -->
+    <div class="card active" id="card02">
+      <div class="card-header" data-card="card02">
+        <span class="card-num">02</span>
+        <span class="card-title">Drive Setup</span>
+        <span class="pill pill-idle" id="drivePill">Not scanned</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div class="card-divider"></div>
+
+        <!-- Scan row -->
+        <div class="drive-row">
+          <div class="form-group">
+            <label class="form-label">Local parent folder path</label>
+            <input type="text" id="scanPath"
+              placeholder="C:\Users\...\Shodhganga_Downloads"/>
+          </div>
+          <button class="btn btn-primary" id="btnScan">🔍 Scan Folder</button>
+        </div>
+
+        <!-- Drive register row -->
+        <div class="drive-row">
+          <div class="form-group">
+            <label class="form-label">
+              Google Drive parent folder ID
+              <span class="opt"> — paste from Drive URL</span>
+            </label>
+            <input type="text" id="driveFolderId"
+              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74"/>
+          </div>
+          <button class="btn btn-secondary" id="btnRegisterLinks">🔗 Register Drive Links</button>
+        </div>
+        <p class="drive-note" style="margin-bottom:14px;">
+          ⚠ Register runs on all folders in the tree — not just new ones.
+          Safe to re-run; existing links are overwritten with fresh ones.
+        </p>
+
+        <!-- Thesis folder list — populated by JS -->
+        <div class="thesis-list" id="thesisList"></div>
+
+      </div>
+    </div>
+
+    <!-- ══ CARD 03: SOURCE LIBRARY ══ -->
+    <div class="card active" id="card03">
+      <div class="card-header" data-card="card03">
+        <span class="card-num">03</span>
+        <span class="card-title">Source Library</span>
+        <span class="pill pill-idle" id="libraryPill">Loading…</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div class="card-divider"></div>
+
+        <!-- Group list — populated by JS -->
+        <div class="group-list" id="groupList">
+          <div class="lib-loading">Loading library</div>
+        </div>
+
+        <!-- Register new work -->
+        <div class="add-group-section">
+          <div class="add-group-form" id="addGroupForm" style="display:none;">
+            <div class="add-group-label">Register a New Work</div>
+            <div class="add-group-grid">
+              <div class="form-group">
+                <label class="form-label">Title ★</label>
+                <input type="text" id="newTitle" placeholder="The Dominant Paradigm…"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Author(s) ★</label>
+                <input type="text" id="newAuthor" placeholder="Sharma, R."/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Type</label>
+                <select id="newType">
+                  <option>thesis_chapter</option>
+                  <option>journal_article</option>
+                  <option>book_chapter</option>
+                  <option>book</option>
+                  <option>report</option>
+                  <option>other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Year</label>
+                <input type="text" id="newYear" placeholder="2003"/>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Institution / Publisher <span class="opt">(optional)</span></label>
+                <input type="text" id="newInst" placeholder="JNU, OUP…"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Description <span class="opt">(optional)</span></label>
+                <input type="text" id="newDesc" placeholder="Primary source for Chapter 1…"/>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-primary" id="btnRegisterWork">Register Work</button>
+              <button class="btn btn-ghost"   id="btnCancelAddGroup">Cancel</button>
+            </div>
+          </div>
+          <button class="btn btn-secondary" id="btnShowAddGroup" style="margin-top:8px;">
+            + Register New Work
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div><!-- /shell -->
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script type="module" src="/static/js/source_library.js"></script>
+</body>
+</html>
