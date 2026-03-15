@@ -113,8 +113,8 @@ class ScanRequest(BaseModel):
 
 class SaveIndexCardRequest(BaseModel):
     thesis_name: str
-    data: dict
-
+    level2_path: str
+    json_text: str
 
 class RegisterLinksRequest(BaseModel):
     # The Google Drive folder ID of the parent folder — any structure beneath
@@ -146,8 +146,8 @@ def scan_local(req: ScanRequest):
     existing_scan = _read_scan()
     added = []
 
-    # 1. Find EVERY PDF in the entire tree, regardless of depth
-    pdf_files = list(root.rglob("*.pdf"))
+    # 1. Find EVERY PDF safely (case-insensitive to catch .PDF and .pdf)
+    pdf_files = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf"]
 
     # 2. Group PDFs by their parent directory
     thesis_folders: dict[Path, list[str]] = {}
@@ -155,22 +155,51 @@ def scan_local(req: ScanRequest):
         parent_dir = pdf.parent
         thesis_folders.setdefault(parent_dir, []).append(pdf.name)
 
-    # 3. Process the discovered folders
+    # 3. CLEANUP STALE FOLDERS: Remove entries that were deleted from the filesystem
+    current_thesis_names = {folder.name for folder in thesis_folders.keys()}
+    keys_to_delete = []
+    
+    for t_name, t_data in existing_scan.items():
+        # Get stored path (supporting both new and old key names)
+        t_path_str = t_data.get("folder_path") or t_data.get("level2_path", "")
+        if not t_path_str:
+            continue
+            
+        t_path = Path(t_path_str)
+        # If the stored folder was inside the directory we are currently scanning,
+        # but we didn't find it this time, it means it was deleted from the disk!
+        if t_path.is_relative_to(root) and t_name not in current_thesis_names:
+            keys_to_delete.append(t_name)
+
+    # Delete the ghost folders
+    for k in keys_to_delete:
+        del existing_scan[k]
+
+    # 4. Process the discovered folders
     for folder_path, pdfs in thesis_folders.items():
         thesis_name = folder_path.name
 
         if thesis_name in existing_scan:
             existing_scan[thesis_name]["files"] = sorted(pdfs)
             existing_scan[thesis_name]["rescanned_at"] = datetime.utcnow().isoformat()
+            # Ensure path is updated just in case the folder was moved
+            existing_scan[thesis_name]["folder_path"] = str(folder_path)
+            existing_scan[thesis_name]["level2_path"] = str(folder_path) 
         else:
             entry = _empty_thesis_entry(thesis_name, str(folder_path))
             entry["files"] = sorted(pdfs)
+            entry["level2_path"] = str(folder_path) # Legacy support for UI
             existing_scan[thesis_name] = entry
             added.append(thesis_name)
 
     _write_scan(existing_scan)
-    return {"added": added, "total": len(existing_scan)}
-
+    
+    return {
+        "total_thesis_folders": len(existing_scan),
+        "newly_added": len(added),
+        "added": added,
+        "skipped": [],
+    }
 
 @router.get("/local-files", summary="Return stored file tree with Drive link status")
 def get_local_files():
@@ -209,9 +238,17 @@ def save_index_card(req: SaveIndexCardRequest):
         )
 
     thesis_entry = scan[req.thesis_name]
-    parsed = req.data
-
-    level2_path = thesis_entry.get("folder_path", "")
+ 
+    try:
+        parsed = json.loads(req.json_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid JSON: {e}. File not saved. Fix the JSON and try again."
+        )
+ 
+    # Support both new scan entries (folder_path) and old ones (level2_path)
+    level2_path = thesis_entry.get("folder_path") or thesis_entry.get("level2_path", "")
     index_cards_dir = os.path.join(level2_path, "index_cards")
     os.makedirs(index_cards_dir, exist_ok=True)
 

@@ -83,20 +83,22 @@ def _chapters_dir(thesis_id: str = "") -> Path:
     root = DATA_DIR if not thesis_id else _ensure(DATA_DIR / "theses" / thesis_id)
     return _ensure(root / "thesis_context" / "chapters")
 
-def _groups_dir() -> Path:
-    return _ensure(DATA_DIR / "source_groups")
+def _groups_dir(thesis_id: str = "") -> Path:
+    root = DATA_DIR if not thesis_id else _ensure(DATA_DIR / "theses" / thesis_id)
+    return _ensure(root / "source_groups")
 
-def _group_dir(group_id: str) -> Path:
-    return _ensure(DATA_DIR / "source_groups" / group_id)
+def _group_dir(group_id: str, thesis_id: str = "") -> Path:
+    return _ensure(_groups_dir(thesis_id) / group_id)
 
-def _sources_dir(group_id: str) -> Path:
-    return _ensure(DATA_DIR / "source_groups" / group_id / "sources")
+def _sources_dir(group_id: str, thesis_id: str = "") -> Path:
+    return _ensure(_group_dir(group_id, thesis_id) / "sources")
 
 def _chain_dir(chapter_id: str) -> Path:
     return _ensure(DATA_DIR / "consistency_chain" / chapter_id)
 
-def _notes_dir(scope: str) -> Path:
-    return _ensure(DATA_DIR / "notes" / scope)
+def _notes_dir(scope: str, thesis_id: str = "") -> Path:
+    root = DATA_DIR if not thesis_id else _ensure(DATA_DIR / "theses" / thesis_id)
+    return _ensure(root / "notes" / scope)
 
 def _misc_dir() -> Path:
     return _ensure(DATA_DIR / "misc")
@@ -159,50 +161,59 @@ def _list_json(directory: Path) -> list[dict]:
 
 _groups_cache: dict[str, dict] = {}
 _groups_cache_loaded: bool = False
+_groups_cache_thesis_id: str = ""   # tracks which thesis is currently in cache
 
 
-def _load_group_from_disk(group_id: str) -> Optional[dict]:
+def _load_group_from_disk(group_id: str, thesis_id: str = "") -> Optional[dict]:
     """Read one group (meta + sources) from disk and return the assembled entry."""
-    meta = _read(_group_dir(group_id) / "group_meta.json")
+    meta = _read(_group_dir(group_id, thesis_id) / "group_meta.json")
     if not meta:
         return None
-    sources = _list_json(_sources_dir(group_id))
+    sources = _list_json(_sources_dir(group_id, thesis_id))
     meta["sources"] = sources
     meta["source_count"] = len(sources)
     meta["ready_count"] = sum(1 for s in sources if s.get("has_index_card"))
     return meta
 
 
-def _ensure_groups_loaded() -> None:
+def _ensure_groups_loaded(thesis_id: str = "") -> None:
     """
     Populate _groups_cache with every group on disk — exactly once.
     After this call, individual entries are kept current via fine-grained
     eviction; no second full scan ever happens during the process lifetime.
     """
-    global _groups_cache_loaded
-    if _groups_cache_loaded:
+    global _groups_cache_loaded, _groups_cache_thesis_id
+    if _groups_cache_loaded and _groups_cache_thesis_id == thesis_id:
         return
-    groups_dir = _groups_dir()
-    if groups_dir.exists():
-        for group_path in sorted(groups_dir.iterdir()):
+    _groups_cache.clear()
+    gdir = _groups_dir(thesis_id)
+    if gdir.exists():
+        for group_path in sorted(gdir.iterdir()):
             if group_path.is_dir():
-                group_id = group_path.name
-                entry = _load_group_from_disk(group_id)
+                gid = group_path.name
+                entry = _load_group_from_disk(gid, thesis_id)
                 if entry is not None:
-                    _groups_cache[group_id] = entry
+                    _groups_cache[gid] = entry
     _groups_cache_loaded = True
+    _groups_cache_thesis_id = thesis_id
 
 
-def _evict_group(group_id: str) -> None:
+def _evict_group(group_id: str, thesis_id: str = "") -> None:
     """Remove one group entry from cache so it is re-read on next access."""
-    _groups_cache.pop(group_id, None)
+    if thesis_id == _groups_cache_thesis_id:
+        _groups_cache.pop(group_id, None)
+    else:
+        # Writing to a different thesis than what's cached — full invalidation
+        global _groups_cache_loaded
+        _groups_cache.clear()
+        _groups_cache_loaded = False
 
 
-def _get_group_entry(group_id: str) -> Optional[dict]:
+def _get_group_entry(group_id: str, thesis_id: str = "") -> Optional[dict]:
     """Return the cached entry for one group, loading from disk if needed."""
-    _ensure_groups_loaded()
+    _ensure_groups_loaded(thesis_id)
     if group_id not in _groups_cache:
-        entry = _load_group_from_disk(group_id)
+        entry = _load_group_from_disk(group_id, thesis_id)
         if entry is not None:
             _groups_cache[group_id] = entry
     return _groups_cache.get(group_id)
@@ -216,14 +227,22 @@ def _get_group_entry(group_id: str) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 _notes_cache: dict[str, dict[str, list[dict]]] = {}
-_notes_cache_loaded: set[str] = set()   # scopes that have been fully scanned
+_notes_cache_loaded: set[str] = set()
+_notes_cache_thesis_id: str = ""
 
+def _ensure_notes_loaded(scope: str, thesis_id: str = "") -> None:
+    global _notes_cache_loaded, _notes_cache_thesis_id
+    
+    # If switching to a new thesis, clear the notes cache
+    if _notes_cache_thesis_id != thesis_id:
+        _notes_cache.clear()
+        _notes_cache_loaded.clear()
+        _notes_cache_thesis_id = thesis_id
 
-def _ensure_notes_loaded(scope: str) -> None:
-    """Load all notes for a scope into cache — once per scope."""
     if scope in _notes_cache_loaded:
         return
-    notes_dir = _notes_dir(scope)
+        
+    notes_dir = _notes_dir(scope, thesis_id)
     scope_map: dict[str, list[dict]] = {}
     if notes_dir.exists():
         for p in sorted(notes_dir.glob("*.json")):
@@ -235,12 +254,9 @@ def _ensure_notes_loaded(scope: str) -> None:
     _notes_cache[scope] = scope_map
     _notes_cache_loaded.add(scope)
 
-
-def _evict_note(scope: str, entity_id: str, note_id: str) -> None:
-    """
-    Remove a single note from cache by note_id.
-    If the scope hasn't been loaded yet, nothing to evict.
-    """
+def _evict_note(scope: str, entity_id: str, note_id: str, thesis_id: str = "") -> None:
+    if thesis_id != _notes_cache_thesis_id:
+        return
     if scope not in _notes_cache:
         return
     entity_notes = _notes_cache[scope].get(entity_id, [])
@@ -248,17 +264,16 @@ def _evict_note(scope: str, entity_id: str, note_id: str) -> None:
         n for n in entity_notes if n.get("note_id") != note_id
     ]
 
-
-def _upsert_note_in_cache(scope: str, entity_id: str, note: dict) -> None:
-    """Insert or replace a note in cache without a disk re-read."""
+def _upsert_note_in_cache(scope: str, entity_id: str, note: dict, thesis_id: str = "") -> None:
+    if thesis_id != _notes_cache_thesis_id:
+        return
     if scope not in _notes_cache_loaded:
-        return  # scope not yet loaded; will be populated on first read
+        return
     note_id = note.get("note_id")
     entity_notes = _notes_cache[scope].setdefault(entity_id, [])
     _notes_cache[scope][entity_id] = [
         n for n in entity_notes if n.get("note_id") != note_id
     ] + [note]
-
 
 # ---------------------------------------------------------------------------
 # Cache 3 — drive scan result (single JSON blob, invalidated by key)
@@ -354,13 +369,13 @@ def delete_chapter(chapter_id: str, thesis_id: str = "") -> bool:
 # Source Groups
 # ---------------------------------------------------------------------------
 
-def list_source_groups() -> list[dict]:
+def list_source_groups(thesis_id: str = "") -> list[dict]:
     """
     Return group meta + counts for all groups.
     Sources list is stripped — callers that need sources use read_source_group().
     Zero disk reads when cache is warm.
     """
-    _ensure_groups_loaded()
+    _ensure_groups_loaded(thesis_id)
     result = []
     for entry in sorted(_groups_cache.values(), key=lambda g: g.get("group_id", "")):
         meta = {k: v for k, v in entry.items() if k != "sources"}
@@ -370,27 +385,27 @@ def list_source_groups() -> list[dict]:
     return result
 
 
-def read_source_group(group_id: str) -> Optional[dict]:
+def read_source_group(group_id: str, thesis_id: str = "") -> Optional[dict]:
     """Return a single group with sources embedded. Zero disk reads when warm."""
-    return _get_group_entry(group_id)
+    return _get_group_entry(group_id, thesis_id)
 
 
-def write_source_group(group_id: str, data: dict) -> dict:
+def write_source_group(group_id: str, data: dict, thesis_id: str = "") -> dict:
     data["updated_at"] = datetime.utcnow().isoformat()
     sources = data.pop("sources", [])
-    _write(_group_dir(group_id) / "group_meta.json", data)
+    _write(_group_dir(group_id, thesis_id) / "group_meta.json", data)
     data["sources"] = sources
     # Evict this group so the next read gets a fresh assembled entry.
     # Other groups are unaffected.
-    _evict_group(group_id)
+    _evict_group(group_id, thesis_id)
     return data
 
 
-def delete_source_group(group_id: str) -> bool:
-    group_path = _group_dir(group_id)
+def delete_source_group(group_id: str, thesis_id: str = "") -> bool:
+    group_path = _group_dir(group_id, thesis_id)
     if group_path.exists():
         shutil.rmtree(group_path)
-        _evict_group(group_id)
+        _evict_group(group_id, thesis_id)
         return True
     return False
 
@@ -399,37 +414,37 @@ def delete_source_group(group_id: str) -> bool:
 # Sources
 # ---------------------------------------------------------------------------
 
-def list_sources(group_id: str) -> list[dict]:
+def list_sources(group_id: str, thesis_id: str = "") -> list[dict]:
     """Zero disk reads when cache is warm."""
-    entry = _get_group_entry(group_id)
+    entry = _get_group_entry(group_id, thesis_id)
     if entry is not None:
         return entry.get("sources", [])
-    return _list_json(_sources_dir(group_id))
+    return _list_json(_sources_dir(group_id, thesis_id))
 
 
-def read_source(group_id: str, source_id: str) -> Optional[dict]:
-    entry = _get_group_entry(group_id)
+def read_source(group_id: str, source_id: str, thesis_id: str = "") -> Optional[dict]:
+    entry = _get_group_entry(group_id, thesis_id)
     if entry is not None:
         for s in entry.get("sources", []):
             if s.get("source_id") == source_id:
                 return s
     # Cache miss (group not found) — fall back to direct disk read
-    return _read(_sources_dir(group_id) / f"{source_id}.json")
+    return _read(_sources_dir(group_id, thesis_id) / f"{source_id}.json")
 
 
-def write_source(group_id: str, source_id: str, data: dict) -> dict:
+def write_source(group_id: str, source_id: str, data: dict, thesis_id: str = "") -> dict:
     data["updated_at"] = datetime.utcnow().isoformat()
-    _write(_sources_dir(group_id) / f"{source_id}.json", data)
+    _write(_sources_dir(group_id, thesis_id) / f"{source_id}.json", data)
     # Evict only the owning group — every other group's cache is untouched
-    _evict_group(group_id)
+    _evict_group(group_id, thesis_id)
     return data
 
 
-def delete_source(group_id: str, source_id: str) -> bool:
-    path = _sources_dir(group_id) / f"{source_id}.json"
+def delete_source(group_id: str, source_id: str, thesis_id: str = "") -> bool:
+    path = _sources_dir(group_id, thesis_id) / f"{source_id}.json"
     if path.exists():
         path.unlink()
-        _evict_group(group_id)
+        _evict_group(group_id, thesis_id)
         return True
     return False
 
@@ -438,8 +453,8 @@ def delete_source(group_id: str, source_id: str) -> bool:
 # Index Cards  (stored within the source file)
 # ---------------------------------------------------------------------------
 
-def write_index_card(group_id: str, source_id: str, card_data: dict) -> Optional[dict]:
-    source = read_source(group_id, source_id)
+def write_index_card(group_id: str, source_id: str, card_data: dict, thesis_id: str = "") -> Optional[dict]:
+    source = read_source(group_id, source_id, thesis_id)
     if not source:
         return None
     card_data["updated_at"] = datetime.utcnow().isoformat()
@@ -447,17 +462,17 @@ def write_index_card(group_id: str, source_id: str, card_data: dict) -> Optional
         card_data["created_at"] = datetime.utcnow().isoformat()
     source["index_card"] = card_data
     source["has_index_card"] = True
-    write_source(group_id, source_id, source)   # evicts group cache
+    write_source(group_id, source_id, source, thesis_id)   # evicts group cache
     return card_data
 
 
-def delete_index_card(group_id: str, source_id: str) -> bool:
-    source = read_source(group_id, source_id)
+def delete_index_card(group_id: str, source_id: str, thesis_id: str = "") -> bool:
+    source = read_source(group_id, source_id, thesis_id)
     if not source:
         return False
     source["index_card"] = None
     source["has_index_card"] = False
-    write_source(group_id, source_id, source)   # evicts group cache
+    write_source(group_id, source_id, source, thesis_id)   # evicts group cache
     return True
 
 
@@ -496,12 +511,12 @@ def delete_section_summary(chapter_id: str, subtopic_id: str) -> bool:
 # first call to any groups accessor in this process.
 # ---------------------------------------------------------------------------
 
-def find_sources_for_subtopic(subtopic_id: str) -> list[dict]:
+def find_sources_for_subtopic(subtopic_id: str, thesis_id: str = "") -> list[dict]:
     """
     Scan all index cards across all groups for relevant_subtopics membership.
     Uses in-memory cache — O(total_sources) with zero disk I/O when warm.
     """
-    _ensure_groups_loaded()
+    _ensure_groups_loaded(thesis_id)
     matches = []
     for entry in _groups_cache.values():
         for source in entry.get("sources", []):
@@ -511,12 +526,12 @@ def find_sources_for_subtopic(subtopic_id: str) -> list[dict]:
     return matches
 
 
-def find_sources_by_theme(theme: str) -> list[dict]:
+def find_sources_by_theme(theme: str, thesis_id: str = "") -> list[dict]:
     """
     Scan all index cards across all groups for a specific theme tag.
     Uses in-memory cache — O(total_sources) with zero disk I/O when warm.
     """
-    _ensure_groups_loaded()
+    _ensure_groups_loaded(thesis_id)
     matches = []
     for entry in _groups_cache.values():
         for source in entry.get("sources", []):
@@ -533,7 +548,7 @@ def find_sources_by_theme(theme: str) -> list[dict]:
 # separately; loading one never triggers a read of the other.
 # ---------------------------------------------------------------------------
 
-def get_entire_library_data() -> dict:
+def get_entire_library_data(thesis_id: str = "") -> dict:
     """
     Return the full library snapshot used by the frontend.
 
@@ -549,9 +564,9 @@ def get_entire_library_data() -> dict:
     Both slices are served from cache after the first call.
     A notes write never triggers a groups re-read and vice-versa.
     """
-    _ensure_groups_loaded()
-    _ensure_notes_loaded("source_group")
-    _ensure_notes_loaded("source")
+    _ensure_groups_loaded(thesis_id)
+    _ensure_notes_loaded("source_group", thesis_id)
+    _ensure_notes_loaded("source", thesis_id)
 
     groups_data = sorted(_groups_cache.values(), key=lambda g: g.get("group_id", ""))
     notes_data = {
@@ -565,39 +580,32 @@ def get_entire_library_data() -> dict:
 # Notes
 # ---------------------------------------------------------------------------
 
-def list_notes(scope: str, entity_id: str) -> list[dict]:
-    """Zero disk reads when the scope cache is warm."""
-    _ensure_notes_loaded(scope)
+def list_notes(scope: str, entity_id: str, thesis_id: str = "") -> list[dict]:
+    _ensure_notes_loaded(scope, thesis_id)
     return _notes_cache.get(scope, {}).get(entity_id, [])
 
+def read_note(scope: str, note_id: str, thesis_id: str = "") -> Optional[dict]:
+    return _read(_notes_dir(scope, thesis_id) / f"{note_id}.json")
 
-def read_note(scope: str, note_id: str) -> Optional[dict]:
-    return _read(_notes_dir(scope) / f"{note_id}.json")
-
-
-def write_note(scope: str, note_id: str, data: dict) -> dict:
+def write_note(scope: str, note_id: str, data: dict, thesis_id: str = "") -> dict:
     data["updated_at"] = datetime.utcnow().isoformat()
-    _write(_notes_dir(scope) / f"{note_id}.json", data)
-    # Update cache in-place — no re-scan of the notes directory
+    _write(_notes_dir(scope, thesis_id) / f"{note_id}.json", data)
     entity_id = data.get("entity_id")
     if entity_id:
-        _upsert_note_in_cache(scope, entity_id, data)
+        _upsert_note_in_cache(scope, entity_id, data, thesis_id)
     return data
 
-
-def delete_note(scope: str, note_id: str) -> bool:
-    path = _notes_dir(scope) / f"{note_id}.json"
+def delete_note(scope: str, note_id: str, thesis_id: str = "") -> bool:
+    path = _notes_dir(scope, thesis_id) / f"{note_id}.json"
     if not path.exists():
         return False
-    # Read entity_id before unlinking so we can evict from cache
     note = _read(path)
     path.unlink()
     if note:
         entity_id = note.get("entity_id")
         if entity_id:
-            _evict_note(scope, entity_id, note_id)
+            _evict_note(scope, entity_id, note_id, thesis_id)
     return True
-
 
 # ---------------------------------------------------------------------------
 # Misc key-value store

@@ -6,6 +6,14 @@
 
 const BASE = window.SPO_API_BASE || "http://localhost:8000";
 
+function _tid() { return localStorage.getItem("spo_active_thesis") || ""; }
+function _p(path) {
+  const id = _tid();
+  if (!id) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}thesis_id=${encodeURIComponent(id)}`;
+}
+
 async function _req(method, path, body) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
   if (body !== undefined) opts.body = JSON.stringify(body);
@@ -25,31 +33,31 @@ const _delete = p       => _req("DELETE", p);
 
 // ── Library bulk view ─────────────────────────────────────────────────────────
 export const getLibraryView = () =>
-  _get("/sources/library-view");
+  _get(_p("/sources/library-view"));
 
 // ── Source Groups ─────────────────────────────────────────────────────────────
 export const createGroup = (data) =>
-  _post("/sources/groups", data);
+  _post(_p("/sources/groups"), data);
 
 export const updateGroup = (groupId, data) =>
-  _patch(`/sources/groups/${groupId}`, data);
+  _patch(_p(`/sources/groups/${groupId}`), data);
 
 export const deleteGroup = (groupId) =>
-  _delete(`/sources/groups/${groupId}`);
+  _delete(_p(`/sources/groups/${groupId}`));
 
 // ── Sources ───────────────────────────────────────────────────────────────────
 export const createSource = (groupId, data) =>
-  _post(`/sources/groups/${groupId}/sources`, data);
+  _post(_p(`/sources/groups/${groupId}/sources`), data);
 
 export const updateSource = (groupId, sourceId, data) =>
-  _patch(`/sources/groups/${groupId}/sources/${sourceId}`, data);
+  _patch(_p(`/sources/groups/${groupId}/sources/${sourceId}`), data);
 
 export const deleteSource = (groupId, sourceId) =>
-  _delete(`/sources/groups/${groupId}/sources/${sourceId}`);
+  _delete(_p(`/sources/groups/${groupId}/sources/${sourceId}`));
 
 // ── Import ────────────────────────────────────────────────────────────────────
 export const importSourceJson = (data) =>
-  _post("/import/source", data);
+  _post(_p("/import/source"), data);
 
 // ── Drive / Scan ──────────────────────────────────────────────────────────────
 export const scanLocalFolder = (rootPath) =>

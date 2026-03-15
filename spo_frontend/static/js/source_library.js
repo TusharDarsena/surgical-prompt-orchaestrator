@@ -644,6 +644,40 @@ const actions = {
   },
 };
 
+// ── Thesis selector (reads from same localStorage as thesis_setup.js) ─────────
+
+function _activeThesisId() {
+  return localStorage.getItem("spo_active_thesis") || "";
+}
+
+function _loadThesesIndex() {
+  try { return JSON.parse(localStorage.getItem("spo_theses") || "[]"); } catch { return []; }
+}
+
+function loadLibThesisSelector() {
+  const sel = $("libThesisSelect");
+  if (!sel) return;
+  const theses = _loadThesesIndex();
+  const activeId = _activeThesisId();
+  sel.innerHTML = "";
+  if (!theses.length) {
+    sel.innerHTML = `<option value="">— No theses —</option>`;
+  } else {
+    for (const t of theses) {
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = `${t.title} — ${t.author}`;
+      if (t.id === activeId) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+}
+
+function onLibThesisChange(id) {
+  localStorage.setItem("spo_active_thesis", id);
+  actions.loadLibrary();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -678,6 +712,11 @@ function init() {
   document.querySelectorAll(".card-header[data-card]").forEach(h => {
     h.addEventListener("click", () => toggleCard(h.dataset.card));
   });
+
+  // ── Thesis selector ───────────────────────────────────────────────────────
+  loadLibThesisSelector();
+  const libSel = $("libThesisSelect");
+  if (libSel) libSel.addEventListener("change", e => onLibThesisChange(e.target.value));
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   actions.loadLibrary();

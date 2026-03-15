@@ -204,7 +204,7 @@ def _normalize_source_chapter(ch: dict) -> dict:
 _VALID_SOURCE_TYPES = {"thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"}
 
 
-def do_auto_import(data: dict) -> tuple[dict | None, str | None]:
+def do_auto_import(data: dict, thesis_id: str = "") -> tuple[dict | None, str | None]:
     """
     Takes a raw source dict (already parsed from JSON), normalizes it,
     validates with Pydantic, then writes a SourceGroup + Sources + IndexCards
@@ -265,7 +265,7 @@ def do_auto_import(data: dict) -> tuple[dict | None, str | None]:
         "created_at": now,
         "updated_at": now,
     }
-    storage.write_source_group(group_id, group_record)
+    storage.write_source_group(group_id, group_record, thesis_id=thesis_id)
 
     created_sources = []
     for ch in validated.chapters:
@@ -298,7 +298,7 @@ def do_auto_import(data: dict) -> tuple[dict | None, str | None]:
         }
         source_record["index_card"] = index_card
         source_record["has_index_card"] = True
-        storage.write_source(group_id, source_id, source_record)
+        storage.write_source(group_id, source_id, source_record, thesis_id=thesis_id)
         created_sources.append({"source_id": source_id, "label": ch.label})
 
     return {
