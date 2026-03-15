@@ -67,7 +67,7 @@ export const getLocalFiles = () =>
   _get("/drive/local-files");
 
 export const registerDriveLinks = (driveFolderId) =>
-  _post("/drive/register-links", { drive_folder_id: driveFolderId });
+  _post("/drive/register-links", { drive_parent_folder_id: driveFolderId });
 
 export const copyDriveLinks = (thesisName) =>
   _get(`/drive/links/${thesisName}`);
