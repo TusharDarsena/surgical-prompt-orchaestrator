@@ -75,11 +75,13 @@ def _ensure(path: Path) -> Path:
 # Directory helpers
 # ---------------------------------------------------------------------------
 
-def _thesis_dir() -> Path:
-    return _ensure(DATA_DIR / "thesis_context")
-
-def _chapters_dir() -> Path:
-    return _ensure(DATA_DIR / "thesis_context" / "chapters")
+def _thesis_dir(thesis_id: str = "") -> Path:
+    root = DATA_DIR if not thesis_id else _ensure(DATA_DIR / "theses" / thesis_id)
+    return _ensure(root / "thesis_context")
+ 
+def _chapters_dir(thesis_id: str = "") -> Path:
+    root = DATA_DIR if not thesis_id else _ensure(DATA_DIR / "theses" / thesis_id)
+    return _ensure(root / "thesis_context" / "chapters")
 
 def _groups_dir() -> Path:
     return _ensure(DATA_DIR / "source_groups")
@@ -284,41 +286,69 @@ def _invalidate_drive_scan() -> None:
 # Synopsis
 # ---------------------------------------------------------------------------
 
-def read_synopsis() -> Optional[dict]:
-    return _read(_thesis_dir() / "synopsis.json")
-
-
-def write_synopsis(data: dict) -> dict:
+def read_synopsis(thesis_id: str = "") -> Optional[dict]:
+    return _read(_thesis_dir(thesis_id) / "synopsis.json")
+ 
+ 
+def write_synopsis(data: dict, thesis_id: str = "") -> dict:
     data["updated_at"] = datetime.utcnow().isoformat()
-    _write(_thesis_dir() / "synopsis.json", data)
+    _write(_thesis_dir(thesis_id) / "synopsis.json", data)
     return data
-
-
-# ---------------------------------------------------------------------------
-# Chapters
-# ---------------------------------------------------------------------------
-
-def list_chapters() -> list[dict]:
-    return _list_json(_chapters_dir())
-
-
-def read_chapter(chapter_id: str) -> Optional[dict]:
-    return _read(_chapters_dir() / f"{chapter_id}.json")
-
-
-def write_chapter(chapter_id: str, data: dict) -> dict:
-    data["updated_at"] = datetime.utcnow().isoformat()
-    _write(_chapters_dir() / f"{chapter_id}.json", data)
-    return data
-
-
-def delete_chapter(chapter_id: str) -> bool:
-    path = _chapters_dir() / f"{chapter_id}.json"
+def delete_synopsis(thesis_id: str = "") -> bool:
+    path = _thesis_dir(thesis_id) / "synopsis.json"
     if path.exists():
         path.unlink()
         return True
     return False
+ 
+ 
+def list_theses() -> list[dict]:
+    """Return all thesis namespaces that have a synopsis.json on disk."""
+    results = []
+    syn = _read(_thesis_dir("") / "synopsis.json")
+    if syn:
+        results.append({
+            "thesis_id": "",
+            "title": syn.get("title", ""),
+            "author": syn.get("researcher") or syn.get("author", ""),
+        })
+    theses_root = DATA_DIR / "theses"
+    if theses_root.exists():
+        for d in sorted(theses_root.iterdir()):
+            if d.is_dir():
+                syn = _read(_thesis_dir(d.name) / "synopsis.json")
+                if syn:
+                    results.append({
+                        "thesis_id": d.name,
+                        "title": syn.get("title", ""),
+                        "author": syn.get("researcher") or syn.get("author", ""),
+                    })
+    return results
+ 
+# ---------------------------------------------------------------------------
+# Chapters
+# ---------------------------------------------------------------------------
 
+def list_chapters(thesis_id: str = "") -> list[dict]:
+    return _list_json(_chapters_dir(thesis_id))
+ 
+ 
+def read_chapter(chapter_id: str, thesis_id: str = "") -> Optional[dict]:
+    return _read(_chapters_dir(thesis_id) / f"{chapter_id}.json")
+ 
+ 
+def write_chapter(chapter_id: str, data: dict, thesis_id: str = "") -> dict:
+    data["updated_at"] = datetime.utcnow().isoformat()
+    _write(_chapters_dir(thesis_id) / f"{chapter_id}.json", data)
+    return data
+ 
+ 
+def delete_chapter(chapter_id: str, thesis_id: str = "") -> bool:
+    path = _chapters_dir(thesis_id) / f"{chapter_id}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
 
 # ---------------------------------------------------------------------------
 # Source Groups

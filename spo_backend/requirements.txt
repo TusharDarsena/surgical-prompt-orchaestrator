@@ -4,3 +4,4 @@ pydantic
 python-dotenv
 notebooklm-py[browser]
 playwright
+httpx

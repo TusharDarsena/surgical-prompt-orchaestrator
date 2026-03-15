@@ -16,7 +16,7 @@ JSON schemas are documented in /prompts/ — use those prompts with Claude
 to generate the JSONs from your actual documents.
 """
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Query
 from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
 from datetime import datetime
@@ -72,10 +72,10 @@ class ThesisImport(BaseModel):
 
 
 @router.post("/thesis", summary="Import thesis.json")
-def import_thesis(data: ThesisImport):
+def import_thesis(data: ThesisImport, thesis_id: str = Query("")):
     record = data.model_dump()
     record["updated_at"] = datetime.utcnow().isoformat()
-    storage.write_synopsis(record)
+    storage.write_synopsis(record, thesis_id=thesis_id)
 
     frameworks = []
     if data.methodology and isinstance(data.methodology, dict):
@@ -192,14 +192,14 @@ def _build_chapter_record(chapter_id: str, data: ChapterizationImport) -> dict:
     "/chapterization/{chapter_id}",
     summary="Import chapterization.json — sets up chapter arc + all subtopics at once"
 )
-def import_chapterization(chapter_id: str, data: ChapterizationImport):
+def import_chapterization(chapter_id: str, data: ChapterizationImport, thesis_id: str = Query("")):
     """
     Imports a full chapter: goal, arc, and all subtopics in one JSON.
     If the chapter already exists, it is overwritten.
     Subtopic IDs are auto-generated from the number (e.g. '1.3.2' → '1_3_2').
     """
     record = _build_chapter_record(chapter_id, data)
-    storage.write_chapter(chapter_id, record)
+    storage.write_chapter(chapter_id, record, thesis_id=thesis_id)
 
     return {
         "imported": "chapter",
@@ -216,7 +216,7 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport):
     "/chapterization/bulk",
     summary="Bulk-import chapterization JSONs — multiple chapters in one upload"
 )
-def import_chapterization_bulk(chapters: list[ChapterizationImport]):
+def import_chapterization_bulk(chapters: list[ChapterizationImport], thesis_id: str = Query("")):
     """
     Accepts an array of chapter chapterization objects.
     Each chapter's `number` field is used as the chapter_id (e.g. 1 → 'ch1').
@@ -225,7 +225,7 @@ def import_chapterization_bulk(chapters: list[ChapterizationImport]):
     for ch_data in chapters:
         chapter_id = f"ch{ch_data.number}"
         record = _build_chapter_record(chapter_id, ch_data)
-        storage.write_chapter(chapter_id, record)
+        storage.write_chapter(chapter_id, record, thesis_id=thesis_id)
         results.append({
             "chapter_id": chapter_id,
             "title": ch_data.title,

@@ -7,7 +7,7 @@ synopsis, chapters, and subtopics.
 This is the "big picture" layer — always injected into compiled prompts.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime
 import uuid
 
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/thesis", tags=["Thesis Context"])
 # --- Synopsis ---
 
 @router.post("/synopsis", response_model=dict, summary="Create or replace thesis synopsis")
-def create_synopsis(req: SynopsisCreateRequest):
+def create_synopsis(req: SynopsisCreateRequest, thesis_id: str = Query("")):
     """
     Store the master argument of your thesis.
     Write this once and update it only if your central argument shifts.
@@ -32,29 +32,29 @@ def create_synopsis(req: SynopsisCreateRequest):
     """
     data = req.model_dump()
     data["updated_at"] = datetime.utcnow().isoformat()
-    return storage.write_synopsis(data)
+    return storage.write_synopsis(data, thesis_id=thesis_id)
 
 
 @router.get("/synopsis", summary="Get thesis synopsis")
-def get_synopsis():
-    data = storage.read_synopsis()
+def get_synopsis(thesis_id: str = Query("")):
+    data = storage.read_synopsis(thesis_id=thesis_id)
     if not data:
         raise HTTPException(status_code=404, detail="No synopsis found. Create one first.")
     return data
 
 
 @router.patch("/synopsis", summary="Update thesis synopsis")
-def update_synopsis(req: SynopsisUpdateRequest):
-    existing = storage.read_synopsis()
+def update_synopsis(req: SynopsisUpdateRequest, thesis_id: str = Query("")):
+    existing = storage.read_synopsis(thesis_id=thesis_id)
     if not existing:
         raise HTTPException(status_code=404, detail="No synopsis found. Create one first.")
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     existing.update(updates)
-    return storage.write_synopsis(existing)
+    return storage.write_synopsis(existing, thesis_id=thesis_id)
 
 
 @router.put("/synopsis", summary="Upsert thesis synopsis (create or replace)")
-def upsert_synopsis(req: SynopsisCreateRequest):
+def upsert_synopsis(req: SynopsisCreateRequest, thesis_id: str = Query("")):
     """
     Idempotent upsert — creates the synopsis if it doesn't exist, or
     replaces it in full if it does. The frontend does not need to know
@@ -62,15 +62,37 @@ def upsert_synopsis(req: SynopsisCreateRequest):
     """
     data = req.model_dump()
     data["updated_at"] = datetime.utcnow().isoformat()
-    return storage.write_synopsis(data)
+    return storage.write_synopsis(data, thesis_id=thesis_id)
 
 
 # --- Chapters ---
+# ADD:
+@router.get("/list", summary="List all thesis namespaces")
+def list_theses():
+    return storage.list_theses()
+ 
+ 
+@router.delete("/synopsis", summary="Delete thesis synopsis")
+def delete_synopsis(thesis_id: str = Query("")):
+    if not storage.delete_synopsis(thesis_id=thesis_id):
+        raise HTTPException(status_code=404, detail="No synopsis found.")
+    return {"deleted": True}
+ 
+ 
+@router.delete("/namespace/{thesis_id}", summary="Delete an entire thesis namespace")
+def delete_thesis_namespace(thesis_id: str):
+    import shutil
+    path = storage.DATA_DIR / "theses" / thesis_id
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Thesis '{thesis_id}' not found.")
+    shutil.rmtree(path)
+    return {"deleted": thesis_id}
+ 
 
 @router.post("/chapters", summary="Add a chapter")
-def create_chapter(req: ChapterCreateRequest):
+def create_chapter(req: ChapterCreateRequest, thesis_id: str = Query("")):
     chapter_id = f"chapter_{req.number:02d}"
-    existing = storage.read_chapter(chapter_id)
+    existing = storage.read_chapter(chapter_id, thesis_id=thesis_id)
     if existing:
         raise HTTPException(
             status_code=409,
@@ -85,37 +107,37 @@ def create_chapter(req: ChapterCreateRequest):
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
-    return storage.write_chapter(chapter_id, data)
+    return storage.write_chapter(chapter_id, data, thesis_id=thesis_id)
 
 
 @router.get("/chapters", summary="List all chapters")
-def list_chapters():
-    return storage.list_chapters()
+def list_chapters(thesis_id: str = Query("")):
+    return storage.list_chapters(thesis_id=thesis_id)
 
 
 @router.get("/chapters/{chapter_id}", summary="Get a chapter with all its subtopics")
-def get_chapter(chapter_id: str):
-    data = storage.read_chapter(chapter_id)
+def get_chapter(chapter_id: str, thesis_id: str = Query("")):
+    data = storage.read_chapter(chapter_id, thesis_id=thesis_id)
     if not data:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
     return data
 
 
 @router.patch("/chapters/{chapter_id}", summary="Update chapter goal or title")
-def update_chapter(chapter_id: str, updates: dict):
-    data = storage.read_chapter(chapter_id)
+def update_chapter(chapter_id: str, updates: dict, thesis_id: str = Query("")):
+    data = storage.read_chapter(chapter_id, thesis_id=thesis_id)
     if not data:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
     allowed = {"title", "goal"}
     for k, v in updates.items():
         if k in allowed:
             data[k] = v
-    return storage.write_chapter(chapter_id, data)
+    return storage.write_chapter(chapter_id, data, thesis_id=thesis_id)
 
 
 @router.delete("/chapters/{chapter_id}", summary="Delete a chapter")
-def delete_chapter(chapter_id: str):
-    if not storage.delete_chapter(chapter_id):
+def delete_chapter(chapter_id: str, thesis_id: str = Query("")):
+    if not storage.delete_chapter(chapter_id, thesis_id=thesis_id):
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
     return {"deleted": chapter_id}
 
@@ -123,8 +145,8 @@ def delete_chapter(chapter_id: str):
 # --- Subtopics (nested under chapters) ---
 
 @router.post("/chapters/{chapter_id}/subtopics", summary="Add a subtopic to a chapter")
-def add_subtopic(chapter_id: str, req: SubtopicCreateRequest):
-    chapter = storage.read_chapter(chapter_id)
+def add_subtopic(chapter_id: str, req: SubtopicCreateRequest, thesis_id: str = Query("")):
+    chapter = storage.read_chapter(chapter_id, thesis_id=thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 
@@ -147,7 +169,7 @@ def add_subtopic(chapter_id: str, req: SubtopicCreateRequest):
         "position_in_argument": req.position_in_argument,
     }
     chapter.setdefault("subtopics", []).append(subtopic)
-    storage.write_chapter(chapter_id, chapter)
+    storage.write_chapter(chapter_id, chapter, thesis_id=thesis_id)
     return subtopic
 
 
@@ -155,8 +177,8 @@ def add_subtopic(chapter_id: str, req: SubtopicCreateRequest):
     "/chapters/{chapter_id}/subtopics/{subtopic_id}",
     summary="Update a subtopic"
 )
-def update_subtopic(chapter_id: str, subtopic_id: str, req: SubtopicUpdateRequest):
-    chapter = storage.read_chapter(chapter_id)
+def update_subtopic(chapter_id: str, subtopic_id: str, req: SubtopicUpdateRequest, thesis_id: str = Query("")):
+    chapter = storage.read_chapter(chapter_id, thesis_id=thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 
@@ -167,7 +189,7 @@ def update_subtopic(chapter_id: str, subtopic_id: str, req: SubtopicUpdateReques
 
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     target.update(updates)
-    storage.write_chapter(chapter_id, chapter)
+    storage.write_chapter(chapter_id, chapter, thesis_id=thesis_id)
     return target
 
 
@@ -175,8 +197,8 @@ def update_subtopic(chapter_id: str, subtopic_id: str, req: SubtopicUpdateReques
     "/chapters/{chapter_id}/subtopics/{subtopic_id}",
     summary="Remove a subtopic"
 )
-def delete_subtopic(chapter_id: str, subtopic_id: str):
-    chapter = storage.read_chapter(chapter_id)
+def delete_subtopic(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
+    chapter = storage.read_chapter(chapter_id, thesis_id=thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 
@@ -186,7 +208,7 @@ def delete_subtopic(chapter_id: str, subtopic_id: str):
         raise HTTPException(status_code=404, detail=f"Subtopic '{subtopic_id}' not found.")
 
     chapter["subtopics"] = filtered
-    storage.write_chapter(chapter_id, chapter)
+    storage.write_chapter(chapter_id, chapter, thesis_id=thesis_id)
     return {"deleted": subtopic_id}
 
 
