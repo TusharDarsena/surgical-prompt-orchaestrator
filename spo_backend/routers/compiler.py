@@ -33,6 +33,7 @@ def compile_notebooklm_prompt(
     subtopic_id: str,
     word_count: Optional[int] = Query(default=None),
     academic_style_notes: Optional[str] = Query(default=None),
+    thesis_id: str = Query(""),
 ):
     """
     Builds the NotebookLM writing prompt from the stored chapterization data.
@@ -40,7 +41,7 @@ def compile_notebooklm_prompt(
     replaces the old Architect → task.md pipeline entirely.
     """
     # ── Load chapter ───────────────────────────────────────────────────────
-    chapter = storage.read_chapter(chapter_id)
+    chapter = storage.read_chapter(chapter_id, thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 

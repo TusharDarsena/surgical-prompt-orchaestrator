@@ -278,15 +278,15 @@ def import_source(data: dict = Body(...), thesis_id: str = Query("")):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/status", summary="Check what has been imported and what is still missing")
-def import_status():
-    synopsis = storage.read_synopsis()
-    chapters = storage.list_chapters()
-    groups = storage.list_source_groups()
+def import_status(thesis_id: str = Query("")):
+    synopsis = storage.read_synopsis(thesis_id=thesis_id)
+    chapters = storage.list_chapters(thesis_id=thesis_id)
+    groups = storage.list_source_groups(thesis_id=thesis_id)
 
     chapter_status = []
     for ch in chapters:
         ch_id = ch["chapter_id"]
-        full = storage.read_chapter(ch_id)
+        full = storage.read_chapter(ch_id, thesis_id=thesis_id)
         sub_count = len(full.get("subtopics", [])) if full else 0
         chapter_status.append({
             "chapter_id": ch_id,
@@ -298,7 +298,7 @@ def import_status():
     source_status = []
     for g in groups:
         g_id = g["group_id"]
-        sources = storage.list_sources(g_id)
+        sources = storage.list_sources(g_id, thesis_id=thesis_id)
         ready = sum(1 for s in sources if s.get("has_index_card"))
         source_status.append({
             "group_id": g_id,

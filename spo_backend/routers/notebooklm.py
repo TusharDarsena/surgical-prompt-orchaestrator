@@ -60,7 +60,7 @@ from datetime import datetime
 from typing import Optional
 import math
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 from services import storage
@@ -192,6 +192,7 @@ async def run_notebooklm(
     subtopic_id: str,
     req: RunRequest,
     background_tasks: BackgroundTasks,
+    thesis_id: str = Query(""),
 ):
     """
     Schedules the full Stage 1 automation sequence as a background task:
@@ -219,7 +220,7 @@ async def run_notebooklm(
         )
 
     # ── Validate before scheduling — fail fast ────────────────────────────
-    chapter = storage.read_chapter(chapter_id)
+    chapter = storage.read_chapter(chapter_id, thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 
@@ -555,6 +556,7 @@ async def run_batch(
     chapter_id: str,
     req: BatchRunRequest,
     background_tasks: BackgroundTasks,
+    thesis_id: str = Query(""),
 ):
     """
     Splits subtopic_ids into two halves and runs them in parallel — each half
@@ -574,7 +576,7 @@ async def run_batch(
         raise HTTPException(status_code=422, detail="subtopic_ids cannot be empty.")
 
     # ── Load and validate chapter ─────────────────────────────────────────────
-    chapter = storage.read_chapter(chapter_id)
+    chapter = storage.read_chapter(chapter_id, thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 
@@ -811,6 +813,7 @@ async def suggest_summary(
     chapter_id: str,
     subtopic_id: str,
     req: SummarizeRequest,
+    thesis_id: str = Query(""),
 ):
     """
     Sends a structured prompt to the existing notebook asking it to produce
@@ -835,7 +838,7 @@ async def suggest_summary(
             detail="Run still in progress. Wait for it to finish."
         )
 
-    chapter = storage.read_chapter(chapter_id)
+    chapter = storage.read_chapter(chapter_id, thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 

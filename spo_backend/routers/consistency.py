@@ -8,7 +8,7 @@ After writing each section, save a summary here.
 The next section's NotebookLM prompt will include this as context.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from models.consistency import SectionSummaryCreateRequest
 from services import storage
 
@@ -68,13 +68,13 @@ def get_section_summary(chapter_id: str, subtopic_id: str):
     "/{chapter_id}/previous-for/{subtopic_id}",
     summary="Get the previous section's summary (for injecting into next prompt)"
 )
-def get_previous_summary(chapter_id: str, subtopic_id: str):
+def get_previous_summary(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
     """
     Key endpoint for the app: before compiling a prompt for subtopic X,
     call this to get the summary of the subtopic written just before X.
     Inject the returned data into your NotebookLM prompt as 'Previous Section Context'.
     """
-    chapter = storage.read_chapter(chapter_id)
+    chapter = storage.read_chapter(chapter_id, thesis_id)
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
 
