@@ -15,12 +15,9 @@
   <link rel="stylesheet" href="/static/css/write_section.css" />
 
   {# Pass backend URL and chapter data to JS — avoids an extra round-trip #}
-  <script id="spo-chapters-data" type="application/json">
-    {{ chapters | tojson }}
-  </script>
   <script>
     window.SPO_API_BASE = "{{ api_base }}";
-    window.SPO_CHAPTERS = JSON.parse(document.getElementById('spo-chapters-data').textContent);
+    window.SPO_CHAPTERS = [];
   </script>
 </head>
 
@@ -56,6 +53,16 @@
 
       <!-- WORKSPACE -->
       <main class="workspace">
+
+        <!-- ── THESIS SELECTOR STRIP ── -->
+        <div class="thesis-strip">
+          <span class="ts-label">Thesis</span>
+          <div class="ts-select-wrap">
+            <select id="writeThesisSelect">
+              <option value="">Loading…</option>
+            </select>
+          </div>
+        </div>
 
         <!-- ── CONTEXT STRIP ── -->
         <div class="context-strip">

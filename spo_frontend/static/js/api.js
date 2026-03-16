@@ -29,10 +29,18 @@ const _get    = (path)        => _request("GET",    path);
 const _post   = (path, body)  => _request("POST",   path, body);
 const _delete = (path)        => _request("DELETE", path);
 
+function _tid() { return localStorage.getItem("spo_active_thesis") || ""; }
+function _p(path) {
+  const id = _tid();
+  if (!id) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}thesis_id=${encodeURIComponent(id)}`;
+}
+
 // ── Chapters ──────────────────────────────────────────────────────────────────
 
 export const listChapters = () =>
-  _get("/thesis/chapters");
+  _get(_p("/thesis/chapters"));
 
 // ── Compiler ──────────────────────────────────────────────────────────────────
 
@@ -40,6 +48,8 @@ export const compilePrompt = (chapterId, subtopicId, wordCount, styleNotes) => {
   const params = new URLSearchParams();
   if (wordCount)  params.set("word_count", wordCount);
   if (styleNotes) params.set("academic_style_notes", styleNotes);
+  const tid = _tid();
+  if (tid) params.set("thesis_id", tid);
   const qs = params.toString() ? `?${params}` : "";
   return _get(`/compile/notebooklm-prompt/${chapterId}/${subtopicId}${qs}`);
 };
@@ -47,13 +57,13 @@ export const compilePrompt = (chapterId, subtopicId, wordCount, styleNotes) => {
 // ── Section Drafts ────────────────────────────────────────────────────────────
 
 export const getDraft = (chapterId, subtopicId) =>
-  _get(`/sections/${chapterId}/${subtopicId}/draft`);
+  _get(_p(`/sections/${chapterId}/${subtopicId}/draft`));
 
 export const saveDraft = (chapterId, subtopicId, text) =>
-  _post(`/sections/${chapterId}/${subtopicId}/draft`, { text });
+  _post(_p(`/sections/${chapterId}/${subtopicId}/draft`), { text });
 
 export const deleteDraft = (chapterId, subtopicId) =>
-  _delete(`/sections/${chapterId}/${subtopicId}/draft`);
+  _delete(_p(`/sections/${chapterId}/${subtopicId}/draft`));
 
 // ── NotebookLM Automation ─────────────────────────────────────────────────────
 
@@ -61,26 +71,26 @@ export const nlmStatus = () =>
   _get("/notebooklm/status");
 
 export const getPreviousSummary = (chapterId, subtopicId) =>
-  _get(`/consistency/${chapterId}/previous-for/${subtopicId}`);
+  _get(_p(`/consistency/${chapterId}/previous-for/${subtopicId}`));
 
 export const nlmRun = (chapterId, subtopicId, wordCount, styleNotes) => {
   const body = {};
   if (wordCount)  body.word_count              = wordCount;
   if (styleNotes) body.academic_style_notes     = styleNotes;
-  return _post(`/notebooklm/run/${chapterId}/${subtopicId}`, body);
+  return _post(_p(`/notebooklm/run/${chapterId}/${subtopicId}`), body);
 };
 
 export const nlmState = (chapterId, subtopicId) =>
-  _get(`/notebooklm/state/${chapterId}/${subtopicId}`);
+  _get(_p(`/notebooklm/state/${chapterId}/${subtopicId}`));
 
 export const nlmDeleteNotebook = (chapterId, subtopicId) =>
-  _delete(`/notebooklm/notebook/${chapterId}/${subtopicId}`);
+  _delete(_p(`/notebooklm/notebook/${chapterId}/${subtopicId}`));
 
 export const nlmRunBatch = (chapterId, subtopicIds, wordCount, styleNotes) => {
   const body = { subtopic_ids: subtopicIds };
   if (wordCount)  body.word_count           = wordCount;
   if (styleNotes) body.academic_style_notes = styleNotes;
-  return _post(`/notebooklm/run-batch/${chapterId}`, body);
+  return _post(_p(`/notebooklm/run-batch/${chapterId}`), body);
 };
 
 export const nlmBatchState = (batchId) =>
@@ -89,10 +99,10 @@ export const nlmBatchState = (batchId) =>
 // ── Consistency ───────────────────────────────────────────────────────────────
 
 export const getChainForChapter = (chapterId) =>
-  _get(`/consistency/${chapterId}`);
+  _get(_p(`/consistency/${chapterId}`));
 
 export const saveConsistencySummary = (chapterId, subtopicId, data) =>
-  _post(`/consistency/${chapterId}/${subtopicId}`, data);
+  _post(_p(`/consistency/${chapterId}/${subtopicId}`), data);
 
 export const generateConsistencyPrompt = (chapterId, subtopicId, wordCount, styleNotes) => {
   // Re-uses the compiler endpoint — consistency summary is Stage 1 driven the same way.

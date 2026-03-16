@@ -83,6 +83,79 @@ async function copyToClipboard(text, label = "Copied!") {
 
 const $ = id => document.getElementById(id);
 
+// ── Thesis selector (same pattern as source_library.js) ──────────────────────
+function _activeThesisId() {
+  return localStorage.getItem("spo_active_thesis") || "";
+}
+
+function _loadThesesIndex() {
+  try { return JSON.parse(localStorage.getItem("spo_theses") || "[]"); } catch { return []; }
+}
+
+function loadWriteThesisSelector() {
+  const sel = $("writeThesisSelect");
+  if (!sel) return;
+  const theses = _loadThesesIndex();
+  const activeId = _activeThesisId();
+  sel.innerHTML = "";
+  if (!theses.length) {
+    sel.innerHTML = `<option value="">— No theses —</option>`;
+  } else {
+    for (const t of theses) {
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = `${t.title} — ${t.author}`;
+      if (t.id === activeId) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+}
+
+async function onWriteThesisChange(id) {
+  localStorage.setItem("spo_active_thesis", id);
+  // Reset chapter state and reload chapters for the new thesis
+  state.chapters        = [];
+  state.subtopics       = [];
+  state.chapterId       = null;
+  state.activeSubtopicId = null;
+  state.runStates       = {};
+  state.drafts          = {};
+  state.sources         = [];
+  state.chain           = [];
+  state.batchId         = null;
+  await loadChaptersFromServer();
+}
+
+async function loadChaptersFromServer() {
+  try {
+    const chapters = await API.listChapters();
+    state.chapters = chapters ?? [];
+    renderChapterSelect();
+    const firstId = state.chapters[0]?.chapter_id ?? null;
+    if (firstId) {
+      $("chapterSelect").value = firstId;
+      await actions.selectChapter(firstId);
+    }
+  } catch (err) {
+    toast(`Failed to load chapters: ${err.message}`, "error");
+  }
+}
+
+function renderChapterSelect() {
+  const sel = $("chapterSelect");
+  sel.innerHTML = "";
+  if (!state.chapters.length) {
+    sel.innerHTML = `<option value="">— No chapters —</option>`;
+    return;
+  }
+  for (const ch of state.chapters) {
+    const opt = document.createElement("option");
+    opt.value = ch.chapter_id;
+    opt.textContent = `Ch. ${ch.number} — ${ch.title}`;
+    sel.appendChild(opt);
+  }
+}
+
 function renderContextPills() {
   const sub = getActiveSubtopic();
   $("pillSources").textContent = sub?.source_ids?.length ?? "—";
@@ -684,7 +757,7 @@ function _updateWordCount() {
 // INIT  —  wire up DOM events and boot from server-rendered data
 // ─────────────────────────────────────────────────────────────────────────────
 
-function init() {
+async function init() {
   // Chapters are server-rendered into window.SPO_CHAPTERS by the template
   state.chapters = window.SPO_CHAPTERS ?? [];
 
@@ -745,8 +818,13 @@ function init() {
   $("btnGenerateConsistency").addEventListener("click", () => actions.generateConsistencyPrompt());
 
   // ── Boot ──────────────────────────────────────────────────────────────────
-  const firstChapterId = $("chapterSelect").value;
-  if (firstChapterId) actions.selectChapter(firstChapterId);
+  // ── Thesis selector ───────────────────────────────────────────────────────
+  loadWriteThesisSelector();
+  const writeThesisSel = $("writeThesisSelect");
+  if (writeThesisSel) writeThesisSel.addEventListener("change", e => onWriteThesisChange(e.target.value));
+
+  // ── Load chapters client-side (thesis-aware) ──────────────────────────────
+  await loadChaptersFromServer();
 }
 
 document.addEventListener("DOMContentLoaded", init);
