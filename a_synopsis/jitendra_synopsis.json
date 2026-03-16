@@ -1,0 +1,157 @@
+{
+    "document_type": "Thesis Synopsis",
+    "title": "Fusion of Historical Narrative and Fiction in Modern Indian English Literature",
+    "institution": "Bharti University, Durg (Chhattisgarh)",
+    "researcher": "Jinendra Kumar",
+    "year": "2025",
+    "degree": "Doctor of Philosophy in English",
+    "research_question": "How do contemporary Indian English novelists employ postmodern narrative strategies to subvert traditional historiography and reconstruct Indian identity?",
+    "core_argument": "Modern Indian English novelists use historiographic metafiction to dismantle monolithic national histories and replace them with pluralistic, indigenous narratives that expose history as a subjective, constructed discourse.",
+    "temporal_scope": "1980s to mid-1990s",
+    "research_gap": "Absence of comprehensive comparative research focusing on the fusion of history and fiction across multiple Indian English novels using the specific lens of historiographic metafiction.",
+    "objectives": [
+        "Examine integration of historical narratives with fictional techniques through postmodernism.",
+        "Analyze narrative strategies and historical reinterpretations in selected works by Sealy, Tharoor, Kesavan, and Chandra.",
+        "Explore subversion of traditional historiography via myth, oral traditions, and metafiction.",
+        "Investigate the construction of pluralistic representations of Indian national identity.",
+        "Assess the influence of global postmodern trends versus reimagined indigenous storytelling."
+    ],
+    "methodology": {
+        "approach": "Qualitative and interpretative",
+        "primary_method": "Close reading and textual analysis",
+        "supporting_methods": [
+            "Comparative approach",
+            "Thematic approach"
+        ],
+        "theoretical_frameworks": [
+            "Postmodernism",
+            "Historiographic metafiction",
+            "Postcolonialism"
+        ],
+        "data_sources": {
+            "primary": "The Trotter-Nama, The Great Indian Novel, Riot: A Love Story, Looking Through Glass, Red Earth and Pouring Rain, Midnight's Children.",
+            "secondary": "Critical works by Linda Hutcheon, Hayden White, Jean-François Lyotard, and Robert Young."
+        }
+    },
+    "key_authors_and_works": [
+        {
+            "author": "Linda Hutcheon",
+            "work": "A Poetics of Postmodernism / The Politics of Postmodernism",
+            "year": "1988/1989",
+            "theme": "Historiographic metafiction"
+        },
+        {
+            "author": "Hayden White",
+            "work": "Metahistory",
+            "year": "1993",
+            "theme": "Narrative construction of history"
+        },
+        {
+            "author": "Jean-François Lyotard",
+            "work": "The Postmodern Condition",
+            "year": "1979",
+            "theme": "Rejection of grand narratives"
+        },
+        {
+            "author": "Salman Rushdie",
+            "work": "Midnight's Children",
+            "year": "1981",
+            "theme": "Postmodern turning point in Indian English fiction"
+        }
+    ],
+    "other_authors_mentioned": [
+        "Walter Scott",
+        "Udayon Misra",
+        "Meenakshi Mukherjee",
+        "Arvind Krishna Mehrotra",
+        "Priyamvada Gopal",
+        "Tutun Mukherjee",
+        "Amitav Ghosh",
+        "Manju Kapur",
+        "Anita Desai",
+        "Githa Hariharan",
+        "David Carr",
+        "R.G. Collingwood",
+        "Ian Dennis",
+        "T.N. Dhar",
+        "R.K. Dhawan",
+        "George Lukacs",
+        "Richard Maxwell",
+        "Jon Mee",
+        "Richard Slotkin"
+    ],
+    "central_themes": [
+        "historiographic_metafiction",
+        "pluralistic_identity",
+        "mythic_reconstruction",
+        "postcolonial_historiography",
+        "narrative_subjectivity"
+    ],
+    "theoretical_positions": {
+        "feminism_in_india": null,
+        "postcolonial_feminism": null,
+        "literature_as_agent": "Fiction acts as a critical space for reclaiming silenced histories and constructing alternative discourses that challenge state and colonial historiography."
+    },
+    "chapter_structure": [
+        {
+            "chapter": "1",
+            "title": "Introduction",
+            "focus": "Explores the relationship between history and literature with particular focus on the interplay between historiography and fictional narratives. It traces the origin and evolution of the historical novel and examines the concept of the historical novel as a critical framework used to analyze the intersection of historical narrative and fictional representation."
+        },
+        {
+            "chapter": "2",
+            "title": "Development of the Indian English Novel",
+            "focus": "Examines the development of the Indian English novel and the influence of Western literary models on its evolution. The chapter studies how early Indian English novelists engaged with historical themes and how the genre of the historical novel first influenced regional literatures before shaping Indian English fiction, leading up to the literary transformation brought by Salman Rushdie."
+        },
+        {
+            "chapter": "3",
+            "title": "Rushdie’s Turning Point",
+            "focus": "Analyzes Salman Rushdie’s Midnight’s Children as a turning point in Indian English fiction. The chapter examines how Rushdie blends historical and fictional elements through self-aware narration, magic realism, and experimentation with narrative structure while integrating Indian oral traditions with postmodern narrative techniques."
+        },
+        {
+            "chapter": "4",
+            "title": "Shashi Tharoor",
+            "focus": "Focuses on Shashi Tharoor’s The Great Indian Novel and Riot: A Love Story. It examines how The Great Indian Novel reimagines twentieth-century Indian history through the mythological framework of the Mahabharata using satire, metafiction, and oral storytelling, while Riot presents a fragmented narrative structure offering multiple perspectives on a historical event to emphasize the plurality of historical truth."
+        },
+        {
+            "chapter": "5",
+            "title": "Mukul Kesavan",
+            "focus": "Examines Mukul Kesavan’s Looking Through Glass as an example of historiographic metafiction that imaginatively reconstructs the final years of the Indian national movement, blending historical insight with fictional creativity to reinterpret pivotal historical moments."
+        },
+        {
+            "chapter": "6",
+            "title": "I. Allan Sealy",
+            "focus": "Analyzes I. Allan Sealy’s The Trotter-Nama as a narrative that combines imaginative storytelling with historical consciousness to recover and reassert the marginalized history of the Anglo-Indian community, presenting a richly textured narrative that reconstructs the neglected identity and historical experience of this community."
+        },
+        {
+            "chapter": "7",
+            "title": "Vikram Chandra",
+            "focus": "Studies Vikram Chandra’s Red Earth and Pouring Rain as an expansive narrative that intertwines fiction, history, and mythology. The chapter explores how multiple narrative strands and storytelling traditions converge to highlight the multiplicity of historical interpretation and the richness of India’s narrative heritage."
+        },
+        {
+            "chapter": "8",
+            "title": "Conclusion",
+            "focus": "Synthesizes the major arguments and findings from the preceding chapters, summarizing how the selected novelists employ postmodern narrative strategies to fuse historical narrative and fiction, and reflecting on the broader implications of these literary practices for understanding historiography and Indian national identity."
+        }
+    ],
+    "expected_outcome": "Demonstration of how literature reclaims silenced histories and constructs alternative discourses via specific postmodern narrative strategies.",
+    "significance": {
+        "academic": "Addresses the lack of comparative research on Indian historiographic metafiction.",
+        "practical": "Provides scholarly framework for students of history and cultural studies.",
+        "contemporary": "Supports a pluralistic and nuanced understanding of postcolonial Indian national identity."
+    },
+    "key_literature_review_findings": [
+        {
+            "author": "Linda Hutcheon",
+            "finding": "History and fiction are both discursive constructs, built upon interpretive narrative strategies."
+        },
+        {
+            "author": "Hayden White",
+            "finding": "Historical writing is essentially a narrative construction rather than an objective truth-claim."
+        },
+        {
+            "author": "Salman Rushdie",
+            "finding": "Post-1981 Indian English fiction uses experimental forms to construct contested, non-monolithic versions of India."
+        }
+    ]
+}

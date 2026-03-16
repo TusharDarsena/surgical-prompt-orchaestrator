@@ -1,0 +1,1 @@
+teh json mentions focus inside chapter_structure array for each chapter, but i want that teh complete focus should be present in the json which can be found in teh txt file

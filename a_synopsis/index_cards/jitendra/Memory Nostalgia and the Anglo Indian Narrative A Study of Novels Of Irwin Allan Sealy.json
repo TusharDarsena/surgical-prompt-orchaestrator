@@ -1,0 +1,134 @@
+{
+    "title": "Memory, Nostalgia and the Anglo-Indian Narrative: A Study of the Novels of Irwin Allan Sealy",
+    "author": "Shailesh Pratap Singh",
+    "year": 2022,
+    "source_type": "thesis_chapter",
+    "chapters": [
+        {
+            "file": "05_chapter 1.pdf",
+            "chapter_title": "Introduction: Anglo-Indians in India: History, Culture, Politics",
+            "key_claims": [
+                "The categorization of the Anglo-Indian community is historically fraught with conflicts and 'claims and counter-claims' despite being defined in the Indian Constitution.",
+                "The legal status of the community is historically ambiguous, oscillating between 'statutory natives of India' for employment and 'European British subjects' for education and internal security.",
+                "The abolition of reserved seats in the Lok Sabha in 2020 highlights the community's status as a 'precarious entity' and challenges the accuracy of census data regarding their numerical strength."
+            ],
+            "themes": [
+                "anglo_indian_identity",
+                "constitutional_ambiguity",
+                "colonial_ancestry",
+                "minority_status",
+                "political_marginalization"
+            ],
+            "limitations": "Focuses primarily on sociological, political, and historical contexts rather than providing a detailed literary analysis of Sealy's novels.",
+            "time_period": "1498–2020",
+            "citations": [
+                "Frank Anthony",
+                "Benedict Anderson",
+                "Anthony P. Cohen",
+                "Ferdinand Tönnies",
+                "Alison Blunt"
+            ]
+        },
+        {
+            "file": "06_chapter 2.pdf",
+            "chapter_title": "‘India of the Mind’: Memory and Nostalgia in Select Anglo-Indian Writing",
+            "key_claims": [
+                "Memory for the Anglo-Indian community is an ongoing constructive process used to create identity and 'imaginary homelands' in the absence of a fixed geographical state.",
+                "Anglo-Indian literature serves as a site of 'writing back' against stereotypical colonial and Indian representations that historically portrayed the community as socially excluded or degenerate.",
+                "The concept of 'home' for the community is often a psychological third space—an 'Anglo-India' within a place—rather than a specific territorial location."
+            ],
+            "themes": [
+                "collective_memory",
+                "nostalgic_reconstruction",
+                "imaginary_homelands",
+                "literary_resistance",
+                "unhomely_identity"
+            ],
+            "limitations": "Surveys the broad landscape of Anglo-Indian literature and theoretical frameworks but does not engage in the deep-dive analysis of Sealy's specific novels reserved for later chapters.",
+            "time_period": "1809–2014",
+            "citations": [
+                "Pierre Nora",
+                "Salman Rushdie",
+                "M. K. Naik",
+                "Henry Louis Vivian Derozio",
+                "Dom Moraes",
+                "Eunice de Souza"
+            ]
+        },
+        {
+            "file": "07_chapter 3.pdf",
+            "chapter_title": "Re-presenting Anglo-Indian Identity: The Trotter-Nama: A Chronicle and The Everest Hotel: A Calendar",
+            "key_claims": [
+                "Sealy utilizes the traditional Indian 'nama' chronicle form in *The Trotter-Nama* to subvert colonial historiography by integrating oral narratives, myths, and legends.",
+                "The novel *The Trotter-Nama* highlights the 'gaps and distortions' in nationalist history, specifically regarding the active but ignored role of Anglo-Indians in the 1857 Mutiny.",
+                "*The Everest Hotel* employs the Sanskrit *Ritusamhara* and folk *barahmasa* traditions to map the 'decadent state' of the Anglo-Indian community onto the changing seasons and environmental degradation."
+            ],
+            "themes": [
+                "historiographic_metafiction",
+                "chronicle_narrative",
+                "environmental_degradation",
+                "myth_vs_history",
+                "cultural_hybridity"
+            ],
+            "limitations": "Arguments are specific to Sealy's first two major novels and do not address the evolution seen in his later, more globally-oriented works.",
+            "time_period": "18th Century–1990s",
+            "citations": [
+                "Hayden White",
+                "Linda Hutcheon",
+                "Kalidasa",
+                "Abu'l Fazl",
+                "E. H. Carr",
+                "John Mee"
+            ]
+        },
+        {
+            "file": "08_chapter 4.pdf",
+            "chapter_title": "Evolving Realities: From Anglo-India to India",
+            "key_claims": [
+                "In Sealy's later novels, Anglo-Indian characters lose their 'centrestage' position, reflecting the community's transition toward integrated citizenship within the 'heterogeneous mix' of post-colonial India.",
+                "*Hero: A Fable* critiques Indian democracy by paralleling the 'larger than life' world of Bollywood with the machinations of national politics.",
+                "*Red: An Alphabet* utilizes an experimental abecedary structure to suggest that the 'postcolonial' label is inadequate unless it addresses structural equity for marginalized groups like the Doms."
+            ],
+            "themes": [
+                "bollywood_politics",
+                "global_diaspora",
+                "experimental_narrative",
+                "historical_disjuncture",
+                "transnational_flows"
+            ],
+            "limitations": "Moves away from communitarian 'identity crisis' themes, potentially leaving the specific fate of the Anglo-Indian narrative less centralized.",
+            "time_period": "3rd Century BC–Present",
+            "citations": [
+                "Henri Matisse",
+                "M. G. Ramachandran",
+                "N. T. Rama Rao",
+                "Homi Bhabha",
+                "Ashoka"
+            ]
+        },
+        {
+            "file": "09_chapter 5.pdf",
+            "chapter_title": "Conclusion",
+            "key_claims": [
+                "Irwin Allan Sealy's fiction establishes a pattern of creative evolution, moving from exclusive community-centric concerns to a worldview that incorporates the 'larger picture of the mosaic called India'.",
+                "The historiography of Indian Writing in English (IWE) often performs 'selective or complete amnesia' regarding the Anglo-Indian community, conveniently glossing over their complex historical antecedents.",
+                "The Anglo-Indian community has successfully negotiated a 'torturous path' toward an integrated identity, existing now as a cosmopolitan group that retains its distinctiveness within the national totality."
+            ],
+            "themes": [
+                "writerly_evolution",
+                "national_integration",
+                "canonical_exclusion",
+                "multicultural_totality",
+                "postcolonial_reconciliation"
+            ],
+            "limitations": "Acknowledges that the study's attempt to trace a 'history' of Anglo-Indian writing necessarily leads to a degree of 'homogenisation'.",
+            "time_period": "1498–2022",
+            "citations": [
+                "Henry Derozio",
+                "Dom Moraes",
+                "Eunice de Souza",
+                "Irwin Allan Sealy"
+            ]
+        }
+    ]
+}

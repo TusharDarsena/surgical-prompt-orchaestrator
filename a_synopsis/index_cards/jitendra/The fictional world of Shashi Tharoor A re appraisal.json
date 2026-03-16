@@ -1,0 +1,152 @@
+{
+    "title": "THE FICTIONAL WORLD OF SHASHI THAROOR: A RE-APPRAISAL",
+    "author": "Pramod Rohidas Jaware",
+    "year": 2015,
+    "source_type": "thesis_chapter",
+    "chapters": [
+        {
+            "file": "01_title page.pdf",
+            "chapter_title": "Title Page",
+            "key_claims": [
+                "Identifies the work as a doctoral thesis submitted to Devi Ahilya Vishwavidyalaya in 2015.",
+                "Defines the scope of the study as a re-appraisal of Shashi Tharoor's fictional output."
+            ],
+            "themes": [
+                "literary_criticism",
+                "academic_thesis"
+            ],
+            "limitations": "Provides only bibliographic and institutional data; no argumentative content.",
+            "time_period": null,
+            "citations": [
+                "Devi Ahilya Vishwavidyalaya"
+            ]
+        },
+        {
+            "file": "07_chapter 1.pdf",
+            "chapter_title": "Shashi Tharoor and His Milieu",
+            "key_claims": [
+                "Argues that Shashi Tharoor is a post-modern novelist belonging to the 'Rushdie generation' who successfully blends diplomatic experience with literary innovation.",
+                "Identifies a 'Renaissance' in Indian English fiction starting in the 1980s, characterized by the emergence of new idioms and the unchaining of fiction from colonial complexes.",
+                "Contends that Tharoor's work is 'Indo-nostalgic,' frequently mirroring Indian concerns such as history, myth, and violence despite his long residence abroad."
+            ],
+            "themes": [
+                "post_modernism",
+                "literary_renaissance",
+                "indo_nostalgia",
+                "diasporic_identity",
+                "cultural_hybridity"
+            ],
+            "limitations": "Focuses on broad biographical and historical context rather than granular textual analysis of specific works.",
+            "time_period": "1956–2015",
+            "citations": [
+                "Salman Rushdie",
+                "Amitav Ghosh",
+                "Vikram Seth",
+                "Meenakshi Mukherjee",
+                "M.K. Naik",
+                "Ian Watt",
+                "Arif Dirlik"
+            ]
+        },
+        {
+            "file": "08_chapter 2.pdf",
+            "chapter_title": "Shashi Tharoor: His Vision and Art",
+            "key_claims": [
+                "Explores Tharoor’s vision of India as a 'Thali'—a selection of diverse elements that complement each other rather than a 'melting pot' that erases differences.",
+                "Argues that Tharoor's non-fiction works serve as a 'self-interrogation' of his beliefs about India, focusing on its transition from a socialist economy to a globalized power.",
+                "Contends that Tharoor utilizes literary techniques typically associated with fiction, such as dialogue and suspense, to interpret historical and political facts in his non-fiction."
+            ],
+            "themes": [
+                "pluralist_democracy",
+                "indianness",
+                "soft_power",
+                "foreign_policy",
+                "secularism"
+            ],
+            "limitations": "Primarily analyzes Tharoor's non-fiction and political philosophy, offering less detail on his fictional aesthetics.",
+            "time_period": "1947–2012",
+            "citations": [
+                "Kofi Annan",
+                "Jawaharlal Nehru",
+                "Indira Gandhi",
+                "M.F. Husain",
+                "Ramachandra Guha",
+                "Arun Shourie",
+                "Sumit Ganguly"
+            ]
+        },
+        {
+            "file": "09_chapter 3.pdf",
+            "chapter_title": "Major Themes",
+            "key_claims": [
+                "Argues that 'The Great Indian Novel' uses the Mahabharata as a postmodern structuring frame to retell and subvert 20th-century Indian political history.",
+                "Examines 'Riot' as an exploration of the power relations that institutionalize communal violence, depicting multiple contradictory perspectives of the 1989 Ayodhya controversy.",
+                "Contends that 'Show Business' functions as a satirical palimpsest that exposes the shallow relationships and corruption of Bollywood while mirroring the broader illusions of Indian society."
+            ],
+            "themes": [
+                "myth_and_history",
+                "communal_violence",
+                "gender_subjugation",
+                "east_west_encounter",
+                "social_realism"
+            ],
+            "limitations": "The analysis of gender issues focuses on describing subjugation without a deep deconstruction of patriarchal structures.",
+            "time_period": "1900–2002",
+            "citations": [
+                "Meenakshi Mukherjee",
+                "Raymond Williams",
+                "Salman Rushdie",
+                "P.K. Rajan",
+                "Matthew Arnold",
+                "S. L. Bhyrappa",
+                "Pratibha Ray"
+            ]
+        },
+        {
+            "file": "10_chapter 4.pdf",
+            "chapter_title": "Characterisation and Narrative Techniques",
+            "key_claims": [
+                "Asserts that Tharoor employs cinematic 'suture' as a narrative technique to bridge fragmented perspectives and align the reader with the subjective experience of his characters.",
+                "Argues that characterization in 'The Great Indian Novel' relies on individuals functioning as 'walking metaphors' for national institutions like democracy, the press, and the army.",
+                "Claims that Tharoor's use of non-linear, multi-voiced structures replicates cinematic and encyclopedic formats to challenge the limits of traditional storytelling."
+            ],
+            "themes": [
+                "narrative_suture",
+                "polyphony",
+                "allegorical_characterization",
+                "meta_fiction",
+                "cinematic_pastiche"
+            ],
+            "limitations": "Lacks a broad comparative technical analysis against non-diasporic Indian authors.",
+            "time_period": "1970–2001",
+            "citations": [
+                "W. Somerset Maugham",
+                "Rimmon Kenan",
+                "Uma Parameswaran",
+                "Andre Gide",
+                "Sadat Hasan Manto",
+                "Elizabeth K. Wallace"
+            ]
+        },
+        {
+            "file": "11_chapter 5.pdf",
+            "chapter_title": "Conclusion",
+            "key_claims": [
+                "Concludes that Tharoor is a 'critical realist' whose work affirms Indian cultural identity through a process of self-discovery and the exploration of its syncretic heritage.",
+                "Contends that Tharoor's fiction illustrates the subtle and powerful reminders of the subcontinent's past afflicting its present through postmodern experimentation."
+            ],
+            "themes": [
+                "critical_realism",
+                "cultural_syncretism",
+                "postmodern_synthesis",
+                "identity_construction"
+            ],
+            "limitations": "Functions primarily as a summary of the preceding chapters without introducing significant new analytical frameworks.",
+            "time_period": "1947–2015",
+            "citations": [
+                "Elie Wiesel",
+                "Gita M. Patil"
+            ]
+        }
+    ]
+}

@@ -3,10 +3,10 @@ You are a thesis architecture assistant. I have uploaded:
 1. synopsis_context 
 2. index_cards : except synopsis all sources are index cards
 
-Your task: generate a chapterization for chapter defined in 
+Your task: generate a chapterization for chapter {x} defined in 
 synopsis_context's chapter_structure.
 
-For each chapter, read the chapter's designated focus in the thesis, then 
+ read the chapter's designated focus in the thesis, then 
 scan ALL index cards and identify which cards can support that chapter's 
 argument. A card is relevant if its key_claims could serve as evidence or 
 counterpoint — not just if its themes overlap.
@@ -18,6 +18,8 @@ chapter_arc (150–200 words per chapter):
   (derive this from synopsis_context's research_gap and need_and_significance)
 - Must show how subtopics depend on each other argumentatively — not a 
   list of topics but a description of how the argument moves
+- generate chapterization for only the chapter {x} and not other chapters 
+  present in the synopsis
 
 
 subtopics (4–6 per chapter):
@@ -34,7 +36,7 @@ subtopics (4–6 per chapter):
 
 Output ONLY valid JSON. No explanation. No markdown fences.
 
-Schema — repeat this block for every chapter:
+Schema —
 {
   "number": 2, (chapter number)
   "title": "Full chapter title",

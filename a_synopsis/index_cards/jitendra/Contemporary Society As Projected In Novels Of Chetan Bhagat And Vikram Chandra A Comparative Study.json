@@ -1,0 +1,174 @@
+{
+    "title": "CONTEMPORARY SOCIETY AS PROJECTED IN NOVELS OF CHETAN BHAGAT AND VIKRAM CHANDRA: A COMPARATIVE STUDY",
+    "author": "Geeta Sharma",
+    "year": 2021,
+    "source_type": "thesis_chapter",
+    "chapters": [
+        {
+            "file": "01_title.pdf",
+            "chapter_title": "Title Page",
+            "key_claims": [
+                "Identifies the work as a PhD thesis submitted to Ch. Charan Singh University Meerut in 2021."
+            ],
+            "themes": [
+                "thesis_metadata",
+                "institutional_affiliation"
+            ],
+            "limitations": "Contains no analytical arguments or research claims.",
+            "time_period": "2021",
+            "citations": []
+        },
+        {
+            "file": "05_chapter 2.pdf",
+            "chapter_title": "Education",
+            "key_claims": [
+                "Argues that the Indian higher education system, particularly at prestigious institutes like IIT, prioritizes rote learning and grades over innovation.",
+                "Claims that intense academic pressure and rigid evaluation systems lead to severe mental stress and suicide among youth.",
+                "Contends that the commercialization of education has corrupted traditional ideals and hindered the development of employability skills.",
+                "Explores how a lack of English proficiency in rural schools creates significant barriers for students in a globalized job market."
+            ],
+            "themes": [
+                "rote_learning",
+                "educational_stress",
+                "commercialization",
+                "language_barrier",
+                "social_inequality"
+            ],
+            "limitations": "Focuses primarily on professional and higher education; does not provide a detailed analysis of primary schooling.",
+            "time_period": "1995–2016",
+            "citations": [
+                "R.K. Dhawan",
+                "Terry Eagleton",
+                "Chetan Bhagat",
+                "Vikram Chandra"
+            ]
+        },
+        {
+            "file": "06_chapter 3.pdf",
+            "chapter_title": "Corruption",
+            "key_claims": [
+                "Argues that systemic political and bureaucratic corruption severely hinders economic development and public service quality in India.",
+                "Claims that moral corruption among modern youth is a psychological response to the overwhelming pressure of a competitive society.",
+                "Contends that traditional social practices, such as the dowry system, are forms of moral corruption that exploit women.",
+                "Asserts that corruption within the police and judiciary allows organized crime and communal violence to flourish."
+            ],
+            "themes": [
+                "political_corruption",
+                "moral_degradation",
+                "dowry_system",
+                "police_complicity",
+                "communal_violence"
+            ],
+            "limitations": "Focuses on literary depictions of corruption rather than quantitative socio-economic datasets.",
+            "time_period": "19th century–2020",
+            "citations": [
+                "Ralph Braibanti",
+                "Sunil Sondhi",
+                "Chetan Bhagat",
+                "Vikram Chandra"
+            ]
+        },
+        {
+            "file": "07_chapter 4.pdf",
+            "chapter_title": "Modernism",
+            "key_claims": [
+                "Argues that modernism in India represents a shift toward individual freedom and a departure from traditional, regimented norms.",
+                "Claims that technological growth has empowered youth while simultaneously creating feelings of alienation and displacement.",
+                "Contends that modern Indian women are redefining independence by challenging patriarchal expectations regarding marriage and career.",
+                "Suggests that career success and material wealth are often prioritized over spiritual or traditional religious values in urban settings."
+            ],
+            "themes": [
+                "westernization",
+                "individualism",
+                "womens_liberation",
+                "technological_alienation",
+                "materialism"
+            ],
+            "limitations": "Evaluates modernism through a popular literary lens rather than formal philosophical or sociological theory.",
+            "time_period": "1900s–2020",
+            "citations": [
+                "Jawaharlal Nehru",
+                "Aileen Watson",
+                "Chetan Bhagat",
+                "Vikram Chandra"
+            ]
+        },
+        {
+            "file": "08_chapter 5.pdf",
+            "chapter_title": "Family Relationship",
+            "key_claims": [
+                "Argues that the traditional Indian joint family system is declining due to the influences of globalization and modernization.",
+                "Claims that modern family relations are becoming increasingly self-centric, leading to emotional alienation between generations.",
+                "Contends that parental imposition of career choices creates deep psychological breaches and friction within the household.",
+                "Asserts that despite rising conflicts, the family remains a vital institution for providing social security and emotional support."
+            ],
+            "themes": [
+                "joint_family_decline",
+                "nuclear_family",
+                "parental_pressure",
+                "generational_conflict",
+                "emotional_alienation"
+            ],
+            "limitations": null,
+            "time_period": "19th century–2016",
+            "citations": [
+                "Singh",
+                "Pothen",
+                "Kumar",
+                "Chetan Bhagat",
+                "Vikram Chandra"
+            ]
+        },
+        {
+            "file": "09_chapter 6.pdf",
+            "chapter_title": "Culture & Tradition",
+            "key_claims": [
+                "Argues that contemporary Indian culture is a complex hybrid of ancient heritage and modern Western influences.",
+                "Claims that younger generations are increasingly distancing themselves from traditional religious rituals and communal customs.",
+                "Contends that cultural differences in religion and regional practices remain significant drivers of social tension.",
+                "Asserts that westernization has isolated children from their traditional roots, leading to a loss of cultural identity."
+            ],
+            "themes": [
+                "cultural_hybridity",
+                "western_influence",
+                "religious_conflict",
+                "tradition_vs_modernity",
+                "social_tension"
+            ],
+            "limitations": null,
+            "time_period": "18th century–2016",
+            "citations": [
+                "Jawaharlal Nehru",
+                "Taylor",
+                "Verma",
+                "Chetan Bhagat",
+                "Vikram Chandra"
+            ]
+        },
+        {
+            "file": "10_ summary.pdf",
+            "chapter_title": "Conclusion",
+            "key_claims": [
+                "Argues that both Bhagat and Chandra use social realism to reflect the multifaceted anxieties of contemporary Indian society.",
+                "Claims that Bhagat's work primarily addresses the immediate struggles of the middle-class youth, while Chandra's narratives offer historical depth.",
+                "Contends that literature acts as a mirror to highlight urgent social reforms needed in the education and political sectors.",
+                "Asserts that the comparative study reveals a shared concern for the moral and psychological health of the 'call center generation'."
+            ],
+            "themes": [
+                "social_realism",
+                "comparative_literature",
+                "youth_aspiration",
+                "social_reform",
+                "globalization"
+            ],
+            "limitations": "Synthesizes previous chapter findings rather than introducing new primary research evidence.",
+            "time_period": "18th century–2020",
+            "citations": [
+                "Rajkumar Hirani",
+                "Prasun Banerjee",
+                "Chetan Bhagat",
+                "Vikram Chandra"
+            ]
+        }
+    ]
+}
