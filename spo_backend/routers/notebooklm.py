@@ -50,94 +50,34 @@ Auth without file (alternative):
     (copy from ~/.notebooklm/storage_state.json on a machine where login was done)
 """
 
-import asyncio
-import json
 import logging
-import os
-import re
-from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Optional
 import math
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 from services import storage
-from services.source_resolver import _match_thesis_name
+from services.notebooklm_service import (
+    NLMNotInstalledError,
+    NLMAuthError,
+    _nlm_client,
+    is_run_active,
+    _build_notebook_title,
+    generate_batch_id,
+    check_pdf_sizes,
+    _run_sequence,
+    _run_batch_sequence,
+    suggest_summary_service,
+    PDF_SIZE_LIMIT_MB,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/notebooklm", tags=["NotebookLM Automation"])
 
 
-# ── In-memory run locks ────────────────────────────────────────────────────────
-# Keyed by (chapter_id, subtopic_id). Acquired for the full duration of a run.
-# Intentionally NOT persisted to disk — vanishes on server restart,
-# which is what we want (no zombie locks after a crash).
 
-_run_locks: dict[tuple[str, str], asyncio.Lock] = {}
-_locks_registry_lock = asyncio.Lock()
-
-
-async def _get_run_lock(chapter_id: str, subtopic_id: str) -> asyncio.Lock:
-    key = (chapter_id, subtopic_id)
-    async with _locks_registry_lock:
-        if key not in _run_locks:
-            _run_locks[key] = asyncio.Lock()
-        return _run_locks[key]
-
-
-# ── Client context manager (Problem 1 fix) ────────────────────────────────────
-
-@asynccontextmanager
-async def _nlm_client():
-    """
-    Yields a ready NotebookLMClient for the duration of the async with block.
-
-    Every call uses the correct pattern:
-        async with await NotebookLMClient.from_storage() as client:
-            ...
-
-    This properly opens and closes the internal httpx.AsyncClient session.
-    Credentials are read from disk (set by `notebooklm login`) or from the
-    NOTEBOOKLM_AUTH_JSON environment variable — no re-authentication happens.
-
-    Only wraps the INITIALIZATION phase in a 503 handler.
-    Errors that occur INSIDE the `async with` block (e.g. upload failures,
-    empty responses) propagate naturally — they are NOT credential errors
-    and must NOT be wrapped with "Could not initialize NotebookLM client".
-    """
-    try:
-        from notebooklm import NotebookLMClient
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "notebooklm-py is not installed. "
-                "Run: pip install 'notebooklm-py[browser]' && playwright install chromium"
-            )
-        )
-
-    # ── Phase 1: initialize the client ────────────────────────────────────────
-    # Only this part gets the 503 "could not initialize" treatment.
-    try:
-        client_cm = await NotebookLMClient.from_storage()
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"Could not initialize NotebookLM client: {e}. "
-                "Run 'notebooklm login' in your terminal to authenticate, "
-                "or set the NOTEBOOKLM_AUTH_JSON environment variable."
-            )
-        )
-
-    # ── Phase 2: use the client ───────────────────────────────────────────────
-    # Exceptions here (upload errors, empty responses, etc.) propagate to the
-    # caller unchanged — _run_sequence catches them and writes status: "error".
-    async with client_cm as client:
-        yield client
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
@@ -174,8 +114,8 @@ async def get_nlm_status():
         async with _nlm_client():
             pass
         return {"ok": True, "message": "NotebookLM client is ready."}
-    except HTTPException as e:
-        return {"ok": False, "message": e.detail}
+    except (NLMNotInstalledError, NLMAuthError) as e:
+        return {"ok": False, "message": str(e)}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -209,8 +149,7 @@ async def run_notebooklm(
     prompt_2 for Stage 2 (Gemini elaboration) is stored in state when done.
     """
     # ── Guard: no duplicate concurrent runs ───────────────────────────────
-    run_lock = await _get_run_lock(chapter_id, subtopic_id)
-    if run_lock.locked():
+    if await is_run_active(chapter_id, subtopic_id):
         raise HTTPException(
             status_code=409,
             detail=(
@@ -241,9 +180,7 @@ async def run_notebooklm(
             )
         )
 
-    notebook_title = req.notebook_title or (
-        f"SPO — {subtopic.get('number', subtopic_id)} {subtopic.get('title', '')}"
-    )[:100]
+    notebook_title = _build_notebook_title(subtopic, override=req.notebook_title)
 
     background_tasks.add_task(
         _run_sequence,
@@ -462,7 +399,7 @@ async def get_nlm_state(chapter_id: str, subtopic_id: str):
         - draft_preview: first 300 chars of the saved draft
         - sources_uploaded / sources_failed: upload audit trail
     """
-    run_lock = await _get_run_lock(chapter_id, subtopic_id)
+    active = await is_run_active(chapter_id, subtopic_id)
     state = storage.read_nlm_state(chapter_id, subtopic_id)
 
     if not state:
@@ -477,7 +414,7 @@ async def get_nlm_state(chapter_id: str, subtopic_id: str):
 
     # If the lock is held but disk state says done/error (new run just
     # started while stale state was on disk), trust the in-memory lock.
-    if run_lock.locked() and state.get("status") != "running":
+    if active and state.get("status") != "running":
         state["status"] = "running"
 
     return state
@@ -497,8 +434,7 @@ async def delete_notebook(chapter_id: str, subtopic_id: str):
     The section draft is NOT affected — only the NLM notebook and state.
     Use this when done with a subtopic or to force a completely fresh run.
     """
-    run_lock = await _get_run_lock(chapter_id, subtopic_id)
-    if run_lock.locked():
+    if await is_run_active(chapter_id, subtopic_id):
         raise HTTPException(
             status_code=409,
             detail="Cannot delete notebook while a run is in progress. Wait for it to finish."
@@ -544,7 +480,7 @@ async def delete_notebook(chapter_id: str, subtopic_id: str):
 # BATCH RUN
 # ══════════════════════════════════════════════════════════════════════════════
 
-PDF_SIZE_LIMIT_MB = 5.0  # ← ADD: hard limit per PDF
+
 
 
 @router.post(
@@ -596,8 +532,7 @@ async def run_batch(
                 status_code=422,
                 detail=f"Subtopic '{sid}' has no source_ids. Re-import chapterization JSON.",
             )
-        run_lock = await _get_run_lock(chapter_id, sid)
-        if run_lock.locked():
+        if await is_run_active(chapter_id, sid):
             raise HTTPException(
                 status_code=409,
                 detail=f"Subtopic '{sid}' already has a run in progress.",
@@ -605,25 +540,7 @@ async def run_batch(
         validated.append(subtopic)
 
     # ── PDF size pre-check (resolve paths for all subtopics upfront) ──────────
-    oversized: list[dict] = []
-    for subtopic in validated:
-        source_ids = subtopic.get("source_ids", [])
-        from routers.compiler import _resolve_required_sources
-        required_sources = await asyncio.to_thread(
-            _resolve_required_sources, source_ids
-        )
-        resolved_paths = await asyncio.to_thread(
-            _resolve_absolute_paths, required_sources
-        )
-        for entry in resolved_paths:
-            size_mb = entry.get("file_size_mb")
-            if size_mb is not None and size_mb > PDF_SIZE_LIMIT_MB:
-                oversized.append({
-                    "subtopic_id": subtopic["subtopic_id"],
-                    "file": entry["file_name"],
-                    "size_mb": size_mb,
-                })
-
+    oversized = await check_pdf_sizes(validated)
     if oversized:
         raise HTTPException(
             status_code=422,
@@ -637,7 +554,7 @@ async def run_batch(
         )
 
     # ── Build batch_id and initial batch state ────────────────────────────────
-    batch_id = f"batch_{chapter_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    batch_id = generate_batch_id(chapter_id)
 
     storage.write_batch_state(batch_id, {
         "batch_id": batch_id,
@@ -754,13 +671,13 @@ async def get_batch_state(batch_id: str):
     for sid in subtopic_ids:
         state = storage.read_nlm_state(chapter_id, sid)
         # Also check in-memory lock — a task might be running before first disk write
-        run_lock = await _get_run_lock(chapter_id, sid)
+        active = await is_run_active(chapter_id, sid)
 
         if state is None:
-            status = "running" if run_lock.locked() else "pending"
+            status = "running" if active else "pending"
         else:
             status = state.get("status", "pending")
-            if run_lock.locked() and status != "running":
+            if active and status != "running":
                 status = "running"
 
         counts[status] = counts.get(status, 0) + 1
@@ -847,180 +764,17 @@ async def suggest_summary(
     if not subtopic:
         raise HTTPException(status_code=404, detail=f"Subtopic '{subtopic_id}' not found.")
 
-    summary_prompt = (
-        f"Based on the section you just wrote for subtopic "
-        f"{subtopic.get('number', subtopic_id)} — {subtopic.get('title', '')}, "
-        f"produce a structured consistency summary in exactly this JSON format:\n\n"
-        f"{{\n"
-        f'  "core_argument_made": "2-3 sentences: what was the central argument?",\n'
-        f'  "key_terms_established": ["term1", "term2"],\n'
-        f'  "what_next_section_must_build_on": "One sentence bridging to the next section."\n'
-        f"}}\n\n"
-        f"Return only the JSON. No preamble, no markdown fences."
-    )
-
     try:
-        async with _nlm_client() as client:
-            result = await client.chat.ask(state["notebook_id"], summary_prompt)
-        raw_text = result.answer
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"NotebookLM API call failed: {e}")
+        return await suggest_summary_service(
+            chapter_id=chapter_id,
+            subtopic_id=subtopic_id,
+            subtopic=subtopic,
+            notebook_id=state["notebook_id"],
+            save=req.save,
+        )
+    except (NLMNotInstalledError, NLMAuthError) as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
-    # Strip markdown fences — NLM sometimes wraps JSON despite instructions
-    suggested_summary = None
-    parse_error = None
-    try:
-        clean = re.sub(r"```(?:json)?|```", "", raw_text).strip()
-        suggested_summary = json.loads(clean)
-    except (json.JSONDecodeError, ValueError) as e:
-        parse_error = str(e)
-
-    saved = False
-    if req.save and suggested_summary and not parse_error:
-        summary_record = {
-            "subtopic_number": subtopic.get("number", subtopic_id),
-            "subtopic_title": subtopic.get("title", ""),
-            "core_argument_made": suggested_summary.get("core_argument_made", ""),
-            "key_terms_established": suggested_summary.get("key_terms_established", []),
-            "sources_used": [],
-            "what_next_section_must_build_on": suggested_summary.get(
-                "what_next_section_must_build_on"
-            ),
-        }
-        storage.write_section_summary(chapter_id, subtopic_id, summary_record)
-        saved = True
-
-    return {
-        "subtopic_id": subtopic_id,
-        "suggested_summary": suggested_summary,
-        "raw_response": raw_text if parse_error else None,
-        "parse_error": parse_error,
-        "saved": saved,
-        "message": (
-            "Summary saved to consistency chain."
-            if saved
-            else "Review the suggestion. POST with save: true to save it."
-        ),
-    }
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INTERNAL HELPERS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _compile_prompt_data(
-    chapter: dict,
-    subtopic: dict,
-    chapter_id: str,
-    word_count: Optional[int],
-    academic_style_notes: Optional[str],
-) -> tuple[dict, list[dict]]:
-    """
-    Synchronous. Called via asyncio.to_thread — does not block the event loop.
-    Compiles the prompt and resolves required sources from stored chapter data.
-    Inline import avoids circular import (both files live in routers/).
-    """
-    from routers.compiler import _render_notebooklm_prompt, _resolve_required_sources
-
-    subtopics = chapter.get("subtopics", [])
-    subtopic_id = subtopic["subtopic_id"]
-    source_ids = subtopic.get("source_ids", [])
-
-    # Previous section summary for context injection
-    ids_in_order = [s["subtopic_id"] for s in subtopics]
-    previous_summary = None
-    if subtopic_id in ids_in_order:
-        idx = ids_in_order.index(subtopic_id)
-        if idx > 0:
-            previous_summary = storage.read_section_summary(
-                chapter_id, ids_in_order[idx - 1]
-            )
-
-    prompts = _render_notebooklm_prompt(
-        chapter=chapter,
-        subtopic=subtopic,
-        previous_summary=previous_summary,
-        word_count_override=word_count,
-        academic_style_notes=academic_style_notes,
-    )
-
-    required_sources = _resolve_required_sources(source_ids)
-
-    return prompts, required_sources
-
-
-def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
-    """
-    Synchronous. Called via asyncio.to_thread.
-
-    Extends each required_source entry with abs_path — the full local
-    filesystem path notebooklm-py needs to call add_file().
-
-    Path resolution order (first non-None wins):
-      - folder_path   — written by the current rglob-based scan (drive.py)
-      - level4_path   — written by the old nested scan (legacy entries)
-      - level2_path   — written by the old flat scan (legacy entries)
-
-    Thesis name matching delegates to source_resolver._match_thesis_name:
-      1. Exact match — always hits after chapterization source_ids are corrected
-      2. Case-insensitive fallback
-
-    Deduplication:
-      - If multiple source_ids resolve to the same PDF, upload only once
-    """
-    scan = storage.read_misc("drive_scan_result") or {}
-    seen: set[str] = set()
-    result = []
-
-    for entry in required_sources:
-        file_name = entry.get("file_name")
-        if not file_name:
-            continue
-
-        thesis_name = entry.get("source_id", "")
-        abs_path = None
-
-        # Delegate thesis matching to the single authority in source_resolver
-        thesis_entry = _match_thesis_name(thesis_name, scan)
-
-        if thesis_entry:
-            # folder_path (new rglob scan), level4_path (old nested), level2_path (old flat)
-            folder = (
-                thesis_entry.get("folder_path")
-                or thesis_entry.get("level4_path")
-                or thesis_entry.get("level2_path")
-            )
-            if folder:
-                candidate = os.path.join(folder, file_name)
-                if os.path.isfile(candidate):
-                    abs_path = candidate
-                else:
-                    logger.warning(
-                        f"'{file_name}' not found at '{candidate}'. "
-                        "Re-run POST /drive/scan-local if files have moved."
-                    )
-        else:
-            logger.warning(
-                f"Thesis '{thesis_name}' not found in scan. "
-                "Run POST /drive/scan-local first."
-            )
-
-        # Deduplicate — same PDF from multiple source_id entries
-        dedup_key = abs_path if abs_path else f"unresolved::{file_name}"
-        if dedup_key in seen:
-            continue
-        seen.add(dedup_key)
-
-        file_size_mb = None
-        if abs_path and os.path.isfile(abs_path):
-            file_size_mb = os.path.getsize(abs_path) / (1024 * 1024)
-
-        result.append({
-            "file_name": file_name,
-            "abs_path": abs_path,
-            "file_size_mb": round(file_size_mb, 2) if file_size_mb is not None else None,
-        })
-
-    return result
+
