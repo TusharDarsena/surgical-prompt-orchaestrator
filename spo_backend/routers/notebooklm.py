@@ -58,6 +58,7 @@ import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
+import math
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -149,6 +150,13 @@ class RunRequest(BaseModel):
 
 class SummarizeRequest(BaseModel):
     save: bool = False
+
+
+class BatchRunRequest(BaseModel):
+    subtopic_ids: list[str]
+    word_count: Optional[int] = None
+    academic_style_notes: Optional[str] = None
+    notebook_title_prefix: Optional[str] = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -264,6 +272,7 @@ async def _run_sequence(
     notebook_title: str,
     word_count: Optional[int],
     academic_style_notes: Optional[str],
+    batch_id: Optional[str] = None,
 ):
     """
     The background sequence. Holds the in-memory run lock for its entire
@@ -284,6 +293,7 @@ async def _run_sequence(
             "error": None,
             "sources_uploaded": [],
             "sources_failed": [],
+            "batch_id": batch_id,
         }
         storage.write_nlm_state(chapter_id, subtopic_id, state)
 
@@ -530,6 +540,266 @@ async def delete_notebook(chapter_id: str, subtopic_id: str):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BATCH RUN
+# ══════════════════════════════════════════════════════════════════════════════
+
+PDF_SIZE_LIMIT_MB = 5.0  # ← ADD: hard limit per PDF
+
+
+@router.post(
+    "/run-batch/{chapter_id}",
+    status_code=202,
+    summary="Trigger parallel batch run for multiple subtopics (2-worker split)",
+)
+async def run_batch(
+    chapter_id: str,
+    req: BatchRunRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Splits subtopic_ids into two halves and runs them in parallel — each half
+    is processed sequentially within its worker so order is preserved.
+
+    Example: 8 subtopics → Worker A handles [0,1,2,3], Worker B handles [4,5,6,7].
+    Both workers run concurrently; within each worker subtopics run one after another.
+
+    previous_summary context is NOT used in batch runs — each subtopic is
+    compiled independently.
+
+    PDF guard: any resolved PDF > 5 MB blocks the entire batch before it starts.
+    Returns 202 immediately. Poll GET /notebooklm/batch-state/{batch_id} for progress.
+    Poll GET /notebooklm/state/{chapter_id}/{subtopic_id} for per-subtopic detail.
+    """
+    if not req.subtopic_ids:
+        raise HTTPException(status_code=422, detail="subtopic_ids cannot be empty.")
+
+    # ── Load and validate chapter ─────────────────────────────────────────────
+    chapter = storage.read_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+
+    subtopics_map = {s["subtopic_id"]: s for s in chapter.get("subtopics", [])}
+
+    # ── Validate every subtopic_id and check for active runs ─────────────────
+    validated: list[dict] = []
+    for sid in req.subtopic_ids:
+        subtopic = subtopics_map.get(sid)
+        if not subtopic:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Subtopic '{sid}' not found in chapter '{chapter_id}'.",
+            )
+        if not subtopic.get("source_ids"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Subtopic '{sid}' has no source_ids. Re-import chapterization JSON.",
+            )
+        run_lock = await _get_run_lock(chapter_id, sid)
+        if run_lock.locked():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Subtopic '{sid}' already has a run in progress.",
+            )
+        validated.append(subtopic)
+
+    # ── PDF size pre-check (resolve paths for all subtopics upfront) ──────────
+    oversized: list[dict] = []
+    for subtopic in validated:
+        source_ids = subtopic.get("source_ids", [])
+        from routers.compiler import _resolve_required_sources
+        required_sources = await asyncio.to_thread(
+            _resolve_required_sources, source_ids
+        )
+        resolved_paths = await asyncio.to_thread(
+            _resolve_absolute_paths, required_sources
+        )
+        for entry in resolved_paths:
+            size_mb = entry.get("file_size_mb")
+            if size_mb is not None and size_mb > PDF_SIZE_LIMIT_MB:
+                oversized.append({
+                    "subtopic_id": subtopic["subtopic_id"],
+                    "file": entry["file_name"],
+                    "size_mb": size_mb,
+                })
+
+    if oversized:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": (
+                    f"Batch blocked. {len(oversized)} PDF(s) exceed the {PDF_SIZE_LIMIT_MB} MB limit. "
+                    "Split large PDFs into smaller files before running."
+                ),
+                "oversized_files": oversized,
+            },
+        )
+
+    # ── Build batch_id and initial batch state ────────────────────────────────
+    batch_id = f"batch_{chapter_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+
+    storage.write_batch_state(batch_id, {
+        "batch_id": batch_id,
+        "chapter_id": chapter_id,
+        "subtopic_ids": req.subtopic_ids,
+        "status": "running",
+        "started_at": datetime.utcnow().isoformat(),
+        "completed_at": None,
+        "worker_a": req.subtopic_ids[: math.ceil(len(req.subtopic_ids) / 2)],
+        "worker_b": req.subtopic_ids[math.ceil(len(req.subtopic_ids) / 2) :],
+    })
+
+    # ── Schedule background batch ─────────────────────────────────────────────
+    background_tasks.add_task(
+        _run_batch_sequence,
+        batch_id=batch_id,
+        chapter_id=chapter_id,
+        subtopics_map=subtopics_map,
+        subtopic_ids=req.subtopic_ids,
+        word_count=req.word_count,
+        academic_style_notes=req.academic_style_notes,
+        notebook_title_prefix=req.notebook_title_prefix,
+    )
+
+    return {
+        "accepted": True,
+        "batch_id": batch_id,
+        "chapter_id": chapter_id,
+        "subtopic_ids": req.subtopic_ids,
+        "worker_a": req.subtopic_ids[: math.ceil(len(req.subtopic_ids) / 2)],
+        "worker_b": req.subtopic_ids[math.ceil(len(req.subtopic_ids) / 2) :],
+        "message": "Batch started. Poll GET /notebooklm/batch-state/{batch_id} for progress.",
+        "poll_url": f"/notebooklm/batch-state/{batch_id}",
+    }
+
+
+async def _run_batch_sequence(
+    batch_id: str,
+    chapter_id: str,
+    subtopics_map: dict,
+    subtopic_ids: list[str],
+    word_count: Optional[int],
+    academic_style_notes: Optional[str],
+    notebook_title_prefix: Optional[str],
+):
+    """
+    Splits subtopic_ids into two halves and runs them with asyncio.gather.
+    Each worker processes its half sequentially.
+    Writes final batch state when both workers complete.
+    """
+    mid = math.ceil(len(subtopic_ids) / 2)
+    worker_a_ids = subtopic_ids[:mid]
+    worker_b_ids = subtopic_ids[mid:]
+
+    async def _worker(ids: list[str]):
+        for sid in ids:
+            subtopic = subtopics_map[sid]
+            title_prefix = notebook_title_prefix or "SPO"
+            notebook_title = (
+                f"{title_prefix} — {subtopic.get('number', sid)} {subtopic.get('title', '')}"
+            )[:100]
+            await _run_sequence(
+                chapter_id=chapter_id,
+                subtopic_id=sid,
+                chapter={"subtopics": list(subtopics_map.values())},
+                subtopic=subtopic,
+                notebook_title=notebook_title,
+                word_count=word_count,
+                academic_style_notes=academic_style_notes,
+                batch_id=batch_id,
+            )
+
+    try:
+        await asyncio.gather(_worker(worker_a_ids), _worker(worker_b_ids))
+        final_status = "done"
+    except Exception as e:
+        logger.error(f"Batch '{batch_id}' encountered an unexpected error: {e}", exc_info=True)
+        final_status = "error"
+
+    # ── Update batch state to reflect completion ──────────────────────────────
+    batch_state = storage.read_batch_state(batch_id) or {}
+    batch_state.update({
+        "status": final_status,
+        "completed_at": datetime.utcnow().isoformat(),
+    })
+    storage.write_batch_state(batch_id, batch_state)
+
+
+@router.get(
+    "/batch-state/{batch_id}",
+    summary="Aggregate progress for a batch run",
+)
+async def get_batch_state(batch_id: str):
+    """
+    Reads the batch manifest, then reads each subtopic's individual nlm_state
+    and aggregates into a single progress view.
+
+    Returns:
+        status        — running | done | error (derived from subtopic states)
+        progress      — { total, done, running, error, pending }
+        subtopics     — per-subtopic status snapshot (no draft text, just status)
+        completed_at  — set when all subtopics have reached done or error
+    """
+    batch = storage.read_batch_state(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found.")
+
+    chapter_id = batch["chapter_id"]
+    subtopic_ids = batch["subtopic_ids"]
+
+    counts = {"done": 0, "running": 0, "error": 0, "pending": 0}
+    subtopic_snapshots = []
+
+    for sid in subtopic_ids:
+        state = storage.read_nlm_state(chapter_id, sid)
+        # Also check in-memory lock — a task might be running before first disk write
+        run_lock = await _get_run_lock(chapter_id, sid)
+
+        if state is None:
+            status = "running" if run_lock.locked() else "pending"
+        else:
+            status = state.get("status", "pending")
+            if run_lock.locked() and status != "running":
+                status = "running"
+
+        counts[status] = counts.get(status, 0) + 1
+        subtopic_snapshots.append({
+            "subtopic_id": sid,
+            "status": status,
+            "error": state.get("error") if state else None,
+            "sources_uploaded": state.get("sources_uploaded", []) if state else [],
+            "sources_failed": state.get("sources_failed", []) if state else [],
+            "poll_url": f"/notebooklm/state/{chapter_id}/{sid}",
+        })
+
+    total = len(subtopic_ids)
+    all_terminal = (counts["done"] + counts["error"]) == total
+    derived_status = (
+        "done" if counts["error"] == 0 and all_terminal
+        else "error" if all_terminal
+        else "running"
+    )
+
+    return {
+        "batch_id": batch_id,
+        "chapter_id": chapter_id,
+        "status": derived_status,
+        "progress": {
+            "total": total,
+            "done": counts["done"],
+            "running": counts["running"],
+            "error": counts["error"],
+            "pending": counts["pending"],
+            "percent": round((counts["done"] / total) * 100) if total else 0,
+        },
+        "worker_a": batch.get("worker_a", []),
+        "worker_b": batch.get("worker_b", []),
+        "started_at": batch.get("started_at"),
+        "completed_at": batch.get("completed_at"),
+        "subtopics": subtopic_snapshots,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SUMMARIZE
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -740,6 +1010,14 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
             continue
         seen.add(dedup_key)
 
-        result.append({"file_name": file_name, "abs_path": abs_path})
+        file_size_mb = None
+        if abs_path and os.path.isfile(abs_path):
+            file_size_mb = os.path.getsize(abs_path) / (1024 * 1024)
+
+        result.append({
+            "file_name": file_name,
+            "abs_path": abs_path,
+            "file_size_mb": round(file_size_mb, 2) if file_size_mb is not None else None,
+        })
 
     return result

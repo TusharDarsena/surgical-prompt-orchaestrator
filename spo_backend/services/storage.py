@@ -663,6 +663,27 @@ def delete_nlm_state(chapter_id: str, subtopic_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Batch State Storage
+# ---------------------------------------------------------------------------
+
+def write_batch_state(batch_id: str, data: dict) -> dict:
+    """
+    Persist batch manifest to misc storage.
+    Key: batch_{batch_id} → spo_data/misc/batch_{batch_id}.json
+    The manifest stores the subtopic list and worker split.
+    Individual subtopic progress is NOT stored here — read each
+    subtopic's own nlm_state file and aggregate at query time.
+    """
+    _write(_misc_dir() / f"batch_{batch_id}.json", data)
+    return data
+
+
+def read_batch_state(batch_id: str) -> Optional[dict]:
+    """Read batch manifest. Returns None if batch_id is unknown."""
+    return _read(_misc_dir() / f"batch_{batch_id}.json")
+
+
+# ---------------------------------------------------------------------------
 # Drive Link Resolution
 # ---------------------------------------------------------------------------
 

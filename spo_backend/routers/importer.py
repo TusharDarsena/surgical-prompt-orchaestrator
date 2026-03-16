@@ -1,6 +1,11 @@
 """
 Import Router
 -------------
+Responsibility: This file is the API transport layer. It defines the HTTP endpoints (URLs) that a client or frontend interacts with.
+API Endpoints: It maps URLs like POST /import/thesis and POST /import/source to Python functions.
+Other Import Types: It manages the schemas and logic for Thesis (ThesisImport) and Chapterization (ChapterizationImport) setups.
+Status Checking: It holds the GET /import/status endpoint to generate a system-wide health check of what has been imported.
+
 JSON-based setup path. Replaces the slow field-by-field form flow for
 initial project setup. Form-based endpoints in thesis.py and sources.py
 remain fully functional for manual patches and corrections.

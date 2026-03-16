@@ -1,6 +1,12 @@
 """
 Source Importer Service
 -----------------------
+Responsibility :
+Data Models: It defines exactly what a valid source looks like using Pydantic (SourceImport, SourceChapterImport).
+Data Normalization: _normalize_source_chapter function, which acts as a "translation layer" to map messy, varied JSON inputs (like "filename" vs. "pdf_name") into a strict, canonical format.
+Database Operations: do_auto_import function contains logic to create IDs, structure the database records, and write them to storage.
+Zero Web Routing: This file has absolutely no FastAPI @router endpoints. It just processes data.
+
 Shared models and import logic extracted from routers/importer.py so that
 routers/drive.py can import them at the top level without creating a circular
 dependency (drive → importer → storage, with no back-edge to drive).

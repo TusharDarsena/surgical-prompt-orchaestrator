@@ -76,6 +76,16 @@ export const nlmState = (chapterId, subtopicId) =>
 export const nlmDeleteNotebook = (chapterId, subtopicId) =>
   _delete(`/notebooklm/notebook/${chapterId}/${subtopicId}`);
 
+export const nlmRunBatch = (chapterId, subtopicIds, wordCount, styleNotes) => {
+  const body = { subtopic_ids: subtopicIds };
+  if (wordCount)  body.word_count           = wordCount;
+  if (styleNotes) body.academic_style_notes = styleNotes;
+  return _post(`/notebooklm/run-batch/${chapterId}`, body);
+};
+
+export const nlmBatchState = (batchId) =>
+  _get(`/notebooklm/batch-state/${batchId}`);
+
 // ── Consistency ───────────────────────────────────────────────────────────────
 
 export const getChainForChapter = (chapterId) =>
