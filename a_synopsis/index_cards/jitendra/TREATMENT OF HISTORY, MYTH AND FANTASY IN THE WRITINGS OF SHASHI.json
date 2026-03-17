@@ -1,0 +1,72 @@
+{
+  "title": "TREATMENT OF HISTORY, MYTH AND FANTASY IN THE WRITINGS OF SHASHI THAROOR",
+  "author": "Taj Mohammad",
+  "year": 2011,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "07_chapter 1.pdf",
+      "chapter_title": "Introduction",
+      "key_claims": [
+        "Argues for a critical expansion of the Indian English literary canon beyond the popular trio of Narayan, Rao, and Anand to include neglected post-colonial voices.",
+        "Contends that Tharoor’s specific contribution to Indian literature is the innovative use of ancient Hindu mythology to interpret contemporary political crises."
+      ],
+      "themes": ["post_colonial_literature", "literary_canon", "mythological_reinterpretation"],
+      "limitations": "Does not offer deep analytical readings of the minor writers mentioned, focusing instead on a thematic overview.",
+      "time_period": "1920–2010",
+      "citations": ["R. K. Narayan", "Raja Rao", "Mulk Raj Anand", "Farbat Singh", "Salman Rushdie"]
+    },
+    {
+      "file": "08_chapter 2.pdf",
+      "chapter_title": "History and Myth in The Great Indian Novel",
+      "key_claims": [
+        "Argues that Tharoor utilizes the Mahabharata as a mock-heroic framework to satirize the lack of moral and ethical values in the modern Indian political system.",
+        "Contends that the novel deconstructs nationalist hagiography by allegorizing revered independence figures as flawed mythical characters.",
+        "Asserts that the novel explores the 'multiplicity of truth' by blending mythical time with documented historical events."
+      ],
+      "themes": ["political_satire", "mythological_allegory", "nationalist_deconstruction", "mock_epic"],
+      "limitations": "Does not provide a detailed linguistic analysis of the prose style used to achieve the satirical effect.",
+      "time_period": "1890s–1980s",
+      "citations": ["M.H. Abrams", "Nanda Kumar", "Sourin Choudhuri", "Madhav Godbole", "Rafiq Zakaria"]
+    },
+    {
+      "file": "09_chapter 3.pdf",
+      "chapter_title": "Representing Contemporary History of India: Riot as a Polyphonic Novel",
+      "key_claims": [
+        "Applies Bakhtin's concepts of polyphony and heteroglossia to argue that Tharoor’s 'Riot' represents truth as an ongoing, unfinalized dialogue between conflicting social classes.",
+        "Contends that the novel’s non-linear, documentary-style structure is designed to reflect the fragmented and communalized nature of Indian history.",
+        "Asserts that the work functions as a prophetic warning regarding the socio-political consequences of religious intolerance and the Babri Masjid demolition."
+      ],
+      "themes": ["polyphony", "communalism", "historiographic_metafiction", "religious_intolerance"],
+      "limitations": "Focuses primarily on the application of structural theory, potentially neglecting character development unrelated to the communal conflict.",
+      "time_period": "1973–2001",
+      "citations": ["Mikhail Bakhtin", "Paras Dhir", "Nanda Kumar", "Amrendra K. Sharma"]
+    },
+    {
+      "file": "10_chapter 4.pdf",
+      "chapter_title": "Treating Contemporary Myths: Politics and Fantasy in Show Business",
+      "key_claims": [
+        "Argues that Tharoor debunks the 'mythical conceit' of Bollywood by exposing systemic sexual exploitation and financial corruption within the film industry.",
+        "Contends that both cinema and politics in India function as 'make-believe' institutions that manipulate the masses through constructed fantasies.",
+        "Claims that the novel uses the character of Ashok Banjara to satirize the nexus between stardom, political power, and the underworld."
+      ],
+      "themes": ["celebrity_culture", "industrial_corruption", "political_satire", "mass_media_as_myth"],
+      "limitations": "Does not engage with specific cinematic theories or the technical evolution of the film industry.",
+      "time_period": "1980s–1991",
+      "citations": ["Sukhdev Sandhu", "M.H. Abrams", "Candia McWilliam", "Shobha De", "Jennifer Takhar"]
+    },
+    {
+      "file": "11_chapter 5.pdf",
+      "chapter_title": "Debunking Stereotypes and Myths: The Five-Dollar Smile and Other Stories",
+      "key_claims": [
+        "Argues that Tharoor’s short stories function as a psychological survey of contemporary Indian society, satirizing the hypocrisy of institutionalized relationships.",
+        "Contends that the stories highlight a generational identity crisis caused by the conflict between traditional cultural roots and Western-style education.",
+        "Asserts that the collection exposes the marginalization and sexual oppression of women in both rural and metropolitan Indian contexts."
+      ],
+      "themes": ["human_psyche", "westernization_critique", "institutional_corruption", "sexual_repression"],
+      "limitations": "Primarily provides a thematic survey of individual stories rather than a formal analysis of Tharoor's short story aesthetics.",
+      "time_period": "1970s–1990",
+      "citations": ["Shobha De"]
+    }
+  ]
+}

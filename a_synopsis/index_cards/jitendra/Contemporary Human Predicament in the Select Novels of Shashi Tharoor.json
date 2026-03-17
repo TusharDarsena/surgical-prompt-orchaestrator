@@ -1,0 +1,98 @@
+{
+  "title": "Contemporary Human Predicament in the Select Novels of Shashi Tharoor",
+  "author": "T. Alagarasan",
+  "year": 2012,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "01_title.pdf",
+      "chapter_title": "Title Page",
+      "key_claims": [
+        "Identifies the work as a doctoral thesis submitted to Periyar University, Salem, for the degree of Doctor of Philosophy in English.",
+        "Records the submission date as April 2012 under the supervision of Dr. K. Kumarasamy."
+      ],
+      "themes": ["academic_thesis", "doctoral_submission"],
+      "limitations": "Contains no analytical arguments or literary criticism.",
+      "time_period": null,
+      "citations": []
+    },
+    {
+      "file": "06_ abstract.pdf",
+      "chapter_title": "Abstract",
+      "key_claims": [
+        "Positions Shashi Tharoor's novels as a transition of fiction into sociological discourse, moving from descriptive to decisively satirical modes.",
+        "Argues that Tharoor employs satire, irony, caricature, and lampoon as weapons to diagnose Indian political, cultural, and social malaises.",
+        "Highlights the use of interdisciplinary concepts from Sociology, Post-modernism, and New Historicism to analyze the human predicament in contemporary India."
+      ],
+      "themes": ["sociological_discourse", "satirical_diagnosis", "interdisciplinary_methodology"],
+      "limitations": "Provides a high-level summary of thesis objectives without detailed textual evidence.",
+      "time_period": "20th century",
+      "citations": ["Shashi Tharoor", "Salman Rushdie"]
+    },
+    {
+      "file": "07_chapter 1.pdf",
+      "chapter_title": "Introduction",
+      "key_claims": [
+        "Traces the evolution of the English novel from 18th-century middle-class realism to 20th-century interdisciplinary sociological discourse.",
+        "Argues that Shashi Tharoor is a 'penetrating social satirist' who uses insinuation to highlight unnoticed social malaises like corruption and religious fanaticism.",
+        "Contends that the novel form is the most effective medium for reflecting the 'spirit of the age' and the complex experiences of mankind."
+      ],
+      "themes": ["literary_evolution", "social_satire", "sociological_discourse", "humanistic_criticism"],
+      "limitations": "Focuses on broad literary history rather than specific close readings of the primary texts.",
+      "time_period": "1740–2001",
+      "citations": ["David Daiches", "Samuel Richardson", "Virginia Woolf", "K.R. Srinivasa Iyengar", "Lionel Trilling"]
+    },
+    {
+      "file": "08_chapter 2.pdf",
+      "chapter_title": "Political Predicament",
+      "key_claims": [
+        "Argues that 'The Great Indian Novel' utilizes the Mahabharata as a structural paradigm to satirize the failures of post-independence Indian politics.",
+        "Contends that the characterization of Dhritarashtra as Nehru and Priya Duryodhani as Indira Gandhi exposes the corrupting influence of dynastic ambitions in a democracy.",
+        "Analyzes the 'disrobing of Draupadi' (D.Mokrasi) as a symbolic representation of the 1975 Emergency, signifying the stripping of the Indian people's dignity and freedom."
+      ],
+      "themes": ["political_satire", "mythical_parody", "dynastic_politics", "post_colonial_disillusionment"],
+      "limitations": "Restricted to the political allegories within 'The Great Indian Novel'.",
+      "time_period": "1947–1984",
+      "citations": ["M.K. Naik", "P.K. Rajan", "T.N. Dhar", "M.F. Salat", "Silvia Cappello"]
+    },
+    {
+      "file": "09_chapter 3.pdf",
+      "chapter_title": "Cultural Predicament",
+      "key_claims": [
+        "Examines 'Show Business' as a satire of the Hindi film industry, arguing that Bollywood functions as a 'make-believe' world that manipulates the masses.",
+        "Argues that cinema serves as an 'opiate' in India, sidetracking revolutionary energy for justice by focusing on the vicarious success of movie stars.",
+        "Contends that Bollywood reproduces patriarchal gender identities, forcing talented actresses like the character Maya Kumari into domestic irrelevance after marriage."
+      ],
+      "themes": ["bollywood_satire", "cultural_hegemony", "appearance_vs_reality", "gender_subjugation"],
+      "limitations": "Focused exclusively on the cultural context of the film industry as presented in 'Show Business'.",
+      "time_period": "1970s–1990s",
+      "citations": ["Sudeep Sen", "Madhu Kishwar", "Tabish Khair", "Bertrand Tavernier", "Dhirubhai Sheth"]
+    },
+    {
+      "file": "10_chapter 4.pdf",
+      "chapter_title": "Social Predicament",
+      "key_claims": [
+        "Analyzes 'Riot' as a dossier of Hindu-Muslim communalism, arguing that sectarian violence is often a manufactured tool for political advantage.",
+        "Contends that the construction of communal identity is deeply linked to the 'ownership of history' and the invention of past wrongs to justify present violence.",
+        "Argues that domestic violence and the denial of reproductive rights are systemic social malaises used to establish patriarchal authority over women."
+      ],
+      "themes": ["communal_violence", "identity_politics", "gender_oppression", "historical_indeterminacy", "neo_colonialism"],
+      "limitations": "Limited to the social issues and communal politics presented within the specific narrative of 'Riot'.",
+      "time_period": "1921–2002",
+      "citations": ["Asghar Ali Engineer", "Amartya Sen", "Mani Shankar Aiyer", "Nishat Haider", "Harsh Mander"]
+    },
+    {
+      "file": "11_chapter 5.pdf",
+      "chapter_title": "Conclusion",
+      "key_claims": [
+        "Consolidates the argument that Tharoor's novels serve as social realism, exposing the defects of the elite and the plight of the marginalized.",
+        "Maintains that 'Dharma'—defined as a code of good conduct and universal justice—is essential for resolving the contemporary human predicament in India.",
+        "Concludes that India's survival as a democracy depends on accommodating diverse group aspirations through a pluralist and secular framework."
+      ],
+      "themes": ["dharma_and_ethics", "social_realism", "pluralism", "secular_democracy"],
+      "limitations": "Summarizes overall thesis findings without introducing new textual analysis.",
+      "time_period": "20th century–2012",
+      "citations": ["Rabindranath Tagore", "Swami Vivekananda", "Shashi Tharoor", "Ashutosh Varshney"]
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "title": "Trends in Indian English Fiction in the Nineties: A Study of Two Major Novelists (Vikram Chandra and Arundhati Roy)",
+  "author": "Rabinarayan Sasmal",
+  "year": 2005,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "01_title page.pdf",
+      "chapter_title": "Title Page",
+      "key_claims": [
+        "Identifies the thesis as a requirement for a Doctor of Philosophy degree in the Faculty of Arts (English) at Utkal University.",
+        "Confirms the author is Rabinarayan Sasmal and the supervisor is Dr. Bijay Kumar Das from the University of Burdwan."
+      ],
+      "themes": [
+        "academic_thesis"
+      ],
+      "limitations": "Contains only metadata and institutional identification; no scholarly arguments are presented.",
+      "time_period": null,
+      "citations": []
+    },
+    {
+      "file": "06_abstract.pdf",
+      "chapter_title": "An Abstract",
+      "key_claims": [
+        "Argues that Indian English fiction has evolved through three distinct phases, culminating in the postmodern and postcolonial 'third generation' starting in the 1970s.",
+        "Claims that Vikram Chandra and Arundhati Roy are innovators who successfully blended traditional Indian storytelling with Western narrative modes.",
+        "Refutes the criticism that Indian English novelists lack authenticity, asserting that their identity and cultural roots are beyond question."
+      ],
+      "themes": [
+        "literary_evolution",
+        "postmodernism",
+        "cultural_authenticity",
+        "indian_english_idiom"
+      ],
+      "limitations": "Provides a high-level overview without detailed textual support or primary source analysis.",
+      "time_period": "1864–2004",
+      "citations": [
+        "Vikram Chandra",
+        "Arundhati Roy",
+        "Mulk Raj Anand",
+        "R.K. Narayan",
+        "Raja Rao"
+      ]
+    },
+    {
+      "file": "07_chapter 1.pdf",
+      "chapter_title": "The Background of Indian English Fiction from 1864 to 1990s: A Diachronic Study",
+      "key_claims": [
+        "Traces the history of the Indian English novel from Bankim Chandra Chatterjee's Rajmohan's Wife to the rise of social realism in the 1930s.",
+        "Claims that Salman Rushdie's Midnight's Children revolutionized the genre by introducing postmodern playfulness and a turn to history.",
+        "Asserts that 1990s novelists are characterized by an obsession with contemporaneity, multiculturalism, and eliticism rather than populism."
+      ],
+      "themes": [
+        "literary_history",
+        "social_realism",
+        "postmodern_playfulness",
+        "globalization"
+      ],
+      "limitations": "Focuses on broad historical surveys rather than specific close readings of 1990s texts.",
+      "time_period": "1864–1990s",
+      "citations": [
+        "M.K. Naik",
+        "K.R.S. Iyengar",
+        "K.S. Ramamurthi",
+        "Salman Rushdie",
+        "Shobha De"
+      ]
+    },
+    {
+      "file": "08_chapter 2.pdf",
+      "chapter_title": "Themes in the Novels of Vikram Chandra and Arundhati Roy",
+      "key_claims": [
+        "Argues that Vikram Chandra's Red Earth and Pouring Rain intermingles history and myth to explore themes of karma, dharma, and patriotism.",
+        "Claims that Arundhati Roy's The God of Small Things critiques the 'Big God' systems of caste and patriarchy through the tragedy of 'Small Things'.",
+        "States that these novelists depict a shift from the village-centrism of earlier eras to the metropolitan and diasporic experiences of the post-Emergency era."
+      ],
+      "themes": [
+        "caste_discrimination",
+        "patriarchal_hegemony",
+        "mythic_intertextuality",
+        "transculturation"
+      ],
+      "limitations": "Focuses on thematic content and lacks analysis of linguistic or technical innovations.",
+      "time_period": "18th century–1990s",
+      "citations": [
+        "Rita Joshi",
+        "Dora Sales Salvador",
+        "Meena Sodhi",
+        "B.K. Das",
+        "Subir Dhar"
+      ]
+    },
+    {
+      "file": "09_chapter 3.pdf",
+      "chapter_title": "Techniques in the Novels of Vikram Chandra and Arundhati Roy",
+      "key_claims": [
+        "Argues that Arundhati Roy employs non-traditional grammar, spelling, and idiosyncratic capitalization to evoke a specifically Indian sensibility.",
+        "Claims Vikram Chandra adopts a recursive, 'spiraling' narrative structure derived from the Mahabharata and Ramayana.",
+        "Asserts that the use of code-mixing and 'Chutnified' English serves to nativise the language and indianize the fictional medium."
+      ],
+      "themes": [
+        "linguistic_experimentation",
+        "narrative_structure",
+        "code_mixing",
+        "metafiction"
+      ],
+      "limitations": "Primarily concerned with form and language, generally omitting historical or social context analysis.",
+      "time_period": "1990s",
+      "citations": [
+        "Mary McCarthy",
+        "Christopher Rollason",
+        "Darshana Trivedi",
+        "R.S. Pathak",
+        "Raja Rao"
+      ]
+    },
+    {
+      "file": "10_chapter 4.pdf",
+      "chapter_title": "Vikram Chandra and Arundhati Roy as Indian English Novelists: A Comparative Study",
+      "key_claims": [
+        "Contrasts Roy’s 'feminine sensibility' and feminist critique of male-dominated society with Chandra’s mythological and historical focus.",
+        "Claims both authors successfully challenge center-periphery paradigms by incorporating pluralities of tradition and race.",
+        "Argues that Roy focuses on individuals suppressed by society, while Chandra harks back to the cyclical nature of history and pre-life."
+      ],
+      "themes": [
+        "comparative_literature",
+        "feminist_critique",
+        "mythological_restructuring",
+        "political_satire"
+      ],
+      "limitations": "Restricted to a comparison of two authors and does not broadly survey other 1990s novelists.",
+      "time_period": "1857–1990s",
+      "citations": [
+        "B. Nayak",
+        "Elizabeth Young",
+        "B.K. Das",
+        "Sheobhushan Shukla",
+        "Edward Said"
+      ]
+    },
+    {
+      "file": "11_chapter 5.pdf",
+      "chapter_title": "Conclusion",
+      "key_claims": [
+        "Asserts the cultural authenticity of Indian English writing as an essential expression of the Indian psyche.",
+        "Argues that 1990s fiction shifted global literary paradigms by introducing plural traditions into the 'great tradition' of English literature.",
+        "Concludes that Roy and Chandra have expanded the English vocabulary by successfully nativising postmodernism through Indian myths and symbols."
+      ],
+      "themes": [
+        "literary_authenticity",
+        "cultural_validation",
+        "nativised_english",
+        "global_literature"
+      ],
+      "limitations": "Acts as a summary of previous findings rather than presenting new primary research or evidence.",
+      "time_period": "1930s–2005",
+      "citations": [
+        "M.K. Naik",
+        "Joseph Connolly",
+        "Marvin Mudrick",
+        "Gunter Grass",
+        "Mulk Raj Anand"
+      ]
+    }
+  ]
+}

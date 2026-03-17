@@ -1,0 +1,154 @@
+{
+  "title": "Socio-Political Issues in Shashi Tharoor’s Fiction",
+  "author": "Mr. Shashikant Konnur",
+  "year": 2016,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "1. title page.pdf",
+      "chapter_title": "Title Page",
+      "key_claims": [
+        "Establishes the doctoral research scope as an investigation into socio-political issues within the fiction of Shashi Tharoor."
+      ],
+      "themes": [
+        "doctoral_thesis",
+        "shashi_tharoor",
+        "socio_political_analysis"
+      ],
+      "limitations": "Does not contain analytical arguments; serves as metadata for the work.",
+      "time_period": null,
+      "citations": []
+    },
+    {
+      "file": "10. chapter 4.pdf",
+      "chapter_title": "The Socio-Political Issues in Shashi Tharoor’s Short Stories: The Five-Dollar Smile",
+      "key_claims": [
+        "Argues that 'The Five-Dollar Smile' critiques Indian NGOs for commercializing poverty and lacking accountability to foreign donors.",
+        "Contends that Tharoor uses the urban setting of 'The Boutique' to expose acute class consciousness and the dehumanization of the lower classes by the elite.",
+        "Claims that stories like 'The Village Girl' and 'The Professor’s Daughter' reveal systemic gender inequality and the denial of agency to girls in both rural and urban India.",
+        "Argues that 'The Death of a Schoolmaster' highlights the failure of the Land Reform Bill in Kerala and the hypocrisy of communist ideology in practice."
+      ],
+      "themes": [
+        "short_story_analysis",
+        "ngo_corruption",
+        "class_stratification",
+        "gender_discrimination",
+        "land_reform_critique",
+        "urban_rural_divide"
+      ],
+      "limitations": "Focuses exclusively on the early stories in the 'Five-Dollar Smile' collection; does not address Tharoor's later short fiction.",
+      "time_period": "Late 1960s–early 1990s",
+      "citations": [
+        "Charu Mehrotra",
+        "Geeta Patil",
+        "Vijay Nagannawar",
+        "Prakash Karat",
+        "B. R. Ambedkar"
+      ]
+    },
+    {
+      "file": "11. conclusion.pdf",
+      "chapter_title": "Conclusion",
+      "key_claims": [
+        "Argues that contemporary Indian English fiction serves as a sociological barometer for human response to rapid social forces.",
+        "Claims Tharoor's work successfully mirrors the 'multiple realities' of post-independence India through experimental narrative techniques.",
+        "Contends that Tharoor’s fiction reflects the failure of democratic institutions to protect multiple identities, leading to persistent communal disharmony.",
+        "Summarises that Tharoor highlights a degeneration in Indian manners and morals that threatens the health of the democracy."
+      ],
+      "themes": [
+        "literary_sociology",
+        "post_independence_india",
+        "narrative_experimentation",
+        "democratic_failure",
+        "moral_degeneration"
+      ],
+      "limitations": "Summarises the broad findings of the thesis; does not provide new specific textual analysis of the primary works.",
+      "time_period": "1947–2010s",
+      "citations": [
+        "Walter Allen",
+        "Harry Levin",
+        "Salman Rushdie",
+        "Amitav Ghosh",
+        "Rohinton Mistry"
+      ]
+    },
+    {
+      "file": "7. chapter 1.pdf",
+      "chapter_title": "The Socio-Political Issues in Shashi Tharoor’s The Great Indian Novel",
+      "key_claims": [
+        "Argues Tharoor employs the Mahabharata frame to satirise 20th-century Indian history, from colonial exploitation to the Emergency.",
+        "Claims the character of Priya Duryodhani serves as an indictment of the totalitarianism and political decay associated with Indira Gandhi's Emergency.",
+        "Contends that Tharoor parodies nationalist figures like Gandhi (Gangaji) to challenge their hagiographic established images while acknowledging their mass mobilization power.",
+        "Asserts that the novel portrays Indian democracy (Draupadi) as a fragile institution constantly threatened by the 'game of dice' played by corrupt politicians."
+      ],
+      "themes": [
+        "mythological_reworking",
+        "political_satire",
+        "emergency_era_critique",
+        "nationalist_movement",
+        "democratic_fragility"
+      ],
+      "limitations": "Does not address Tharoor's non-satirical works or his perspectives on post-1980s economic shifts in detail.",
+      "time_period": "1910s–1977",
+      "citations": [
+        "M. F. Salat",
+        "P. Lal",
+        "Geeta Patil",
+        "Sudhendu Shekhar",
+        "O. P. Mathur"
+      ]
+    },
+    {
+      "file": "8. chapter 2.pdf",
+      "chapter_title": "The Socio-Political Issues in Shashi Tharoor’s Show Business",
+      "key_claims": [
+        "Argues that 'Show Business' uses the Bollywood film industry as a metaphor for the moral upheaval and superficiality of modern Indian politics.",
+        "Exposes a 'corrupt political nexus' where film producers exploit political influence for industrial licenses and politicians seek cinematic heirs.",
+        "Claims the novel depicts 'simulacra and hyper-reality,' where the public's investment in cinematic heroism obscures the private failures and moral lapses of the elite.",
+        "Contends that Tharoor critiques the continued prevalence of the caste system and regionalism in determining political and social success in India."
+      ],
+      "themes": [
+        "bollywood_politics_nexus",
+        "moral_degradation",
+        "hyper_reality",
+        "political_corruption",
+        "celebrity_culture"
+      ],
+      "limitations": "Focuses on the 1980s film-politics dynamic; cannot support arguments regarding the impact of modern digital media or social media on this nexus.",
+      "time_period": "1980s–1990s",
+      "citations": [
+        "George Lukacs",
+        "Anusha U. R.",
+        "Geeta Patil",
+        "B. R. Agrawal",
+        "M. P. Sinha"
+      ]
+    },
+    {
+      "file": "9. chapter 3.pdf",
+      "chapter_title": "The Socio-Political Issues in Shashi Tharoor’s Riot",
+      "key_claims": [
+        "Argues that communal riots are 'politically motivated' strategies used by leaders to mobilize voters through narrow religious identities.",
+        "Claims that the Indian 'secular' state failed to prevent the 1989 riots due to fear of alienating Hindu vote banks during the Ram Sila Poojan.",
+        "Exposes how administrative systems and the police are often subverted by political interference, leading to complicity in communal violence.",
+        "Critiques the double standards in religious personal laws, arguing they often betray the rights of women under the guise of protecting minority identity."
+      ],
+      "themes": [
+        "communal_violence",
+        "religious_identity_politics",
+        "secularism_critique",
+        "administrative_failure",
+        "historical_plurality"
+      ],
+      "limitations": "Does not explore the long-term judicial outcomes of the real-life Ayodhya dispute beyond the immediate 1989/1990 context.",
+      "time_period": "1989–1990",
+      "citations": [
+        "Shelley Walia",
+        "Anusha U. R.",
+        "Geeta Patil",
+        "Paras Dhir",
+        "Tabish Khair"
+      ]
+    }
+  ]
+}

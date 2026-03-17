@@ -1,0 +1,98 @@
+{
+  "title": "THE USE OF HISTORY IN THE CONTEMPORARY INDIAN ENGLISH NOVEL",
+  "author": "Nancy George",
+  "year": 1997,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "01_title.pdf",
+      "chapter_title": "Title Page",
+      "key_claims": [
+        "Establishes the research focus on the use of history in contemporary Indian English novels.",
+        "Identifies the academic context within the Department of English at the M. S. University of Vadodara."
+      ],
+      "themes": ["academic_dissertation", "indian_english_novel"],
+      "limitations": "Does not contain analytical or theoretical arguments.",
+      "time_period": "1997",
+      "citations": []
+    },
+    {
+      "file": "05_chapter 1.pdf",
+      "chapter_title": "Exordium",
+      "key_claims": [
+        "Argues that the traditional boundaries between history and literature have been challenged by changing conceptions of truth and reality.",
+        "Contends that history is a dynamic process rather than a static structure because of the unbridgeable gap between historical evidence and the actual past.",
+        "Claims that the use of English in India is deeply tied to colonial power structures and the creation of a political and social elite."
+      ],
+      "themes": ["historiography_vs_literature", "positivism_critique", "colonial_education", "nativization_of_english"],
+      "limitations": "Does not engage in close readings of the specific fictional texts under study.",
+      "time_period": "18th–20th century",
+      "citations": ["E.P. Thompson", "Tony Bennet", "Hayden White", "Linda Hutcheon", "Braj Kachru"]
+    },
+    {
+      "file": "06_chapter 2.pdf",
+      "chapter_title": "Historiographic Metafiction",
+      "key_claims": [
+        "Positions 'historiographic metafiction' as a symbiotic site where the problematized categories of historiography and novels intersect.",
+        "Argues that postmodernism in literature involves a 'doubleness' where existing structures are both installed and critically questioned.",
+        "Contends that historical knowledge belongs to the realm of understanding rather than reason and is fundamentally constituted by narrative."
+      ],
+      "themes": ["historiographic_metafiction", "postmodern_doubleness", "narrative_referentiality", "deconstruction"],
+      "limitations": "Focuses primarily on Western literary theory rather than specific Indian literary traditions.",
+      "time_period": "18th–20th century",
+      "citations": ["Ferdinand de Saussure", "Hayden White", "Linda Hutcheon", "Jacques Derrida", "Frank Kermode"]
+    },
+    {
+      "file": "07_chapter 3.pdf",
+      "chapter_title": "Interfaces",
+      "key_claims": [
+        "Asserts that the organization of time and events in these novels subverts linear chronology to expose the mediated nature of historical narrative.",
+        "Claims that the use of intertexts like myths, films, and historical documents challenges the notions of originality and organic unity in the novel.",
+        "Argues that authors use devices like 'interlocutors' to disrupt singular points of view and engage the reader in the process of meaning-making."
+      ],
+      "themes": ["linear_chronology_subversion", "intertextuality", "parody", "myth_vs_history"],
+      "limitations": "Analysis is restricted to the formal and structural components of the four selected novels.",
+      "time_period": "1947–1993",
+      "citations": ["Paul Ricoeur", "Gunter Grass", "Paul Scott", "Meenakshi Mukherjee", "Salman Rushdie"]
+    },
+    {
+      "file": "08_chapter 4.pdf",
+      "chapter_title": "Subject(s) in/of History",
+      "key_claims": [
+        "Argues that first-person narration in these novels highlights the subjectivity of historical judgement, countering the perceived objectivity of third-person history.",
+        "Claims that historical subjects are reconstructed from 'narrative substances' which reveal the gaps and speculative nature of history.",
+        "Asserts that marginalized 'ex-centric' groups use their peripheral positions to decentre dominant discursive practices and offer alternative histories."
+      ],
+      "themes": ["subjectivity_in_history", "marginalized_voices", "constructionism", "biography_vs_history"],
+      "limitations": "Restricted to analyzing the construction of subjectivity through historical traces and documents.",
+      "time_period": "12th–20th century",
+      "citations": ["Emile Benveniste", "Gerard Genette", "Ankersmit", "Bharati Mukherjee", "Amitav Ghosh"]
+    },
+    {
+      "file": "09_chapter 5.pdf",
+      "chapter_title": "Across Discourses",
+      "key_claims": [
+        "Asserts that incorporating diverse discursive types like newsreels and rumors dissipates the realist illusion of a closed fictional world.",
+        "Argues that colonial history is a product of power relations where the interests of the powerful define historical necessity and fact.",
+        "Contends that historical facts are often commodified in the 20th century, with their value determined by the market rather than objective truth."
+      ],
+      "themes": ["discursive_plurality", "colonial_critique", "commodification_of_history", "language_as_ideology"],
+      "limitations": "Does not address the broader reception of these novels by general Indian audiences.",
+      "time_period": "12th–20th century",
+      "citations": ["Ranajit Guha", "Lionel Gossman", "Salman Rushdie", "Bharati Mukherjee", "Amitav Ghosh"]
+    },
+    {
+      "file": "10_conclusion.pdf",
+      "chapter_title": "Conclusion",
+      "key_claims": [
+        "Concludes that historiographic metafiction functions as a 'romans a hypothese' that raises questions without imposing a singular ideological framework.",
+        "Argues that history is inherently subject to transformation and alteration over time, captured by the metaphor of 'chutneyfication'.",
+        "Asserts that contemporary Indian English novels move towards 'Cultural Studies' by dismantling the rhetoric of exclusion to one of negotiation."
+      ],
+      "themes": ["cultural_studies", "chutneyfication_of_history", "epistemological_indeterminacy", "comparativist_stance"],
+      "limitations": "Summarizes previous findings rather than presenting new empirical or textual data.",
+      "time_period": "1947–1997",
+      "citations": ["Linda Hutcheon", "Harold Bloom", "Stephen Greenblatt", "V.S. Naipaul", "Mulk Raj Anand"]
+    }
+  ]
+}

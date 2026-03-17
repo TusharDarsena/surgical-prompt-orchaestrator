@@ -1,0 +1,109 @@
+{
+  "title": "New Aesthetics of Political Fiction: A Study of the Strategies of Demystification in the Novels of Salman Rushdie, O. V. Vijayan and Shashi Tharoor",
+  "author": "ANJANA. J",
+  "year": 2008,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "01_title.pdf",
+      "chapter_title": "Title Page",
+      "key_claims": [
+        "Identifies the work as a PhD thesis submitted to Mahatma Gandhi University.",
+        "Establishes the research focus on demystification strategies in the novels of Rushdie, Vijayan, and Tharoor."
+      ],
+      "themes": ["academic_submission", "thesis_front_matter"],
+      "limitations": "Contains no analytical or critical arguments.",
+      "time_period": "2008",
+      "citations": ["ANJANA. J", "C. Gopinathan Pillai"]
+    },
+    {
+      "file": "06_abstract.pdf",
+      "chapter_title": "Abstract",
+      "key_claims": [
+        "Argues that post-Independence India provided fertile ground for political fiction that integrates personal sentiments with political ideology.",
+        "Claims that Salman Rushdie, O. V. Vijayan, and Shashi Tharoor share a creative sensitivity in their fictionalization of contemporary India.",
+        "Maintains that these novelists employ innovative aesthetic strategies of demystification to interrogate totalitarian systems."
+      ],
+      "themes": ["political_fiction", "demystification", "subversion", "historiographic_metafiction"],
+      "limitations": "Provides only a broad summary of research objectives and findings.",
+      "time_period": "Post-Independence India",
+      "citations": ["Salman Rushdie", "O. V. Vijayan", "Shashi Tharoor"]
+    },
+    {
+      "file": "07_preface.pdf",
+      "chapter_title": "Preface",
+      "key_claims": [
+        "Positions political fiction as the direct descendant of the nineteenth-century social novel.",
+        "Identifies 'political degeneration' and the abuse of power under authoritarian regimes as major preoccupations of post-Independence Indian novelists.",
+        "States that the Emergency (1975–1977) is a central traumatic event influencing the works of the selected novelists."
+      ],
+      "themes": ["genre_evolution", "authoritarianism", "emergency_trauma"],
+      "limitations": "Outlines the structure of the thesis rather than providing deep textual analysis.",
+      "time_period": "1947–1980s",
+      "citations": ["Salman Rushdie", "O. V. Vijayan", "Shashi Tharoor", "George Orwell"]
+    },
+    {
+      "file": "08_list of abbreviations.pdf",
+      "chapter_title": "List of Abbreviations",
+      "key_claims": [
+        "Provides a standardized key for abbreviations of primary works such as 'Midnight’s Children' (MC) and 'The Great Indian Novel' (TGIN)."
+      ],
+      "themes": ["reference_material", "academic_conventions"],
+      "limitations": "Contains no narrative or analytical text.",
+      "time_period": null,
+      "citations": ["Salman Rushdie", "O. V. Vijayan", "Shashi Tharoor"]
+    },
+    {
+      "file": "09_chapter 1.pdf",
+      "chapter_title": "Political Fiction Re-defined",
+      "key_claims": [
+        "Argues that political fiction is a 20th-century development where political ideology and existential concerns are interlocked.",
+        "Claims the political novel focuses on the 'fate of society itself' rather than just social gradations.",
+        "Maintains that political novels treat 'Being' as problematic and are inherently concerned with ethics and time."
+      ],
+      "themes": ["genre_definition", "existential_politics", "ideological_consciousness"],
+      "limitations": "Focused on theoretical definitions and historical survey without detailed analysis of the primary Indian texts.",
+      "time_period": "19th–20th century",
+      "citations": ["Irving Howe", "Robert Boyers", "George Orwell", "Fredric Jameson", "Robert Alter"]
+    },
+    {
+      "file": "10_chapter 2.pdf",
+      "chapter_title": "Deconstruction of Language and Fictionalization of History",
+      "key_claims": [
+        "Argues that Salman Rushdie's 'Midnight’s Children' revolutionized Indian English fiction by blending magic realism with national allegory.",
+        "Claims the protagonist, Saleem Sinai, represents the fragmented Indian national identity through his 'handcuffing' to history.",
+        "Asserts that Rushdie uses 'chutnification' and hybrid language to nativise English and abrogate colonial linguistic standards."
+      ],
+      "themes": ["magic_realism", "linguistic_hybridity", "national_allegory", "chutnification"],
+      "limitations": "Primarily focused on Rushdie; does not engage with Vijayan or Tharoor's specific techniques.",
+      "time_period": "1915–1978",
+      "citations": ["Salman Rushdie", "Gabriel García Márquez", "Viney Kirpal", "O. P. Mathur", "Josna E. Rege"]
+    },
+    {
+      "file": "11_chapter 3.pdf",
+      "chapter_title": "Existential Politics",
+      "key_claims": [
+        "Argues that O. V. Vijayan’s 'The Saga of Dharmapuri' uses 'scatological imagery' to expose the moral depravity of post-Independence power politics.",
+        "Claims the novel is a transparent allegory of the Emergency period, depicting the 'ugly face of power.'",
+        "Maintains that the character Siddhaartha represents a spiritual alternative and ecological critique of modern technological totalitarianism."
+      ],
+      "themes": ["scatological_imagery", "dystopian_fantasy", "emergency_politics", "spiritual_salvage"],
+      "limitations": "Focuses exclusively on Vijayan's work and his unique use of vulgarity as a shock tactic.",
+      "time_period": "1975–1977",
+      "citations": ["O. V. Vijayan", "V. Rajakrishnan", "P. K. Rajan", "T. N. Dhar"]
+    },
+    {
+      "file": "12_chapter 4.pdf",
+      "chapter_title": "Dynamics of Demythification",
+      "key_claims": [
+        "Argues that Shashi Tharoor’s 'The Great Indian Novel' demythifies the 'Mahabharata' to satirize twentieth-century Indian political history.",
+        "Claims that the novel’s characters are 'walking metaphors,' with Draupadi specifically symbolising Indian democracy.",
+        "Maintains the work is a 'historiographic metafiction' that challenges traditional narratives and explores the 'plurality of truths.'"
+      ],
+      "themes": ["demythification", "political_satire", "historiographic_metafiction", "intertextuality"],
+      "limitations": "Specific to Tharoor's engagement with the epic; lacks comparison to the other two novelists in this section.",
+      "time_period": "1910s–1980s",
+      "citations": ["Shashi Tharoor", "Ayyappa Panicker", "M. K. Chaudhury", "P. Balaswamy", "Vikram Seth"]
+    }
+  ]
+}

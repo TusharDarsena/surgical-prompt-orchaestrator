@@ -1,0 +1,86 @@
+{
+  "title": "History and Historiography in the Select Novels of Salman Rushdie, Amitav Ghosh and Mukul Kesavan",
+  "author": null,
+  "year": null,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "ch-1.pdf",
+      "chapter_title": "History and Historiography in Fiction",
+      "key_claims": [
+        "Argues that history is not an objective recovery of the past but a discourse where selection and interpretation are determined by the historian's own position and prejudices.",
+        "Contends that the distinction between history and fiction is blurred because both use narrative 'plotting' and the poetic process to create a verbal image of reality.",
+        "Suggests that historiographic metafiction works within literary conventions to subvert them, revealing decentralized histories of 'ex-centric others'."
+      ],
+      "themes": ["subjective_historiography", "historiographic_metafiction", "narrative_identity", "textuality_of_history"],
+      "limitations": "Discusses broad theoretical frameworks of historiography and fiction without applying them to specific case studies or novels in this section.",
+      "time_period": "1800–1990",
+      "citations": ["Keith Jenkins", "Hayden White", "E.H. Carr", "Linda Hutcheon", "Bakhtin", "Louis Montrose"]
+    },
+    {
+      "file": "ch-2.pdf",
+      "chapter_title": "Salman Rushdie: The ‘Pickling’ of History",
+      "key_claims": [
+        "Identifies 'chutnification' as a central metaphor in Midnight’s Children for the preservation and inevitable distortion of history through memory and imagination.",
+        "Argues that Rushdie uses 'memory's truth' to challenge official national histories, presenting a selective and heterogeneous version of events as valid reality.",
+        "Claims the protagonist Saleem Sinai is 'handcuffed to history,' symbolizing the inextricable link between the individual's life and the collective destiny of the Indian nation."
+      ],
+      "themes": ["chutnification", "magic_realism", "postcolonial_identity", "unreliable_narration", "national_allegory"],
+      "limitations": "Primarily restricts its analysis to Midnight’s Children, excluding an in-depth examination of Rushdie's later historical works like Shame or The Moor's Last Sigh.",
+      "time_period": "1910–1977",
+      "citations": ["Salman Rushdie", "Hayden White", "E.H. Carr", "Nancy E. Batty", "M.K. Naik", "Keith Wilson"]
+    },
+    {
+      "file": "ch-3.pdf",
+      "chapter_title": "Amitav Ghosh: Personal Memory as History",
+      "key_claims": [
+        "Argues that Ghosh retrieves 'lost pieces of history'—specifically the 1964 communal riots—that were erased from selective nationalistic memory and official records.",
+        "Contends that The Shadow Lines subverts national boundaries and state-defined 'freedom' by highlighting the impact of politics on ordinary people's lives and relationships.",
+        "Asserts that individual memory in Ghosh's work functions as a more truthful archive than documented historiography, which is often ideologically motivated."
+      ],
+      "themes": ["mnemonic_process", "communal_violence", "diasporic_consciousness", "alternative_histories", "nationalism_critique"],
+      "limitations": "Focuses heavily on The Shadow Lines, providing only cursory mentions of The Calcutta Chromosome and In An Antique Land.",
+      "time_period": "1939–1979",
+      "citations": ["Amitav Ghosh", "Meenakshi Mukherjee", "R.G. Collingwood", "Ashis Nandy", "Fred Weinstein", "Meenakshi Mukherjee"]
+    },
+    {
+      "file": "ch-4.pdf",
+      "chapter_title": "Mukul Kesavan: History Through the Lens",
+      "key_claims": [
+        "Claims the camera lens in Looking Through Glass acts as a tool for a specific 'zoom' perspective that foregrounds overlooked historical spots like the 1942 Quit India Movement.",
+        "Argues the novel challenges the 'totalizing' Congress narrative by voicing the perspectives of 80 million Muslims who were 'invisible' to the party of the nation.",
+        "Contends that the use of amnesia and temporal dislocation allows the narrator to interrogate the ethics of participating in a 'doomed rebellion' and the subsequent Partition."
+      ],
+      "themes": ["quit_india_movement", "muslim_identity", "temporal_dislocation", "secularism_crisis", "psychogenic_history"],
+      "limitations": "Analysis is exclusively focused on Looking Through Glass, not providing comparative analysis with other works by Kesavan.",
+      "time_period": "1942–1947",
+      "citations": ["Mukul Kesavan", "Jasbir Jain", "Linda Hutcheon", "Jacques Derrida", "M.C. Lemon", "Seyyed Hossein Nasr"]
+    },
+    {
+      "file": "conclusion.pdf",
+      "chapter_title": "Conclusion",
+      "key_claims": [
+        "Concludes that contemporary Indian novelists use imagination to provide a 'now experience' of past events, creating a parallel continuum between time present and time past.",
+        "Argues that fictional history realigns and contests official versions of 'scientific' history by foregrounding narratives lost to hegemonic discourse.",
+        "Maintains that these novelists act as 'excavators' who use historical consciousness to uncover truths buried underneath authorized historical records."
+      ],
+      "themes": ["reinterpreted_past", "literary_historiography", "postcolonial_resistance", "cultural_plurality"],
+      "limitations": null,
+      "time_period": "1940–1980",
+      "citations": ["Salman Rushdie", "Amitav Ghosh", "Mukul Kesavan"]
+    },
+    {
+      "file": "introduction.pdf",
+      "chapter_title": "Introduction",
+      "key_claims": [
+        "States that there is an inherent affinity between history and fiction as both are narrative acts that process facts into 'tales' shaped by subjectivity.",
+        "Argues that no history is purely objective because the historian's subjectivity interference is necessary to process facts through the artifact of language.",
+        "Identifies a post-1980s trend in Indian fiction where writers use subversion to question the authority and authenticity of official, government-ordered histories."
+      ],
+      "themes": ["narrative_affinity", "historiographic_investigation", "subaltern_historiography", "ideological_representation"],
+      "limitations": null,
+      "time_period": "1980–1995",
+      "citations": ["Irving H. Buchen", "Aristotle", "E.H. Carr", "R.G. Collingwood", "Hayden White", "Nila Shah"]
+    }
+  ]
+}
