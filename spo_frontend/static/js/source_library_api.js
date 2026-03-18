@@ -60,8 +60,11 @@ export const importSourceJson = (data) =>
   _post(_p("/import/source"), data);
 
 // ── Drive / Scan ──────────────────────────────────────────────────────────────
-export const scanLocalFolder = (rootPath) =>
-  _post("/drive/scan-local", { root_path: rootPath });
+export const scanLocalFolder = (rootPath, thesisFolderName = null) => {
+  const body = { root_path: rootPath };
+  if (thesisFolderName) body.thesis_folder_name = thesisFolderName;
+  return _post("/drive/scan-local", body);
+};
 
 export const getLocalFiles = () =>
   _get("/drive/local-files");

@@ -163,10 +163,21 @@ async function importAllQueued() {
 async function handleScan() {
   const path = $("scanPath").value.trim();
   if (!path) { toast("Enter a folder path first", "error"); return; }
+
+  // Resolve the active thesis title — used to scope the scan to one Level 2 folder.
+  // Without this, the cleanup step would consider ALL entries under the root as candidates
+  // for deletion, which would wipe Drive links for theses you're not working on.
+  const activeId = _activeThesisId();
+  if (!activeId) { toast("Select an active thesis first", "error"); return; }
+  const theses = _loadThesesIndex();
+  const activeThesis = theses.find(t => t.id === activeId);
+  if (!activeThesis?.title) { toast("Active thesis has no title — reload the page", "error"); return; }
+  const thesisFolderName = activeThesis.title;
+
   const btn = $("btnScan");
   btn.disabled = true; btn.textContent = "Scanning…";
   try {
-    const result = await API.scanLocalFolder(path);
+    const result = await API.scanLocalFolder(path, thesisFolderName);
     toast(`Scan complete — ${result.total_thesis_folders ?? 0} folders found`, "success");
     await loadThesisFolders();
   } catch (err) {

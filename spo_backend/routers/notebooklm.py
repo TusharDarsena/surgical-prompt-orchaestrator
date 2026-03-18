@@ -56,7 +56,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
-
+from datetime import datetime
 from services import storage
 from services.notebooklm_service import (
     NLMNotInstalledError,
@@ -200,181 +200,6 @@ async def run_notebooklm(
         "message": "Run started. Poll GET /notebooklm/state for progress.",
         "poll_url": f"/notebooklm/state/{chapter_id}/{subtopic_id}",
     }
-
-
-async def _run_sequence(
-    chapter_id: str,
-    subtopic_id: str,
-    chapter: dict,
-    subtopic: dict,
-    notebook_title: str,
-    word_count: Optional[int],
-    academic_style_notes: Optional[str],
-    batch_id: Optional[str] = None,
-):
-    """
-    The background sequence. Holds the in-memory run lock for its entire
-    duration. State is written to disk at each step so polling stays current.
-    """
-    run_lock = await _get_run_lock(chapter_id, subtopic_id)
-
-    async with run_lock:
-        existing_state = storage.read_nlm_state(chapter_id, subtopic_id) or {}
-        state = {
-            **existing_state,
-            "chapter_id": chapter_id,
-            "subtopic_id": subtopic_id,
-            "notebook_title": notebook_title,
-            "status": "running",
-            "last_run_at": datetime.utcnow().isoformat(),
-            "run_count": existing_state.get("run_count", 0) + 1,
-            "error": None,
-            "sources_uploaded": [],
-            "sources_failed": [],
-            "batch_id": batch_id,
-        }
-        storage.write_nlm_state(chapter_id, subtopic_id, state)
-
-        try:
-            # ── Step 1: compile prompt ─────────────────────────────────────
-            # Sync disk reads — run in thread to avoid blocking event loop
-            prompts, required_sources = await asyncio.to_thread(
-                _compile_prompt_data,
-                chapter=chapter,
-                subtopic=subtopic,
-                chapter_id=chapter_id,
-                word_count=word_count,
-                academic_style_notes=academic_style_notes,
-            )
-            prompt_1 = prompts["prompt_1"]
-            prompt_2 = prompts["prompt_2"]
-
-            # ── Step 2: resolve absolute paths ────────────────────────────
-            # Sync filesystem check — run in thread
-            resolved_paths = await asyncio.to_thread(
-                _resolve_absolute_paths, required_sources
-            )
-
-            # ── Step 3–6: all NotebookLM API calls inside one context ──────
-            async with _nlm_client() as client:
-
-                # ── Step 3: create or reuse notebook ──────────────────────
-                notebook_id = existing_state.get("notebook_id")
-                if not notebook_id:
-                    nb = await client.notebooks.create(notebook_title)
-                    notebook_id = nb.id
-                    logger.info(f"Created notebook '{notebook_id}' for '{subtopic_id}'")
-                else:
-                    logger.info(f"Reusing existing notebook '{notebook_id}' for '{subtopic_id}'")
-
-                state["notebook_id"] = notebook_id
-                storage.write_nlm_state(chapter_id, subtopic_id, state)
-
-                # ── Step 4: upload PDFs ────────────────────────────────────
-                uploaded = []
-                failed = []
-
-                for path_entry in resolved_paths:
-                    file_name = path_entry["file_name"]
-                    abs_path = path_entry["abs_path"]
-
-                    # Problem 2 fix: guard against non-PDF files
-                    # add_file() auto-detects type by extension, but we only
-                    # expect PDFs here. Anything else is flagged and skipped.
-                    if not file_name.lower().endswith(".pdf"):
-                        failed.append({
-                            "file": file_name,
-                            "reason": "not a PDF — only .pdf files are uploaded automatically"
-                        })
-                        logger.warning(f"Skipping non-PDF file '{file_name}'")
-                        continue
-
-                    if not abs_path:
-                        failed.append({
-                            "file": file_name,
-                            "reason": (
-                                "local path could not be resolved — "
-                                "run POST /drive/scan-local first"
-                            )
-                        })
-                        logger.warning(f"No local path resolved for '{file_name}'")
-                        continue
-
-                    # Verify file exists before attempting upload
-                    # (avoids a confusing error from the notebooklm-py library)
-                    if not os.path.isfile(abs_path):
-                        failed.append({
-                            "file": file_name,
-                            "reason": f"file not found at resolved path: {abs_path}"
-                        })
-                        logger.warning(f"File missing at '{abs_path}'")
-                        continue
-
-                    try:
-                        await client.sources.add_file(notebook_id, abs_path, wait=True)
-                        uploaded.append(file_name)
-                        logger.info(f"Uploaded '{file_name}'")
-                    except Exception as e:
-                        failed.append({"file": file_name, "reason": str(e)})
-                        logger.warning(f"Upload failed for '{file_name}': {e}")
-
-                    # Rate-limit buffer between uploads
-                    await asyncio.sleep(2)
-
-                state["sources_uploaded"] = uploaded
-                state["sources_failed"] = failed
-                storage.write_nlm_state(chapter_id, subtopic_id, state)
-
-                if not uploaded:
-                    raise RuntimeError(
-                        f"No PDFs were uploaded successfully. "
-                        f"Failed: {failed}. "
-                        "Verify the local scan has run and PDF files exist at resolved paths."
-                    )
-
-                # ── Step 5: send prompt_1 ──────────────────────────────────
-                logger.info(f"Sending prompt_1 to notebook '{notebook_id}'")
-                result = await client.chat.ask(notebook_id, prompt_1)
-                draft_text = result.answer
-
-                if not draft_text or not draft_text.strip():
-                    raise RuntimeError(
-                        "NotebookLM returned an empty response. "
-                        "Sources may still be processing — wait 30 seconds and retry."
-                    )
-
-                # ── Step 6: save draft ─────────────────────────────────────
-                await asyncio.to_thread(
-                    storage.write_section_draft,
-                    chapter_id,
-                    subtopic_id,
-                    {
-                        "chapter_id": chapter_id,
-                        "subtopic_id": subtopic_id,
-                        "text": draft_text,
-                        "source": "notebooklm_automated",
-                        "updated_at": datetime.utcnow().isoformat(),
-                    }
-                )
-
-                # ── Done ───────────────────────────────────────────────────
-                state.update({
-                    "status": "done",
-                    "prompt_2": prompt_2,
-                    "draft_preview": (
-                        draft_text[:300] + "..."
-                        if len(draft_text) > 300
-                        else draft_text
-                    ),
-                    "error": None,
-                })
-                storage.write_nlm_state(chapter_id, subtopic_id, state)
-                logger.info(f"Run complete for subtopic '{subtopic_id}'")
-
-        except Exception as e:
-            logger.error(f"Run failed for '{subtopic_id}': {e}", exc_info=True)
-            state.update({"status": "error", "error": str(e)})
-            storage.write_nlm_state(chapter_id, subtopic_id, state)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -591,58 +416,6 @@ async def run_batch(
     }
 
 
-async def _run_batch_sequence(
-    batch_id: str,
-    chapter_id: str,
-    subtopics_map: dict,
-    subtopic_ids: list[str],
-    word_count: Optional[int],
-    academic_style_notes: Optional[str],
-    notebook_title_prefix: Optional[str],
-):
-    """
-    Splits subtopic_ids into two halves and runs them with asyncio.gather.
-    Each worker processes its half sequentially.
-    Writes final batch state when both workers complete.
-    """
-    mid = math.ceil(len(subtopic_ids) / 2)
-    worker_a_ids = subtopic_ids[:mid]
-    worker_b_ids = subtopic_ids[mid:]
-
-    async def _worker(ids: list[str]):
-        for sid in ids:
-            subtopic = subtopics_map[sid]
-            title_prefix = notebook_title_prefix or "SPO"
-            notebook_title = (
-                f"{title_prefix} — {subtopic.get('number', sid)} {subtopic.get('title', '')}"
-            )[:100]
-            await _run_sequence(
-                chapter_id=chapter_id,
-                subtopic_id=sid,
-                chapter={"subtopics": list(subtopics_map.values())},
-                subtopic=subtopic,
-                notebook_title=notebook_title,
-                word_count=word_count,
-                academic_style_notes=academic_style_notes,
-                batch_id=batch_id,
-            )
-
-    try:
-        await asyncio.gather(_worker(worker_a_ids), _worker(worker_b_ids))
-        final_status = "done"
-    except Exception as e:
-        logger.error(f"Batch '{batch_id}' encountered an unexpected error: {e}", exc_info=True)
-        final_status = "error"
-
-    # ── Update batch state to reflect completion ──────────────────────────────
-    batch_state = storage.read_batch_state(batch_id) or {}
-    batch_state.update({
-        "status": final_status,
-        "completed_at": datetime.utcnow().isoformat(),
-    })
-    storage.write_batch_state(batch_id, batch_state)
-
-
 @router.get(
     "/batch-state/{batch_id}",
     summary="Aggregate progress for a batch run",
@@ -776,5 +549,3 @@ async def suggest_summary(
         raise HTTPException(status_code=503, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
-
-
