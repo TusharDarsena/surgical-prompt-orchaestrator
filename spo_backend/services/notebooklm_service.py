@@ -138,7 +138,7 @@ def generate_batch_id(chapter_id: str) -> str:
 
 # ── PDF size guard ─────────────────────────────────────────────────────────────
 
-PDF_SIZE_LIMIT_MB = 5.0
+PDF_SIZE_LIMIT_MB = 10.0
 
 
 async def check_pdf_sizes(validated_subtopics: list[dict]) -> list[dict]:

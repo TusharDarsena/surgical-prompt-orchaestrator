@@ -332,7 +332,7 @@ def _parse_filename(filename: str) -> dict:
     keyword = None
 
     # Try to extract chapter number from body
-    m = re.search(r'(?:chapter|ch\.?|section|part)\s*(\d+)', body)
+    m = re.search(r'(?:chapter|chap\.?|ch\.?|section|part)\s*-?\s*(\d+)', body)
     if m:
         number = m.group(1)
     else:
