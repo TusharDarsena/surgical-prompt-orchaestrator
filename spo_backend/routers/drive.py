@@ -274,7 +274,7 @@ def save_index_card(req: SaveIndexCardRequest):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(parsed, f, indent=2, ensure_ascii=False)
 
-    import_result, import_error = do_auto_import(parsed)
+    import_result, import_error = do_auto_import(parsed, scan_key=req.thesis_name)
 
     thesis_entry["import_status"] = {
         "imported": import_result is not None,

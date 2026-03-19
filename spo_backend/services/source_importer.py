@@ -210,7 +210,7 @@ def _normalize_source_chapter(ch: dict) -> dict:
 _VALID_SOURCE_TYPES = {"thesis_chapter", "book_chapter", "journal_article", "book", "report", "other"}
 
 
-def do_auto_import(data: dict, thesis_id: str = "") -> tuple[dict | None, str | None]:
+def do_auto_import(data: dict, thesis_id: str = "", scan_key: str = "") -> tuple[dict | None, str | None]:
     """
     Takes a raw source dict (already parsed from JSON), normalizes it,
     validates with Pydantic, then writes a SourceGroup + Sources + IndexCards
@@ -268,6 +268,7 @@ def do_auto_import(data: dict, thesis_id: str = "") -> tuple[dict | None, str | 
         "description": validated.description,
         "work_summary": validated.work_summary,
         "additional": validated.additional,
+        "scan_key": scan_key or None,
         "created_at": now,
         "updated_at": now,
     }

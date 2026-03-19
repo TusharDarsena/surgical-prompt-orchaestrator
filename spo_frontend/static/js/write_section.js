@@ -814,6 +814,18 @@ async function init() {
   $("btnSaveDraft").addEventListener("click", () => actions.saveDraft());
   $("btnClearDraft").addEventListener("click", () => actions.clearDraft());
 
+  // ── Copy all source links ─────────────────────────────────────────────────
+  $("btnCopyAllLinks")?.addEventListener("click", async () => {
+    if (!state.chapterId || !state.activeSubtopicId) return;
+    const res = await API.compilePrompt(state.chapterId, state.activeSubtopicId, state.wordCount || null, state.styleNotes || null);
+    const sources = res.meta?.required_sources ?? [];
+    state.sources = sources;
+    renderSources();
+    const links = sources.filter(s => s.drive_link).map(s => s.drive_link);
+    if (links.length) copyToClipboard(links.join("\n"), `${links.length} link(s) copied`);
+    else toast("No links found", "info");
+  });
+
   // ── Consistency (card-04) ────────────────────────────────────────────────
   $("btnGenerateConsistency").addEventListener("click", () => actions.generateConsistencyPrompt());
 
