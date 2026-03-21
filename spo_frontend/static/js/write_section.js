@@ -14,28 +14,28 @@ import * as API from "./api.js";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const state = {
-  chapterId:       null,   // currently selected chapter
-  chapters:        [],     // full chapter list from server
-  subtopics:       [],     // subtopics of selected chapter
+  chapterId: null,   // currently selected chapter
+  chapters: [],     // full chapter list from server
+  subtopics: [],     // subtopics of selected chapter
 
   // active subtopic = the one whose draft is shown in card-03
   activeSubtopicId: null,
 
   // config (card-01) — shared by all runs in the chapter
-  wordCount:   750,
-  styleNotes:  "",
+  wordCount: 750,
+  styleNotes: "",
 
   // per-subtopic run states:  subtopicId → nlm_state response
-  runStates:   {},
+  runStates: {},
 
   // per-subtopic drafts:      subtopicId → string
-  drafts:      {},
+  drafts: {},
 
   // resolved sources for the active subtopic (from compile meta)
-  sources:     [],
+  sources: [],
 
   // consistency chain for the chapter
-  chain:       [],
+  chain: [],
 
   // active batch ID — set when runAllIdle fires, cleared when batch completes
   batchId: null,
@@ -114,15 +114,15 @@ function loadWriteThesisSelector() {
 async function onWriteThesisChange(id) {
   localStorage.setItem("spo_active_thesis", id);
   // Reset chapter state and reload chapters for the new thesis
-  state.chapters        = [];
-  state.subtopics       = [];
-  state.chapterId       = null;
+  state.chapters = [];
+  state.subtopics = [];
+  state.chapterId = null;
   state.activeSubtopicId = null;
-  state.runStates       = {};
-  state.drafts          = {};
-  state.sources         = [];
-  state.chain           = [];
-  state.batchId         = null;
+  state.runStates = {};
+  state.drafts = {};
+  state.sources = [];
+  state.chain = [];
+  state.batchId = null;
   await loadChaptersFromServer();
 }
 
@@ -159,10 +159,10 @@ function renderChapterSelect() {
 function renderContextPills() {
   const sub = getActiveSubtopic();
   $("pillSources").textContent = sub?.source_ids?.length ?? "—";
-  $("pillPages").textContent   = sub?.estimated_pages   ?? "—";
+  $("pillPages").textContent = sub?.estimated_pages ?? "—";
 
   const done = state.chain.length;
-  $("pillDone").textContent    = done;
+  $("pillDone").textContent = done;
 }
 
 function renderSubtopicSelect() {
@@ -176,7 +176,7 @@ function renderSubtopicSelect() {
 
   for (const s of state.subtopics) {
     const opt = document.createElement("option");
-    opt.value       = s.subtopic_id;
+    opt.value = s.subtopic_id;
     opt.textContent = `${s.number} — ${s.title}`;
     if (s.subtopic_id === state.activeSubtopicId) opt.selected = true;
     sel.appendChild(opt);
@@ -188,7 +188,7 @@ function renderRunTable() {
   tbody.innerHTML = "";
 
   for (const sub of state.subtopics) {
-    const rs     = getRunState(sub.subtopic_id);
+    const rs = getRunState(sub.subtopic_id);
     const status = rs.status ?? "idle";   // idle | running | done | error
     const hasDraft = Boolean(state.drafts[sub.subtopic_id]);
 
@@ -207,7 +207,7 @@ function renderRunTable() {
 
     if (status === "running") {
       const note = document.createElement("div");
-      note.className   = "run-status-note";
+      note.className = "run-status-note";
       note.textContent = rs.sources_uploaded?.length
         ? `Uploading… (${rs.sources_uploaded.length} done)`
         : "Starting…";
@@ -215,7 +215,7 @@ function renderRunTable() {
     }
     if (status === "error") {
       const note = document.createElement("div");
-      note.className   = "run-status-note";
+      note.className = "run-status-note";
       note.style.color = "#f87171";
       note.textContent = rs.error ?? "Error";
       nameCol.appendChild(note);
@@ -227,9 +227,9 @@ function renderRunTable() {
 
     if (status === "done" && rs.prompt_2) {
       const badge = document.createElement("span");
-      badge.className       = "gemini-badge";
-      badge.textContent     = "📋 Gemini";
-      badge.title           = "Copy Stage 2 Gemini prompt";
+      badge.className = "gemini-badge";
+      badge.textContent = "📋 Gemini";
+      badge.title = "Copy Stage 2 Gemini prompt";
       badge.dataset.prompt2 = rs.prompt_2;
       badge.addEventListener("click", () => {
         copyToClipboard(rs.prompt_2, "Stage 2 Gemini prompt copied");
@@ -237,18 +237,18 @@ function renderRunTable() {
       actCol.appendChild(badge);
     }
 
-    if (status === "idle" || status === "error") {
-      // copy prompt icon
-      const cpBtn = document.createElement("button");
-      cpBtn.className = "copy-icon-btn";
-      cpBtn.title     = "Copy prompt manually";
-      cpBtn.textContent = "📋";
-      cpBtn.addEventListener("click", () => actions.copyPromptForSubtopic(sub.subtopic_id));
-      actCol.appendChild(cpBtn);
+    // copy prompt icon — always visible
+    const cpBtn = document.createElement("button");
+    cpBtn.className = "copy-icon-btn";
+    cpBtn.title = "Copy prompt manually";
+    cpBtn.textContent = "📋";
+    cpBtn.addEventListener("click", () => actions.copyPromptForSubtopic(sub.subtopic_id));
+    actCol.appendChild(cpBtn);
 
+    if (status === "idle" || status === "error") {
       // run button
       const runBtn = document.createElement("button");
-      runBtn.className   = "btn btn-run";
+      runBtn.className = "btn btn-run";
       runBtn.textContent = "▶ Run";
       runBtn.addEventListener("click", () => actions.runSubtopic(sub.subtopic_id));
       actCol.appendChild(runBtn);
@@ -256,7 +256,7 @@ function renderRunTable() {
 
     if (status === "running") {
       const stopBtn = document.createElement("button");
-      stopBtn.className   = "btn btn-danger";
+      stopBtn.className = "btn btn-danger";
       stopBtn.style.cssText = "padding:4px 10px;font-size:11px;";
       stopBtn.textContent = "Stop";
       stopBtn.addEventListener("click", () => actions.stopSubtopic(sub.subtopic_id));
@@ -265,7 +265,7 @@ function renderRunTable() {
 
     if (status === "done") {
       const rerunBtn = document.createElement("button");
-      rerunBtn.className   = "btn btn-ghost";
+      rerunBtn.className = "btn btn-ghost";
       rerunBtn.style.cssText = "padding:4px 10px;font-size:11px;";
       rerunBtn.textContent = "Re-run";
       rerunBtn.addEventListener("click", () => actions.runSubtopic(sub.subtopic_id));
@@ -275,7 +275,7 @@ function renderRunTable() {
     // ↗ open draft button
     const openBtn = document.createElement("button");
     openBtn.className = "open-btn";
-    openBtn.title     = hasDraft ? "Open draft in editor" : "No draft yet";
+    openBtn.title = hasDraft ? "Open draft in editor" : "No draft yet";
     openBtn.textContent = "↗";
     if (!hasDraft) openBtn.setAttribute("disabled", "true");
     openBtn.addEventListener("click", () => actions.openDraft(sub.subtopic_id));
@@ -288,7 +288,7 @@ function renderRunTable() {
 }
 
 function renderDraftCard() {
-  const sub  = getActiveSubtopic();
+  const sub = getActiveSubtopic();
   const text = sub ? (state.drafts[sub.subtopic_id] ?? "") : "";
 
   $("draftSubtopicPill").textContent = sub
@@ -303,12 +303,12 @@ function renderDraftCard() {
 }
 
 function renderSources() {
-  const list  = $("sourcesList");
-  const head  = $("sourcesHead");
+  const list = $("sourcesList");
+  const head = $("sourcesHead");
   const sources = state.sources;
 
   const uniqueWorks = new Set(sources.map(s => s.source_id)).size;
-  const fileCount   = sources.filter(s => s.file_name || s.drive_link).length;
+  const fileCount = sources.filter(s => s.file_name || s.drive_link).length;
 
   $("sourcesCount").textContent = uniqueWorks;
   $("sourcesCountSub").textContent =
@@ -326,8 +326,8 @@ function renderSources() {
     entry.className = "source-entry";
 
     const btn = document.createElement("button");
-    btn.className   = "source-open-btn";
-    btn.title       = s.drive_link ? "Open in Drive" : s.file_name ? "Open file" : "No link";
+    btn.className = "source-open-btn";
+    btn.title = s.drive_link ? "Open in Drive" : s.file_name ? "Open file" : "No link";
     btn.textContent = "↗";
     if (!s.drive_link && !s.file_name) btn.classList.add("no-link");
     btn.addEventListener("click", () => {
@@ -338,7 +338,7 @@ function renderSources() {
     info.className = "source-info";
 
     const name = document.createElement("span");
-    name.className   = "source-name";
+    name.className = "source-name";
     name.textContent = s.source_id;
     info.appendChild(name);
 
@@ -346,7 +346,7 @@ function renderSources() {
     tags.className = "source-tags";
     if (s.chapter_id) {
       const tag = document.createElement("span");
-      tag.className   = "stag";
+      tag.className = "stag";
       tag.textContent = s.chapter_id;
       tags.appendChild(tag);
     }
@@ -360,7 +360,7 @@ function renderSources() {
 
 function renderConsistencyCard() {
   const saved = $("consistencySavedBox");
-  const text  = state.consistencyText;
+  const text = state.consistencyText;
   if (text) {
     saved.innerHTML = `
       <div class="summary-saved-label">Saved summary</div>
@@ -372,12 +372,12 @@ function renderConsistencyCard() {
 
 // Card pill counters for card-02
 function renderGeneratePill() {
-  const done  = state.subtopics.filter(s => getRunState(s.subtopic_id).status === "done").length;
+  const done = state.subtopics.filter(s => getRunState(s.subtopic_id).status === "done").length;
   const total = state.subtopics.length;
-  const pill  = $("generatePill");
+  const pill = $("generatePill");
   if (!total) { pill.textContent = "—"; pill.className = "pill pill-idle"; return; }
   pill.textContent = `${done} / ${total} done`;
-  pill.className   = done === total ? "pill pill-done" : done > 0 ? "pill pill-active" : "pill pill-idle";
+  pill.className = done === total ? "pill pill-done" : done > 0 ? "pill pill-active" : "pill pill-idle";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -402,11 +402,11 @@ const actions = {
     const chapter = state.chapters.find(c => c.chapter_id === chapterId);
     if (!chapter) return;
 
-    state.chapterId        = chapterId;
-    state.subtopics        = chapter.subtopics ?? [];
-    state.runStates        = {};
-    state.drafts           = {};
-    state.batchId          = null;   // ← ADD: clear any in-flight batch on chapter switch
+    state.chapterId = chapterId;
+    state.subtopics = chapter.subtopics ?? [];
+    state.runStates = {};
+    state.drafts = {};
+    state.batchId = null;   // ← ADD: clear any in-flight batch on chapter switch
     state.activeSubtopicId = state.subtopics[0]?.subtopic_id ?? null;
 
     // Load sources from active subtopic's source_ids
@@ -419,7 +419,7 @@ const actions = {
 
     // Load chain
     try {
-      const res  = await API.getChainForChapter(chapterId);
+      const res = await API.getChainForChapter(chapterId);
       state.chain = res.chain ?? [];
     } catch (_) { state.chain = []; }
 
@@ -501,8 +501,8 @@ const actions = {
       await API.nlmRun(
         state.chapterId,
         subtopicId,
-        state.wordCount   || null,
-        state.styleNotes  || null,
+        state.wordCount || null,
+        state.styleNotes || null,
       );
       state.runStates[subtopicId] = { status: "running" };
       renderRunTable();
@@ -529,7 +529,7 @@ const actions = {
       const res = await API.nlmRunBatch(
         state.chapterId,
         idleIds,
-        state.wordCount  || null,
+        state.wordCount || null,
         state.styleNotes || null,
       );
 
@@ -583,15 +583,17 @@ const actions = {
       toast(`Save failed: ${err.message}`, "error");
     }
   },
-
+  // NEW:
   async clearDraft() {
     if (!confirm("Clear this draft? This cannot be undone.")) return;
     try {
       await API.deleteDraft(state.chapterId, state.activeSubtopicId);
       state.drafts[state.activeSubtopicId] = null;
+      state.runStates[state.activeSubtopicId] = { status: "idle" };
       $("draftTextarea").value = "";
       _updateWordCount();
       renderRunTable();
+      renderGeneratePill();
       toast("Draft cleared", "info");
     } catch (err) {
       toast(`Clear failed: ${err.message}`, "error");
@@ -602,7 +604,7 @@ const actions = {
     try {
       const res = await API.compilePrompt(
         state.chapterId, subtopicId,
-        state.wordCount  || null,
+        state.wordCount || null,
         state.styleNotes || null,
       );
       const text = res.prompt_1 ?? res.prompt ?? "";
@@ -621,7 +623,7 @@ const actions = {
     try {
       const res = await API.compilePrompt(
         state.chapterId, state.activeSubtopicId,
-        state.wordCount  || null,
+        state.wordCount || null,
         state.styleNotes || null,
       );
       const text = res.prompt_1 ?? res.prompt ?? "";
@@ -677,11 +679,11 @@ const poller = {
         const prev = getRunState(snap.subtopic_id).status;
         state.runStates[snap.subtopic_id] = {
           ...state.runStates[snap.subtopic_id],
-          status:           snap.status,
-          error:            snap.error,
+          status: snap.status,
+          error: snap.error,
           sources_uploaded: snap.sources_uploaded,
-          sources_failed:   snap.sources_failed,
-          batch_id:         state.batchId,
+          sources_failed: snap.sources_failed,
+          batch_id: state.batchId,
         };
 
         // When a subtopic within the batch completes, auto-load its draft
@@ -719,7 +721,7 @@ const poller = {
 
     await Promise.allSettled(
       running.map(async s => {
-        const rs   = await API.nlmState(state.chapterId, s.subtopic_id);
+        const rs = await API.nlmState(state.chapterId, s.subtopic_id);
         const prev = getRunState(s.subtopic_id).status;
         state.runStates[s.subtopic_id] = rs;
 
@@ -749,7 +751,7 @@ function _esc(str) {
 
 function _updateWordCount() {
   const text = $("draftTextarea")?.value ?? "";
-  const wc   = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const wc = text.trim() ? text.trim().split(/\s+/).length : 0;
   $("wordCount").textContent = `~${wc.toLocaleString()} words`;
 }
 

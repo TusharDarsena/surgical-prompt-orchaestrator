@@ -32,6 +32,10 @@ subtopics (4–6 per chapter):
 - position_in_argument: name what the previous subtopic established 
   and what the next subtopic will need from this one
 - source_ids: list the index card source_ids that support this subtopic
+    IMPORTANT: each index card has a `scan_key` field — use that EXACT value 
+    as the `source_id`. Do NOT use the document title. The scan_key is the 
+    folder name your system uses to locate files; using anything else will 
+    break source resolution.
 
 
 Output ONLY valid JSON. No explanation. No markdown fences.
@@ -53,12 +57,13 @@ Schema —
                                before and what comes next.",
       "source_ids": [
         {
-          "source_id": "Name of Thesis",
+          "source_id": "exact_scan_key_from_index_card",
           "chapter_id": "Name of relevant chapter / section",
-          "source_guidance": "how to use this source
+          "source_guidance": "how to use this source"
         }
       ]
     }
   ]
 }
+
 

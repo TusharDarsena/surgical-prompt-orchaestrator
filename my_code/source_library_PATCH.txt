@@ -1,0 +1,31 @@
+FILE: spo_frontend/templates/source_library.html
+OPERATION: str_replace
+
+OLD (exact block — the drive-note paragraph before the thesis list):
+        <p class="drive-note" style="margin-bottom:14px;">
+          ⚠ Register runs on all folders in the tree — not just new ones.
+          Safe to re-run; existing links are overwritten with fresh ones.
+        </p>
+
+        <!-- Thesis folder list — populated by JS -->
+        <div class="thesis-list" id="thesisList"></div>
+
+NEW (add the generate-all row between the note and the list):
+        <p class="drive-note" style="margin-bottom:14px;">
+          ⚠ Register runs on all folders in the tree — not just new ones.
+          Safe to re-run; existing links are overwritten with fresh ones.
+        </p>
+
+        <!-- Auto-generate index cards for all unimported folders -->
+        <div class="drive-row" style="margin-bottom:8px;align-items:center;">
+          <button class="btn btn-primary" id="btnGenerateAllCards">
+            🤖 Generate All Missing Index Cards
+          </button>
+          <span class="drive-note" style="margin-left:10px;">
+            Uploads chapter PDFs → NLM extracts JSON → auto-imports source cards.
+            Requires Drive links to be registered.
+          </span>
+        </div>
+
+        <!-- Thesis folder list — populated by JS -->
+        <div class="thesis-list" id="thesisList"></div>
