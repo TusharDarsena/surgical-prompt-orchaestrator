@@ -24,6 +24,7 @@ const state = {
   // config (card-01) — shared by all runs in the chapter
   wordCount: 750,
   styleNotes: "",
+  uploadMethod: "drive",
 
   // per-subtopic run states:  subtopicId → nlm_state response
   runStates: {},
@@ -220,6 +221,20 @@ function renderRunTable() {
       note.textContent = rs.error ?? "Error";
       nameCol.appendChild(note);
     }
+    if (status === "waiting_for_manual_upload") {
+      const note = document.createElement("div");
+      note.className = "run-status-note";
+      note.style.color = "#d97706"; // Amber/yellow color for warning
+      note.textContent = "Waiting for manual upload...";
+      if (rs.missing_sources && rs.missing_sources.length > 0) {
+        const missing = document.createElement("div");
+        missing.style.fontSize = "10px";
+        missing.style.color = "var(--muted)";
+        missing.textContent = `Missing: ${rs.missing_sources.join(", ")}`;
+        note.appendChild(missing);
+      }
+      nameCol.appendChild(note);
+    }
 
     // Action column
     const actCol = document.createElement("div");
@@ -252,6 +267,16 @@ function renderRunTable() {
       runBtn.textContent = "▶ Run";
       runBtn.addEventListener("click", () => actions.runSubtopic(sub.subtopic_id));
       actCol.appendChild(runBtn);
+    }
+
+    if (status === "waiting_for_manual_upload") {
+      // resume button
+      const resumeBtn = document.createElement("button");
+      resumeBtn.className = "btn btn-run";
+      resumeBtn.textContent = "⟳ Sync & Resume";
+      resumeBtn.title = "Click after you manually add the missing PDF to NotebookLM";
+      resumeBtn.addEventListener("click", () => actions.runSubtopic(sub.subtopic_id));
+      actCol.appendChild(resumeBtn);
     }
 
     if (status === "running") {
@@ -503,6 +528,7 @@ const actions = {
         subtopicId,
         state.wordCount || null,
         state.styleNotes || null,
+        state.uploadMethod,
       );
       state.runStates[subtopicId] = { status: "running" };
       renderRunTable();
@@ -531,6 +557,7 @@ const actions = {
         idleIds,
         state.wordCount || null,
         state.styleNotes || null,
+        state.uploadMethod,
       );
 
       // Store batch_id so the poller knows to use the batch endpoint
@@ -683,6 +710,7 @@ const poller = {
           error: snap.error,
           sources_uploaded: snap.sources_uploaded,
           sources_failed: snap.sources_failed,
+          missing_sources: snap.missing_sources, // New sync status property
           batch_id: state.batchId,
         };
 
@@ -784,6 +812,9 @@ async function init() {
   });
   $("styleNotesInput").addEventListener("input", e => {
     state.styleNotes = e.target.value;
+  });
+  $("uploadMethodSelect").addEventListener("change", e => {
+    state.uploadMethod = e.target.value;
   });
 
   // ── Card accordion headers ────────────────────────────────────────────────

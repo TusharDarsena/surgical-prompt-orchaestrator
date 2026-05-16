@@ -86,6 +86,7 @@ class RunRequest(BaseModel):
     word_count: Optional[int] = None
     academic_style_notes: Optional[str] = None
     notebook_title: Optional[str] = None
+    upload_method: str = "drive"
 
 
 class SummarizeRequest(BaseModel):
@@ -97,6 +98,7 @@ class BatchRunRequest(BaseModel):
     word_count: Optional[int] = None
     academic_style_notes: Optional[str] = None
     notebook_title_prefix: Optional[str] = None
+    upload_method: str = "drive"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -191,6 +193,7 @@ async def run_notebooklm(
         notebook_title=notebook_title,
         word_count=req.word_count,
         academic_style_notes=req.academic_style_notes,
+        upload_method=req.upload_method,
     )
 
     return {
@@ -402,6 +405,7 @@ async def run_batch(
         word_count=req.word_count,
         academic_style_notes=req.academic_style_notes,
         notebook_title_prefix=req.notebook_title_prefix,
+        upload_method=req.upload_method,
     )
 
     return {

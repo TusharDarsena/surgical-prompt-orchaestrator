@@ -73,10 +73,11 @@ export const nlmStatus = () =>
 export const getPreviousSummary = (chapterId, subtopicId) =>
   _get(_p(`/consistency/${chapterId}/previous-for/${subtopicId}`));
 
-export const nlmRun = (chapterId, subtopicId, wordCount, styleNotes) => {
+export const nlmRun = (chapterId, subtopicId, wordCount, styleNotes, uploadMethod) => {
   const body = {};
   if (wordCount)  body.word_count              = wordCount;
   if (styleNotes) body.academic_style_notes     = styleNotes;
+  if (uploadMethod) body.upload_method          = uploadMethod;
   return _post(_p(`/notebooklm/run/${chapterId}/${subtopicId}`), body);
 };
 
@@ -86,10 +87,11 @@ export const nlmState = (chapterId, subtopicId) =>
 export const nlmDeleteNotebook = (chapterId, subtopicId) =>
   _delete(_p(`/notebooklm/notebook/${chapterId}/${subtopicId}`));
 
-export const nlmRunBatch = (chapterId, subtopicIds, wordCount, styleNotes) => {
+export const nlmRunBatch = (chapterId, subtopicIds, wordCount, styleNotes, uploadMethod) => {
   const body = { subtopic_ids: subtopicIds };
   if (wordCount)  body.word_count           = wordCount;
   if (styleNotes) body.academic_style_notes = styleNotes;
+  if (uploadMethod) body.upload_method      = uploadMethod;
   return _post(_p(`/notebooklm/run-batch/${chapterId}`), body);
 };
 

@@ -48,8 +48,9 @@ class BatchAuthExpiredError(Exception):
     """Auth expired during a batch run."""
 
 
-# Global semaphore to limit concurrent NotebookLM API requests
-_nlm_semaphore = asyncio.Semaphore(1)
+# Global semaphores to limit concurrent NotebookLM API requests
+_upload_semaphore = asyncio.Semaphore(3)
+_chat_semaphore = asyncio.Semaphore(5)
 
 
 # ── Client context manager ─────────────────────────────────────────────────────
@@ -259,7 +260,9 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
                 or thesis_entry.get("level2_path")
             )
             if folder:
-                candidate = os.path.join(folder, file_name)
+                # Fix 1: Sanitize file_name to prevent path traversal
+                safe_file_name = os.path.basename(file_name.replace('\\', '/'))
+                candidate = os.path.join(folder, safe_file_name)
                 if os.path.isfile(candidate):
                     abs_path = candidate
                 else:
@@ -267,6 +270,14 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
                         f"'{file_name}' not found at '{candidate}'. "
                         "Re-run POST /drive/scan-local if files have moved."
                     )
+            
+            # Parse drive link for upload
+            drive_file_id = None
+            link = thesis_entry.get("link")
+            if link:
+                match = re.search(r'/d/([a-zA-Z0-9_-]+)', link)
+                if match:
+                    drive_file_id = match.group(1)
         else:
             logger.warning(
                 f"Thesis '{thesis_name}' not found in scan. "
@@ -287,6 +298,7 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
             "file_name": file_name,
             "abs_path": abs_path,
             "file_size_mb": round(file_size_mb, 2) if file_size_mb is not None else None,
+            "drive_file_id": drive_file_id,
         })
 
     return result
@@ -304,6 +316,7 @@ async def _run_sequence(
     academic_style_notes: Optional[str],
     batch_id: Optional[str] = None,
     strict_mode: bool = True,
+    upload_method: str = "drive",
 ):
     """
     The background sequence. Holds the in-memory run lock for its entire
@@ -311,8 +324,9 @@ async def _run_sequence(
     """
     run_lock = await _get_run_lock(chapter_id, subtopic_id)
 
-    async with run_lock:
-        existing_state = storage.read_nlm_state(chapter_id, subtopic_id) or {}
+    try:
+        async with run_lock:
+            existing_state = storage.read_nlm_state(chapter_id, subtopic_id) or {}
         state = {
             **existing_state,
             "chapter_id": chapter_id,
@@ -375,75 +389,68 @@ async def _run_sequence(
 
                 # ── Fix 1 & 2: Dedup and Capacity Check ───────────────────
                 try:
-                    async with _nlm_semaphore:
+                    async with _chat_semaphore:
                         existing_sources = await client.sources.list(notebook_id)
                 except Exception as e:
                     logger.warning(f"Could not list existing sources: {e}")
                     existing_sources = []
                     
-                existing_filenames = {s.title for s in existing_sources}
+                # NotebookLM strips extensions, so compare lowercased names without extensions
+                existing_filenames = {os.path.splitext(s.title)[0].lower() for s in existing_sources}
                 
-                # Check capacity
-                resolvable_count = len([p for p in resolved_paths if p.get("abs_path") and p.get("file_name", "").lower().endswith(".pdf")])
-                if len(existing_sources) + resolvable_count > 50:
+                resolvable = []
+                for p in resolved_paths:
+                    if upload_method == "drive" and p.get("drive_file_id"):
+                        resolvable.append(p)
+                    elif upload_method == "local" and p.get("abs_path") and p.get("file_name", "").lower().endswith(".pdf"):
+                        resolvable.append(p)
+
+                # Calculate exactly how many new files we need to upload
+                new_files_to_upload = [
+                    p for p in resolvable
+                    if os.path.splitext(p["file_name"])[0].lower() not in existing_filenames
+                ]
+                
+                # Check capacity AFTER deduplication
+                if len(existing_sources) + len(new_files_to_upload) > 50:
                     raise NotebookCapacityExceeded(
-                        f"Notebook '{notebook_id}' has {len(existing_sources)} sources and we need to add {resolvable_count}. Limit is 50."
+                        f"Notebook '{notebook_id}' has {len(existing_sources)} sources and we need to add {len(new_files_to_upload)}. Limit is 50."
                     )
 
                 # ── Step 4: upload PDFs ────────────────────────────────────
                 uploaded = []
                 failed = []
 
-                for path_entry in resolved_paths:
+                for path_entry in resolvable:
                     file_name = path_entry["file_name"]
-                    abs_path = path_entry["abs_path"]
-
-                    # Guard against non-PDF files
-                    if not file_name.lower().endswith(".pdf"):
-                        failed.append({
-                            "file": file_name,
-                            "reason": "not a PDF — only .pdf files are uploaded automatically",
-                            "failure_type": "not_pdf"
-                        })
-                        logger.warning(f"Skipping non-PDF file '{file_name}'")
-                        continue
-
-                    if not abs_path:
-                        failed.append({
-                            "file": file_name,
-                            "reason": (
-                                "local path could not be resolved — "
-                                "run POST /drive/scan-local first"
-                            ),
-                            "failure_type": "unresolved"
-                        })
-                        logger.warning(f"No local path resolved for '{file_name}'")
-                        continue
-
-                    # Verify file exists before attempting upload
-                    if not os.path.isfile(abs_path):
-                        failed.append({
-                            "file": file_name,
-                            "reason": f"file not found at resolved path: {abs_path}",
-                            "failure_type": "not_found"
-                        })
-                        logger.warning(f"File missing at '{abs_path}'")
-                        continue
+                    local_name_no_ext = os.path.splitext(file_name)[0].lower()
 
                     # Fix 1: Skip if already exists
-                    if file_name in existing_filenames:
+                    if local_name_no_ext in existing_filenames:
                         logger.info(f"Skipping '{file_name}' (already in notebook)")
                         uploaded.append(file_name)
                         continue
 
                     try:
-                        async with _nlm_semaphore:
-                            await asyncio.wait_for(
-                                client.sources.add_file(notebook_id, abs_path, wait=True),
-                                timeout=180.0
-                            )
+                        async with _upload_semaphore:
+                            if upload_method == "drive":
+                                await asyncio.wait_for(
+                                    client.sources.add_drive(
+                                        notebook_id,
+                                        file_id=path_entry["drive_file_id"],
+                                        mime_type="application/pdf",
+                                        title=file_name,
+                                        wait=True
+                                    ),
+                                    timeout=180.0
+                                )
+                            else:
+                                await asyncio.wait_for(
+                                    client.sources.add_file(notebook_id, path_entry["abs_path"], wait=True),
+                                    timeout=180.0
+                                )
                         uploaded.append(file_name)
-                        logger.info(f"Uploaded '{file_name}'")
+                        logger.info(f"Uploaded '{file_name}' via {upload_method}")
                     except asyncio.TimeoutError:
                         failed.append({
                             "file": file_name,
@@ -464,18 +471,15 @@ async def _run_sequence(
                 storage.write_nlm_state(chapter_id, subtopic_id, state)
 
                 # ── Completeness Check ─────────────────────────────────────
-                resolvable = [
-                    p for p in resolved_paths 
-                    if p.get("abs_path") and p.get("file_name", "").lower().endswith(".pdf")
-                ]
                 
                 # No valid PDFs found at all — path resolution failed entirely
                 if not resolvable:
                     raise RuntimeError(
-                        f"No uploadable PDFs found. All {len(resolved_paths)} source(s) failed "
-                        f"path resolution. Failed: {failed}. "
-                        "Run POST /drive/scan-local to refresh the file index."
+                        f"No uploadable sources found for method '{upload_method}'. All {len(resolved_paths)} source(s) failed. "
+                        f"Failed: {failed}. Run POST /drive/scan-local to refresh the file index."
                     )
+
+                actually_uploaded_new_files = len(uploaded) > 0 and len([f for f in uploaded if os.path.splitext(f)[0].lower() not in existing_filenames]) > 0
 
                 # Some PDFs resolved but not all uploaded successfully
                 if len(uploaded) < len(resolvable):
@@ -483,17 +487,21 @@ async def _run_sequence(
                         p["file_name"] for p in resolvable
                         if p["file_name"] not in uploaded
                     ]
-                    if strict_mode:
-                        raise RuntimeError(
-                            f"Incomplete upload: {len(uploaded)}/{len(resolvable)} PDFs succeeded. "
-                            f"Missing: {missing}. Aborting to avoid a response based on partial sources."
-                        )
-                    else:
-                        logger.warning(f"Proceeding with partial sources. Missing: {missing}")
-                        state["partial_sources"] = True
+                    
+                    logger.warning(f"Incomplete upload. Missing: {missing}. Pausing for manual upload.")
+                    state.update({
+                        "status": "waiting_for_manual_upload",
+                        "missing_sources": missing,
+                        "sources_uploaded": uploaded,
+                        "sources_failed": failed,
+                    })
+                    storage.write_nlm_state(chapter_id, subtopic_id, state)
+                    # Gracefully exit without calling prompt_1
+                    return
 
                 # Fix 8: Post-upload indexing buffer
-                await asyncio.sleep(10)
+                if actually_uploaded_new_files:
+                    await asyncio.sleep(10)
 
                 # ── Step 5: send prompt_1 ──────────────────────────────────
                 logger.info(f"Sending prompt_1 to notebook '{notebook_id}'")
@@ -503,7 +511,7 @@ async def _run_sequence(
                 draft_text = None
                 for attempt in range(retries + 1):
                     try:
-                        async with _nlm_semaphore:
+                        async with _chat_semaphore:
                             result = await client.chat.ask(notebook_id, prompt_1)
                         draft_text = result.answer
                         break
@@ -555,6 +563,10 @@ async def _run_sequence(
             logger.error(f"Run failed for '{subtopic_id}': {e}", exc_info=True)
             state.update({"status": "error", "error": str(e)})
             storage.write_nlm_state(chapter_id, subtopic_id, state)
+    finally:
+        async with _locks_registry_lock:
+            if (chapter_id, subtopic_id) in _run_locks:
+                del _run_locks[(chapter_id, subtopic_id)]
 
 
 async def _run_batch_sequence(
@@ -566,6 +578,7 @@ async def _run_batch_sequence(
     academic_style_notes: Optional[str],
     notebook_title_prefix: Optional[str],
     strict_mode: bool = True,
+    upload_method: str = "drive",
 ):
     """
     Splits subtopic_ids into two halves and runs them with asyncio.gather.
@@ -593,6 +606,7 @@ async def _run_batch_sequence(
                 academic_style_notes=academic_style_notes,
                 batch_id=batch_id,
                 strict_mode=strict_mode,
+                upload_method=upload_method,
             )
 
     try:
@@ -654,7 +668,8 @@ async def suggest_summary_service(
 
     try:
         async with _nlm_client() as client:
-            result = await client.chat.ask(notebook_id, summary_prompt)
+            async with _chat_semaphore:
+                result = await client.chat.ask(notebook_id, summary_prompt)
         raw_text = result.answer
     except (NLMNotInstalledError, NLMAuthError):
         raise  # router translates to 503
