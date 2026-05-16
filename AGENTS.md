@@ -1,13 +1,7 @@
 # AGENTS.md — Project Intelligence File
-# Scope: This project only. Extends and overrides GEMINI.md.
 
 ---
 
-## INHERITED SECTION
-> Rules here extend the global GEMINI.md. Do not duplicate global rules.
-> Add project-specific context, stack details, and conventions here.
-
----
 
 ### Who You Are Working With
 
@@ -59,15 +53,15 @@ Expected structure:
 
 ### Naming Conventions
 
-| Type | Convention | Example |
-|------|-----------|---------|
-| React components | PascalCase | `UserCard.jsx` |
-| Hooks | camelCase with `use` prefix | `useAuthUser.js` |
-| Services | camelCase | `userService.js` |
-| Backend routes | kebab-case | `/api/user-profile` |
-| Backend controllers | camelCase | `getUserById` |
-| Constants | UPPER_SNAKE_CASE | `MAX_RETRY_COUNT` |
-| Variables/functions | camelCase | `fetchUserData` |
+| Type                | Convention                  | Example             |
+| ------------------- | --------------------------- | ------------------- |
+| React components    | PascalCase                  | `UserCard.jsx`      |
+| Hooks               | camelCase with `use` prefix | `useAuthUser.js`    |
+| Services            | camelCase                   | `userService.js`    |
+| Backend routes      | kebab-case                  | `/api/user-profile` |
+| Backend controllers | camelCase                   | `getUserById`       |
+| Constants           | UPPER_SNAKE_CASE            | `MAX_RETRY_COUNT`   |
+| Variables/functions | camelCase                   | `fetchUserData`     |
 
 ---
 
@@ -118,13 +112,3 @@ Every backend success must return:
 - Never refactor unrelated code while doing a task
 
 ---
-
-## OVERRIDES SECTION
-> Rules here replace a specific global rule from GEMINI.md for this project only.
-> Leave empty if no overrides are needed.
-
-```
-Format: OVERRIDE [rule name]: [new rule for this project]
-```
-
-<!-- Add project-specific overrides below this line -->

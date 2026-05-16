@@ -339,12 +339,22 @@ async def _run_sequence(
 
                 # ── Step 3: create or reuse notebook ──────────────────────
                 notebook_id = existing_state.get("notebook_id")
+                if notebook_id:
+                    try:
+                        # Verify the notebook still exists on NotebookLM
+                        await client.notebooks.get(notebook_id)
+                        logger.info(f"Reusing existing notebook '{notebook_id}' for '{subtopic_id}'")
+                    except Exception as e:
+                        logger.warning(
+                            f"Existing notebook '{notebook_id}' could not be accessed "
+                            f"(it may have been deleted). Creating a new one. Error: {e}"
+                        )
+                        notebook_id = None
+
                 if not notebook_id:
                     nb = await client.notebooks.create(notebook_title)
                     notebook_id = nb.id
                     logger.info(f"Created notebook '{notebook_id}' for '{subtopic_id}'")
-                else:
-                    logger.info(f"Reusing existing notebook '{notebook_id}' for '{subtopic_id}'")
 
                 state["notebook_id"] = notebook_id
                 storage.write_nlm_state(chapter_id, subtopic_id, state)
