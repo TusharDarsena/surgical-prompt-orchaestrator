@@ -114,9 +114,19 @@ export const generateConsistencyPrompt = (chapterId, subtopicId, wordCount, styl
   const qs = params.toString() ? `?${params}` : "";
   return _get(`/compile/notebooklm-prompt/${chapterId}/${subtopicId}${qs}`);
 };
-// ── Drive & Local Scanner ───────────────────────────────────────────────────
 export const registerDriveLinks = (driveFolderId) =>
   _post("/drive/register-links", { drive_parent_folder_id: driveFolderId });
 
 export const getDriveLinks = (thesisName) =>
   _get(`/drive/links/${thesisName}`);
+
+// ── Google Docs ───────────────────────────────────────────────────────────────
+
+export const getGDocsStatus = () =>
+  _get("/gdocs/auth/status");
+
+export const exportToGDocs = (chapterId, subtopicId, force = false) =>
+  _post(_p(`/gdocs/export`), { chapter_id: chapterId, subtopic_id: subtopicId, force });
+
+export const getChapterDoc = (chapterId) =>
+  _get(_p(`/gdocs/chapter/${chapterId}`));

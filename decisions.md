@@ -118,3 +118,29 @@ When you are about to make a design choice, check here first.
 Both use `_nlm_client()` from `notebooklm_service.py`. Neither deletes notebooks automatically.
 
 **Implication for new features:** If you add a third automation path, follow the same persistent-notebook pattern. Document it here.
+
+---
+
+## 10. Google Docs Export Integration
+
+**Decision 10.1: OAuth Flow & Deployment**
+- **Decision:** Use the standard Web OAuth flow (`google_auth_oauthlib.flow.Flow`) with a manual `/gdocs/auth/callback` route, instead of `InstalledAppFlow`.
+- **Reasoning:** `InstalledAppFlow` blocks the event loop and binds to localhost, which breaks if SPO is deployed to a remote server/VPS. The web flow supports both local and remote use cases seamlessly.
+- **Enforcement:** The redirect URI is configurable via the `GDOCS_REDIRECT_URI` environment variable, defaulting to `http://localhost:8000/gdocs/auth/callback`.
+
+**Decision 10.2: Token Storage**
+- **Decision:** Store OAuth credentials securely in the OS keychain using the `keyring` library, with a plaintext fallback.
+- **Reasoning:** Storing OAuth refresh tokens in plaintext JSON on disk (`spo_data/misc`) is a security risk. `keyring` provides zero-configuration secure storage on Windows/macOS/Linux. If `keyring` fails (e.g., headless environments), it falls back to plaintext JSON with a logged warning.
+
+**Decision 10.3: Named Range Update Ordering**
+- **Decision:** When updating a Named Range in Google Docs, the order of operations in the `batchUpdate` MUST be: 1. `insertText` at the original `startIndex`, 2. `deleteContentRange` of the old, shifted text.
+- **Reasoning:** The Docs API shifts indices of all subsequent content when text is inserted. If you delete first, you lose the boundary markers. Reversing this order silently corrupts sync state.
+
+**Decision 10.4: Conflict Detection (Safe Sync Guard)**
+- **Decision:** Detect manual edits in Google Docs using normalized string comparison of the Named Range text, NOT raw SHA-256 hashing or document-level `revisionId`.
+- **Reasoning:** Raw hashing produces constant false positives because Docs normalizes control characters (`\n` to `\x0b`) and whitespace. Document-level `revisionId` produces cross-subtopic false positives (editing subtopic B flags subtopic A). Normalized text comparison is the only accurate method.
+
+**Decision 10.5: Chapter-Native Storage & Read-Merge-Write**
+- **Decision:** Google Doc IDs (`gdoc_id`) are stored in the chapter metadata, and Named Range IDs (`gdoc_named_range_id`) in the subtopic metadata. All updates to chapter JSON MUST use a read-merge-write pattern.
+- **Reasoning:** `storage.write_chapter()` performs a full dictionary replacement. Blindly writing back to the chapter will clobber the `gdoc_id` and other metadata.
+- **Enforcement:** Services must always read the chapter, mutate the specific keys they own, and write it back.

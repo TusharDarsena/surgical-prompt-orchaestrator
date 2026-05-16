@@ -119,6 +119,13 @@
           </div>
         </div>
 
+        <!-- Chapter Google Doc link (shown once a doc is created) -->
+        <div id="chapterDocLinkWrap" style="display:none; padding:4px 0 8px; font-size:11.5px;">
+          <a id="chapterDocLink" href="#" target="_blank" rel="noopener"
+            style="color:var(--accent);text-decoration:none;">&#8599; View Chapter Doc</a>
+          <span id="chapterDocStatus" style="color:var(--muted); margin-left:8px;"></span>
+        </div>
+
         <!-- ══ CARD 01: CONFIGURE ══ -->
         <div class="card done" id="card01">
           <div class="card-header" data-card="card01">
@@ -182,6 +189,17 @@
             <!-- Run table — rows injected by JS -->
             <div class="run-table">
               <div id="runTableBody"></div>
+            </div>
+
+            <!-- Google Docs export row -->
+            <div class="run-all-row" style="justify-content: flex-end; align-items: center; margin-top: 8px; gap: 10px;">
+              <span id="gdocsConnectStatus" style="font-size:11.5px; color:var(--muted);"></span>
+              <button class="btn btn-ghost" id="btnConnectGDocs" type="button" style="font-size:11.5px;" title="Connect your Google account to enable Docs export">
+                🔗 Connect Google
+              </button>
+              <button class="btn btn-ghost" id="btnExportToGDocs" type="button" style="font-size:11.5px;" disabled title="Export the selected subtopic's saved draft to Google Docs">
+                📄 Export to Google Docs
+              </button>
             </div>
 
           </div>
@@ -256,6 +274,40 @@
 
   <!-- TOAST CONTAINER -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- GOOGLE DOCS CONFLICT MODAL -->
+  <div id="gdocsConflictModal" style="
+      display:none; position:fixed; inset:0; z-index:9999;
+      background:rgba(0,0,0,0.65); display:none;
+      align-items:center; justify-content:center;">
+    <div style="
+        background:var(--surface); border:1px solid var(--border); border-radius:12px;
+        padding:28px; max-width:780px; width:90%; box-shadow:0 8px 40px rgba(0,0,0,0.5);">
+      <div style="font-size:15px; font-weight:600; margin-bottom:6px;">⚠ Manual edits detected in Google Docs</div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:18px;"
+        id="gdocsConflictDate"></div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">
+        <div>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.05em;">Current Google Docs version</div>
+          <pre id="gdocsConflictGdoc" style="
+              background:var(--surface2); border:1px solid var(--border); border-radius:6px;
+              padding:12px; font-size:11.5px; white-space:pre-wrap; word-break:break-word;
+              max-height:220px; overflow-y:auto; margin:0;"></pre>
+        </div>
+        <div>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.05em;">New SPO draft</div>
+          <pre id="gdocsConflictSpo" style="
+              background:var(--surface2); border:1px solid var(--border); border-radius:6px;
+              padding:12px; font-size:11.5px; white-space:pre-wrap; word-break:break-word;
+              max-height:220px; overflow-y:auto; margin:0;"></pre>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button class="btn btn-ghost" id="btnConflictCancel" type="button">Keep Google Docs version</button>
+        <button class="btn btn-run" id="btnConflictOverwrite" type="button">Overwrite with new draft</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/static/js/write_section.js"></script>
 </body>

@@ -47,7 +47,7 @@ _templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 # ── Backend routers ───────────────────────────────────────────────────────────
 from routers import thesis, sources, consistency, notes, compiler, importer, drive, sections
-from routers import notebooklm
+from routers import notebooklm, gdocs
 
 # ── Frontend page router modules ──────────────────────────────────────────────
 import spo_frontend.new_pages_already_migrated.app_home_page       as _mod_app_home
@@ -95,6 +95,7 @@ app.include_router(importer.router)
 app.include_router(drive.router)
 app.include_router(sections.router)
 app.include_router(notebooklm.router)
+app.include_router(gdocs.router)
 
 # ── Register frontend page routers ────────────────────────────────────────────
 app.include_router(_mod_app_home.router)   # GET /app

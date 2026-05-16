@@ -37,3 +37,13 @@ Summary: The backend architecture is bulletproof. To make it a usable product, y
 - Memory leak in `_run_locks` cleanup.
 - Unnecessary blocking I/O (os.path.isfile) in the main async event loop.
 - JSON decoding errors caused by trailing commas in NotebookLM outputs.
+
+## [2026-05-17] - Google Docs Export Integration
+
+### Added
+- **Google Docs Export Service**: Implemented direct export of subtopic drafts to Google Docs.
+- **Smart Appending & Replacing**: Subtopics are correctly appended to chapter-level Google Docs. Re-exporting an existing subtopic correctly replaces the existing text in-place using Google Docs Named Ranges.
+- **Safe Sync Guard**: Implemented normalized string comparison to detect manual edits made in Google Docs. Protects user's manual edits from being overwritten accidentally, throwing a `409 Conflict`.
+- **Conflict Resolution UI**: Added a side-by-side diff modal in the frontend to handle 409 Conflicts, allowing the user to either keep their Google Docs changes or force an overwrite with the new SPO draft.
+- **Chapter-Native Document Tracking**: Google Doc IDs are now tracked natively within `chapter_XX.json` metadata, ensuring 1:1 mapping between SPO chapters and Google Docs.
+- **Authentication**: Added Web OAuth 2.0 flow with `keyring` storage for secure token management, falling back to plaintext JSON where unavailable. Included `GDOCS_REDIRECT_URI` environment variable support for deployment flexibility.

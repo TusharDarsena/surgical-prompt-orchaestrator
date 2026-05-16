@@ -923,6 +923,135 @@ async function init() {
     loadChaptersFromServer();
     toast("Chapter list refreshed.", "success");
   });
+
+  // ── Google Docs ───────────────────────────────────────────────────────────
+  await _gdocsInit();
+
+  $("btnConnectGDocs")?.addEventListener("click", () => {
+    window.open("/gdocs/auth", "_blank", "width=600,height=700");
+    _gdocsPollConnection();
+  });
+
+  $("btnExportToGDocs")?.addEventListener("click", () => actions.exportToGDocs());
+
+  $("btnConflictCancel")?.addEventListener("click", () => {
+    $("gdocsConflictModal").style.display = "none";
+  });
+
+  $("btnConflictOverwrite")?.addEventListener("click", async () => {
+    $("gdocsConflictModal").style.display = "none";
+    await actions.exportToGDocs(true);
+  });
 }
+
+// ── Google Docs helpers ─────────────────────────────────────────────────────
+
+async function _gdocsInit() {
+  try {
+    const { connected } = await API.getGDocsStatus();
+    _setGDocsConnected(connected);
+  } catch (_) {
+    // endpoint may not exist yet — safe to ignore
+  }
+}
+
+function _setGDocsConnected(connected) {
+  const statusEl = $("gdocsConnectStatus");
+  const connectBtn = $("btnConnectGDocs");
+  const exportBtn = $("btnExportToGDocs");
+  if (connected) {
+    if (statusEl) statusEl.textContent = "✓ Google connected";
+    if (connectBtn) connectBtn.style.display = "none";
+    if (exportBtn) exportBtn.disabled = false;
+  } else {
+    if (statusEl) statusEl.textContent = "";
+    if (connectBtn) connectBtn.style.display = "";
+    if (exportBtn) exportBtn.disabled = true;
+  }
+}
+
+function _gdocsPollConnection() {
+  let tries = 0;
+  const interval = setInterval(async () => {
+    tries++;
+    try {
+      const { connected } = await API.getGDocsStatus();
+      if (connected) {
+        clearInterval(interval);
+        _setGDocsConnected(true);
+        toast("Google account connected!", "success");
+      }
+    } catch (_) {}
+    if (tries >= 30) clearInterval(interval); // stop after ~60s
+  }, 2000);
+}
+
+async function _refreshChapterDocLink() {
+  if (!state.chapterId) return;
+  try {
+    const res = await API.getChapterDoc(state.chapterId);
+    const wrap = $("chapterDocLinkWrap");
+    const link = $("chapterDocLink");
+    if (res?.doc_url) {
+      link.href = res.doc_url;
+      wrap.style.display = "block";
+    } else {
+      wrap.style.display = "none";
+    }
+  } catch (_) {
+    $("chapterDocLinkWrap").style.display = "none";
+  }
+}
+
+function _showConflictModal(detail) {
+  $("gdocsConflictGdoc").textContent = detail.gdoc_excerpt ?? "(could not read Docs content)";
+  $("gdocsConflictSpo").textContent = detail.spo_excerpt ?? "(could not read SPO draft)";
+  const dateEl = $("gdocsConflictDate");
+  if (detail.last_export_at) {
+    const d = new Date(detail.last_export_at);
+    dateEl.textContent = `Last exported: ${d.toLocaleString()}`;
+  } else {
+    dateEl.textContent = "";
+  }
+  $("gdocsConflictModal").style.display = "flex";
+}
+
+// Attached to actions so the conflict modal "Overwrite" button can call it with force=true
+actions.exportToGDocs = async function exportToGDocs(force = false) {
+  const subtopicId = state.activeSubtopicId;
+  if (!subtopicId || !state.chapterId) {
+    toast("Select a subtopic first.", "info");
+    return;
+  }
+
+  const exportBtn = $("btnExportToGDocs");
+  const originalLabel = exportBtn?.textContent ?? "📄 Export to Google Docs";
+  if (exportBtn) { exportBtn.disabled = true; exportBtn.textContent = "⏳ Exporting…"; }
+
+  try {
+    const result = await API.exportToGDocs(state.chapterId, subtopicId, force);
+    const linkHtml = `<a href="${result.doc_url}" target="_blank" rel="noopener"
+      style="color:var(--accent); margin-left:4px;">Open Doc ↗</a>`;
+    toast("Exported! " + linkHtml, "success", 7000);
+    if (result.warning === "named_range_missing") {
+      toast("⚠ Named range was lost — section re-appended to end of doc.", "info", 6000);
+    }
+    await _refreshChapterDocLink();
+  } catch (err) {
+    if (err.status === 409 || (err.message && err.message.includes("409"))) {
+      let detail = {};
+      try {
+        // err.message format from api.js: "409: {...json...}"
+        const jsonPart = err.message.replace(/^\d+:\s*/, "");
+        detail = JSON.parse(jsonPart);
+      } catch (_) {}
+      _showConflictModal(detail);
+    } else {
+      toast(`Export failed: ${err.message}`, "error");
+    }
+  } finally {
+    if (exportBtn) { exportBtn.disabled = false; exportBtn.textContent = originalLabel; }
+  }
+};
 
 document.addEventListener("DOMContentLoaded", init);
