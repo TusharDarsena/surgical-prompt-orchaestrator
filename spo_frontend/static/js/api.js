@@ -87,6 +87,9 @@ export const nlmState = (chapterId, subtopicId) =>
 export const nlmDeleteNotebook = (chapterId, subtopicId) =>
   _delete(_p(`/notebooklm/notebook/${chapterId}/${subtopicId}`));
 
+export const nlmForceUnlock = (chapterId, subtopicId) =>
+  _post(_p(`/notebooklm/force-unlock/${chapterId}/${subtopicId}`));
+
 export const nlmRunBatch = (chapterId, subtopicIds, wordCount, styleNotes, uploadMethod) => {
   const body = { subtopic_ids: subtopicIds };
   if (wordCount)  body.word_count           = wordCount;

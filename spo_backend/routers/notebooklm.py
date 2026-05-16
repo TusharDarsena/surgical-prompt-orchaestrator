@@ -243,10 +243,70 @@ async def get_nlm_state(chapter_id: str, subtopic_id: str, thesis_id: str = Quer
 
     # If the lock is held but disk state says done/error (new run just
     # started while stale state was on disk), trust the in-memory lock.
-    if active and state.get("status") != "running":
+    if active and state.get("status") not in ("running", "expanding"):
         state["status"] = "running"
 
     return state
+
+
+@router.post(
+    "/force-unlock/{chapter_id}/{subtopic_id}",
+    summary="Force unlock a subtopic stuck in the 'expanding' state"
+)
+async def force_unlock(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
+    """
+    Escape hatch for Stage 2 (Expansion) server crashes.
+    If a subtopic is stuck in "expanding" or "stage2_error", this endpoint:
+      1. Tries to clean up the orphaned Draft 1 text source in NotebookLM.
+      2. Updates status to "stage2_error" so the UI unlocks the text area.
+    """
+    state = storage.read_nlm_state(chapter_id, subtopic_id, thesis_id=thesis_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="No state found for subtopic.")
+    
+    status = state.get("status")
+    if status not in ("expanding", "stage2_error"):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot unlock. Subtopic is in state '{status}', not 'expanding'."
+        )
+
+    # Attempt to clean up orphaned source
+    notebook_id = state.get("notebook_id")
+    draft_source_id = state.get("draft_source_id")
+    draft_source_title = state.get("draft_source_title")
+
+    if notebook_id:
+        try:
+            async with _nlm_client() as client:
+                if draft_source_id:
+                    logger.info(f"Force unlock: deleting orphaned text source {draft_source_id}")
+                    try:
+                        await client.sources.delete(notebook_id, draft_source_id)
+                    except Exception:
+                        pass # Swallow errors, source might already be gone
+                elif draft_source_title:
+                    logger.info(f"Force unlock: scanning for orphaned text source '{draft_source_title}'")
+                    sources = await client.sources.list(notebook_id)
+                    for src in sources:
+                        if src.title == draft_source_title:
+                            try:
+                                await client.sources.delete(notebook_id, src.id)
+                            except Exception:
+                                pass
+        except Exception as e:
+            logger.warning(f"Force unlock: could not connect to NLM to clean up source: {e}")
+
+    state.update({
+        "status": "stage2_error",
+        "error": "Manually force-unlocked by user (Stage 2 expansion aborted).",
+        "draft_source_id": None,
+        "draft_source_title": None,
+        "updated_at": datetime.utcnow().isoformat(),
+    })
+    storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
+    
+    return {"ok": True, "message": "Subtopic unlocked successfully."}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

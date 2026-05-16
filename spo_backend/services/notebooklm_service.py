@@ -150,6 +150,36 @@ def generate_batch_id(chapter_id: str) -> str:
     return f"batch_{chapter_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
 
 
+# ── Reusable chat retry helper ──────────────────────────────────────────────────
+
+async def _ask_with_retry(client, notebook_id: str, prompt: str, retries: int = 2) -> str:
+    """
+    Sends a prompt to a NotebookLM notebook and retries on transient
+    network/timeout errors. Always opens a fresh conversation thread
+    (no conversation_id passed), so there is zero contamination from
+    any previous chat turn in the same notebook.
+
+    Raises RuntimeError after all retries are exhausted.
+    """
+    for attempt in range(retries + 1):
+        try:
+            async with _chat_semaphore:
+                result = await client.chat.ask(notebook_id, prompt)
+            answer = result.answer
+            if not answer or not answer.strip():
+                raise RuntimeError(
+                    "NotebookLM returned an empty response. "
+                    "Sources may still be processing — wait 30 seconds and retry."
+                )
+            return answer
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            if attempt < retries:
+                logger.warning(f"chat.ask timeout/network error, retrying in 10s... ({e})")
+                await asyncio.sleep(10)
+            else:
+                raise RuntimeError(f"chat.ask failed after {retries} retries: {e}") from e
+
+
 # ── PDF size guard ─────────────────────────────────────────────────────────────
 
 PDF_SIZE_LIMIT_MB = 10.0
@@ -516,32 +546,14 @@ async def _run_sequence(
                 if actually_uploaded_new_files:
                     await asyncio.sleep(10)
 
-                # ── Step 5: send prompt_1 ──────────────────────────────────
+                # ── Step 5: send prompt_1 (Stage 1 — Generation) ───────────
                 logger.info(f"Sending prompt_1 to notebook '{notebook_id}'")
-                
-                # Fix 7: Retry wrapper for chat.ask
-                retries = 2
-                draft_text = None
-                for attempt in range(retries + 1):
-                    try:
-                        async with _chat_semaphore:
-                            result = await client.chat.ask(notebook_id, prompt_1)
-                        draft_text = result.answer
-                        break
-                    except (httpx.TimeoutException, httpx.NetworkError) as e:
-                        if attempt < retries:
-                            logger.warning(f"chat.ask timeout/network error, retrying in 10s... ({e})")
-                            await asyncio.sleep(10)
-                        else:
-                            raise RuntimeError(f"chat.ask failed after {retries} retries: {e}")
+                draft_1 = await _ask_with_retry(client, notebook_id, prompt_1)
 
-                if not draft_text or not draft_text.strip():
-                    raise RuntimeError(
-                        "NotebookLM returned an empty response. "
-                        "Sources may still be processing — wait 30 seconds and retry."
-                    )
-
-                # ── Step 6: save draft ─────────────────────────────────────
+                # ── Step 6: save Draft 1 & set expanding status ─────────────
+                # Save Draft 1 immediately so it is never lost, even if Stage 2
+                # fails. Only touch text/source/updated_at — do not clobber any
+                # Google Docs metadata already on disk.
                 await asyncio.to_thread(
                     storage.write_section_draft,
                     chapter_id,
@@ -549,26 +561,90 @@ async def _run_sequence(
                     {
                         "chapter_id": chapter_id,
                         "subtopic_id": subtopic_id,
-                        "text": draft_text,
-                        "source": "notebooklm_automated",
+                        "text": draft_1,
+                        "source": "notebooklm_stage1",
                         "updated_at": datetime.utcnow().isoformat(),
                     },
                     thesis_id=thesis_id
                 )
 
-                # ── Done ───────────────────────────────────────────────────
+                # Write a crash-safe title placeholder BEFORE add_text so the
+                # force-unlock endpoint can locate the source even if the ID
+                # was never persisted.
+                draft_source_title = f"SPO Draft — {subtopic_id}"
+                state.update({
+                    "status": "expanding",
+                    "draft_preview": draft_1[:300] + ("..." if len(draft_1) > 300 else ""),
+                    "draft_source_title": draft_source_title,
+                    "draft_source_id": None,
+                    "updated_at": datetime.utcnow().isoformat(),
+                })
+                storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
+                logger.info(f"Draft 1 saved. Starting Stage 2 (expansion) for '{subtopic_id}'")
+
+                # ── Step 7: Stage 2 — Scholarly Expansion ──────────────────
+                draft_source_id: Optional[str] = None
+                try:
+                    # Add Draft 1 as a text source so the RAG engine can
+                    # retrieve it alongside the uploaded PDFs.
+                    async with _upload_semaphore:
+                        draft_src = await asyncio.wait_for(
+                            client.sources.add_text(
+                                notebook_id,
+                                title=draft_source_title,
+                                content=draft_1,
+                                wait=True,  # polls status==READY (code 2) — safe to query immediately
+                            ),
+                            timeout=60.0
+                        )
+                    draft_source_id = draft_src.id
+
+                    # Persist the source ID immediately — before any other logic —
+                    # so force-unlock can clean it up even if the server crashes
+                    # between here and the final state write.
+                    state["draft_source_id"] = draft_source_id
+                    storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
+
+                    logger.info(f"Draft 1 text source '{draft_source_id}' added. Sending prompt_2.")
+                    draft_2 = await _ask_with_retry(client, notebook_id, prompt_2)
+
+                finally:
+                    # Always clean up the temporary text source, whether
+                    # Stage 2 succeeded, timed out, or errored.
+                    if draft_source_id:
+                        try:
+                            await client.sources.delete(notebook_id, draft_source_id)
+                            logger.info(f"Deleted temporary text source '{draft_source_id}'")
+                        except Exception as del_err:
+                            # 404 or any other error — source may already be gone.
+                            logger.warning(f"Could not delete text source '{draft_source_id}': {del_err}")
+
+                # ── Step 8: save Draft 2 & mark done ───────────────────────
+                await asyncio.to_thread(
+                    storage.write_section_draft,
+                    chapter_id,
+                    subtopic_id,
+                    {
+                        "chapter_id": chapter_id,
+                        "subtopic_id": subtopic_id,
+                        "text": draft_2,
+                        "source": "notebooklm_stage2",
+                        "updated_at": datetime.utcnow().isoformat(),
+                    },
+                    thesis_id=thesis_id
+                )
+
                 state.update({
                     "status": "done",
                     "prompt_2": prompt_2,
-                    "draft_preview": (
-                        draft_text[:300] + "..."
-                        if len(draft_text) > 300
-                        else draft_text
-                    ),
+                    "draft_preview": draft_2[:300] + ("..." if len(draft_2) > 300 else ""),
+                    "draft_source_id": None,
+                    "draft_source_title": None,
                     "error": None,
+                    "updated_at": datetime.utcnow().isoformat(),
                 })
                 storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
-                logger.info(f"Run complete for subtopic '{subtopic_id}'")
+                logger.info(f"Two-stage run complete for subtopic '{subtopic_id}'")
 
         except NLMAuthError:
             # Re-raise so batch can catch it and cancel everything
@@ -579,7 +655,15 @@ async def _run_sequence(
             raise
         except Exception as e:
             logger.error(f"Run failed for '{subtopic_id}': {e}", exc_info=True)
-            state.update({"status": "error", "error": str(e)})
+            # Use stage2_error when Stage 1 was already saved, so the frontend
+            # can show Draft 1 in the editor instead of a blank error screen.
+            current_status = state.get("status", "running")
+            final_status = "stage2_error" if current_status == "expanding" else "error"
+            state.update({
+                "status": final_status,
+                "error": str(e),
+                "updated_at": datetime.utcnow().isoformat(),
+            })
             storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
     finally:
         async with _locks_registry_lock:

@@ -211,14 +211,29 @@ function renderRunTable() {
       note.className = "run-status-note";
       note.textContent = rs.sources_uploaded?.length
         ? `Uploading… (${rs.sources_uploaded.length} done)`
-        : "Starting…";
+        : "Starting Stage 1…";
       nameCol.appendChild(note);
     }
-    if (status === "error") {
+    if (status === "expanding") {
       const note = document.createElement("div");
       note.className = "run-status-note";
-      note.style.color = "#f87171";
+      note.style.color = "#d97706"; // warning/orange
+      note.textContent = "Stage 2: Expanding Draft...";
+      nameCol.appendChild(note);
+    }
+    if (status === "error" || status === "stage2_error") {
+      const note = document.createElement("div");
+      note.className = "run-status-note";
+      note.style.color = "#f87171"; // error/red
       note.textContent = rs.error ?? "Error";
+      
+      if (status === "stage2_error") {
+        const subNote = document.createElement("div");
+        subNote.style.fontSize = "10px";
+        subNote.style.marginTop = "2px";
+        subNote.textContent = "Stage 2 failed. Draft 1 is available.";
+        note.appendChild(subNote);
+      }
       nameCol.appendChild(note);
     }
     if (status === "waiting_for_manual_upload") {
@@ -281,7 +296,7 @@ function renderRunTable() {
     cpBtn.addEventListener("click", () => actions.copyPromptForSubtopic(sub.subtopic_id));
     actCol.appendChild(cpBtn);
 
-    if (status === "idle" || status === "error") {
+    if (status === "idle" || status === "error" || status === "stage2_error") {
       // run button
       const runBtn = document.createElement("button");
       runBtn.className = "btn btn-run";
@@ -300,13 +315,28 @@ function renderRunTable() {
       actCol.appendChild(resumeBtn);
     }
 
-    if (status === "running") {
+    if (status === "running" || status === "expanding") {
       const stopBtn = document.createElement("button");
       stopBtn.className = "btn btn-danger";
       stopBtn.style.cssText = "padding:4px 10px;font-size:11px;";
       stopBtn.textContent = "Stop";
       stopBtn.addEventListener("click", () => actions.stopSubtopic(sub.subtopic_id));
       actCol.appendChild(stopBtn);
+      
+      // Force Unlock button logic
+      if (status === "expanding" && rs.updated_at) {
+        const updatedTime = new Date(rs.updated_at).getTime();
+        const tenMins = 10 * 60 * 1000;
+        if (Date.now() - updatedTime > tenMins) {
+           const unlockBtn = document.createElement("button");
+           unlockBtn.className = "btn btn-danger";
+           unlockBtn.style.cssText = "padding:4px 10px;font-size:11px; margin-left: 4px;";
+           unlockBtn.textContent = "Force Unlock";
+           unlockBtn.title = "Stage 2 seems stuck. Click to unlock and use Draft 1.";
+           unlockBtn.addEventListener("click", () => actions.forceUnlockSubtopic(sub.subtopic_id));
+           actCol.appendChild(unlockBtn);
+        }
+      }
     }
 
     if (status === "done") {
@@ -565,7 +595,7 @@ const actions = {
     const idle = state.subtopics.filter(
       s => {
         const st = getRunState(s.subtopic_id).status;
-        return st === "idle" || st === "error";
+        return st === "idle" || st === "error" || st === "stage2_error";
       }
     );
     if (!idle.length) { toast("No idle or failed subtopics", "info"); return; }
@@ -595,6 +625,24 @@ const actions = {
       toast(`Batch started — ${idleIds.length} subtopics`, "info");
     } catch (err) {
       toast(`Batch failed: ${err.message}`, "error");
+    }
+  },
+
+  async forceUnlockSubtopic(subtopicId) {
+    if (!confirm("Are you sure you want to force-unlock this subtopic? It will cancel any background expansion tasks and cleanup orphaned sources.")) {
+      return;
+    }
+    try {
+      await API.nlmForceUnlock(state.chapterId, subtopicId);
+      toast("Subtopic unlocked.", "success");
+      // Give server a moment to update state, then refresh
+      setTimeout(async () => {
+        await actions._refreshSubtopicData(subtopicId);
+        renderRunTable();
+        renderGeneratePill();
+      }, 500);
+    } catch (err) {
+      toast(`Force unlock failed: ${err.message}`, "error");
     }
   },
 
