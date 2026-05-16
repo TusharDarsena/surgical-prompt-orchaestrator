@@ -194,6 +194,7 @@ async def run_notebooklm(
         word_count=req.word_count,
         academic_style_notes=req.academic_style_notes,
         upload_method=req.upload_method,
+        thesis_id=thesis_id,
     )
 
     return {
@@ -213,7 +214,7 @@ async def run_notebooklm(
     "/state/{chapter_id}/{subtopic_id}",
     summary="Get run state — poll this after triggering /run"
 )
-async def get_nlm_state(chapter_id: str, subtopic_id: str):
+async def get_nlm_state(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
     """
     Returns stored NLM state. The in-memory lock is also checked so the
     status is accurate even if state on disk is stale from a previous run.
@@ -228,7 +229,7 @@ async def get_nlm_state(chapter_id: str, subtopic_id: str):
         - sources_uploaded / sources_failed: upload audit trail
     """
     active = await is_run_active(chapter_id, subtopic_id)
-    state = storage.read_nlm_state(chapter_id, subtopic_id)
+    state = storage.read_nlm_state(chapter_id, subtopic_id, thesis_id=thesis_id)
 
     if not state:
         return {
@@ -256,7 +257,7 @@ async def get_nlm_state(chapter_id: str, subtopic_id: str):
     "/notebook/{chapter_id}/{subtopic_id}",
     summary="Delete the NotebookLM notebook and clear state for a subtopic"
 )
-async def delete_notebook(chapter_id: str, subtopic_id: str):
+async def delete_notebook(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
     """
     Deletes the notebook via the NotebookLM API and clears stored state.
     The section draft is NOT affected — only the NLM notebook and state.
@@ -268,7 +269,7 @@ async def delete_notebook(chapter_id: str, subtopic_id: str):
             detail="Cannot delete notebook while a run is in progress. Wait for it to finish."
         )
 
-    state = storage.read_nlm_state(chapter_id, subtopic_id)
+    state = storage.read_nlm_state(chapter_id, subtopic_id, thesis_id=thesis_id)
     if not state:
         raise HTTPException(
             status_code=404,
@@ -289,7 +290,7 @@ async def delete_notebook(chapter_id: str, subtopic_id: str):
             delete_error = str(e)
             logger.warning(f"Notebook API deletion failed for '{notebook_id}': {e}")
 
-    storage.delete_nlm_state(chapter_id, subtopic_id)
+    storage.delete_nlm_state(chapter_id, subtopic_id, thesis_id=thesis_id)
 
     return {
         "deleted": True,
@@ -368,7 +369,7 @@ async def run_batch(
         validated.append(subtopic)
 
     # ── PDF size pre-check (resolve paths for all subtopics upfront) ──────────
-    oversized = await check_pdf_sizes(validated)
+    oversized, resolved_paths_map = await check_pdf_sizes(validated)
     if oversized:
         raise HTTPException(
             status_code=422,
@@ -393,7 +394,7 @@ async def run_batch(
         "completed_at": None,
         "worker_a": req.subtopic_ids[: math.ceil(len(req.subtopic_ids) / 2)],
         "worker_b": req.subtopic_ids[math.ceil(len(req.subtopic_ids) / 2) :],
-    })
+    }, thesis_id=thesis_id)
 
     # ── Schedule background batch ─────────────────────────────────────────────
     background_tasks.add_task(
@@ -405,7 +406,9 @@ async def run_batch(
         word_count=req.word_count,
         academic_style_notes=req.academic_style_notes,
         notebook_title_prefix=req.notebook_title_prefix,
+        resolved_paths_map=resolved_paths_map,
         upload_method=req.upload_method,
+        thesis_id=thesis_id,
     )
 
     return {
@@ -424,7 +427,7 @@ async def run_batch(
     "/batch-state/{batch_id}",
     summary="Aggregate progress for a batch run",
 )
-async def get_batch_state(batch_id: str):
+async def get_batch_state(batch_id: str, thesis_id: str = Query("")):
     """
     Reads the batch manifest, then reads each subtopic's individual nlm_state
     and aggregates into a single progress view.
@@ -435,7 +438,7 @@ async def get_batch_state(batch_id: str):
         subtopics     — per-subtopic status snapshot (no draft text, just status)
         completed_at  — set when all subtopics have reached done or error
     """
-    batch = storage.read_batch_state(batch_id)
+    batch = storage.read_batch_state(batch_id, thesis_id=thesis_id)
     if not batch:
         raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found.")
 
@@ -446,7 +449,7 @@ async def get_batch_state(batch_id: str):
     subtopic_snapshots = []
 
     for sid in subtopic_ids:
-        state = storage.read_nlm_state(chapter_id, sid)
+        state = storage.read_nlm_state(chapter_id, sid, thesis_id=thesis_id)
         # Also check in-memory lock — a task might be running before first disk write
         active = await is_run_active(chapter_id, sid)
 
@@ -516,7 +519,7 @@ async def suggest_summary(
     Pass save: true in the body to auto-save it to the consistency chain.
     Requires a completed run (notebook_id must exist in state).
     """
-    state = storage.read_nlm_state(chapter_id, subtopic_id)
+    state = storage.read_nlm_state(chapter_id, subtopic_id, thesis_id=thesis_id)
     if not state or not state.get("notebook_id"):
         raise HTTPException(
             status_code=404,

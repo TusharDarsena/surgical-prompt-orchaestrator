@@ -22,26 +22,27 @@ router = APIRouter(prefix="/consistency", tags=["Consistency Chain"])
 def save_section_summary(
     chapter_id: str,
     subtopic_id: str,
-    req: SectionSummaryCreateRequest
+    req: SectionSummaryCreateRequest,
+    thesis_id: str = Query("")
 ):
     """
     Call this after NotebookLM produces an approved draft.
     The summary becomes the 'Previous Section Context' for the next subtopic.
     """
     data = req.model_dump()
-    return storage.write_section_summary(chapter_id, subtopic_id, data)
+    return storage.write_section_summary(chapter_id, subtopic_id, data, thesis_id=thesis_id)
 
 
 @router.get(
     "/{chapter_id}",
     summary="Get all section summaries for a chapter (the consistency chain)"
 )
-def get_chapter_chain(chapter_id: str):
+def get_chapter_chain(chapter_id: str, thesis_id: str = Query("")):
     """
     Returns all completed summaries in order.
     Your app uses this to show the argumentative thread of a chapter so far.
     """
-    summaries = storage.list_section_summaries(chapter_id)
+    summaries = storage.list_section_summaries(chapter_id, thesis_id=thesis_id)
     return {
         "chapter_id": chapter_id,
         "chain": summaries,
@@ -53,8 +54,8 @@ def get_chapter_chain(chapter_id: str):
     "/{chapter_id}/{subtopic_id}",
     summary="Get summary for a specific completed subtopic"
 )
-def get_section_summary(chapter_id: str, subtopic_id: str):
-    data = storage.read_section_summary(chapter_id, subtopic_id)
+def get_section_summary(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
+    data = storage.read_section_summary(chapter_id, subtopic_id, thesis_id=thesis_id)
     if not data:
         raise HTTPException(
             status_code=404,
@@ -89,7 +90,7 @@ def get_previous_summary(chapter_id: str, subtopic_id: str, thesis_id: str = Que
         return {"message": "This is the first subtopic. No previous section context.", "summary": None}
 
     previous_id = ids_in_order[idx - 1]
-    summary = storage.read_section_summary(chapter_id, previous_id)
+    summary = storage.read_section_summary(chapter_id, previous_id, thesis_id=thesis_id)
     if not summary:
         return {
             "message": f"Previous subtopic '{previous_id}' exists but has no saved summary yet.",
@@ -102,7 +103,7 @@ def get_previous_summary(chapter_id: str, subtopic_id: str, thesis_id: str = Que
     "/{chapter_id}/{subtopic_id}",
     summary="Delete a section summary (if you need to rewrite)"
 )
-def delete_section_summary(chapter_id: str, subtopic_id: str):
-    if not storage.delete_section_summary(chapter_id, subtopic_id):
+def delete_section_summary(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
+    if not storage.delete_section_summary(chapter_id, subtopic_id, thesis_id=thesis_id):
         raise HTTPException(status_code=404, detail="Summary not found.")
     return {"deleted": subtopic_id}

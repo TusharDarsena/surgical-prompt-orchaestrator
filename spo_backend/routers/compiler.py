@@ -75,7 +75,7 @@ def compile_notebooklm_prompt(
         idx = ids_in_order.index(subtopic_id)
         if idx > 0:
             prev_id = ids_in_order[idx - 1]
-            previous_summary = storage.read_section_summary(chapter_id, prev_id)
+            previous_summary = storage.read_section_summary(chapter_id, prev_id, thesis_id=thesis_id)
 
     # ── Render prompt ──────────────────────────────────────────────────────
     prompts = _render_notebooklm_prompt(

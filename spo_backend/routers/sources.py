@@ -212,18 +212,18 @@ def delete_index_card(group_id: str, source_id: str, thesis_id: str = Query(""))
 # --- Discovery ---
 
 @router.get("/search/by-theme/{theme}", summary="Find all sources with a given theme tag")
-def search_by_theme(theme: str):
-    sources = storage.find_sources_by_theme(theme)
+def search_by_theme(theme: str, thesis_id: str = Query("")):
+    sources = storage.find_sources_by_theme(theme, thesis_id=thesis_id)
     return {"theme": theme, "sources": sources, "count": len(sources)}
 
 
 @router.get("/ready", summary="List all sources that have index cards (ready for prompts)")
-def list_ready_sources():
+def list_ready_sources(thesis_id: str = Query("")):
     """Returns all sources across all groups that are ready for prompt injection."""
-    groups = storage.list_source_groups()
+    groups = storage.list_source_groups(thesis_id=thesis_id)
     ready = []
     for g in groups:
-        for source in storage.list_sources(g["group_id"]):
+        for source in storage.list_sources(g["group_id"], thesis_id=thesis_id):
             if source.get("has_index_card"):
                 source["group_title"] = g.get("title", "")
                 ready.append(source)

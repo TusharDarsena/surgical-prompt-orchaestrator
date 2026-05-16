@@ -216,13 +216,13 @@ def delete_subtopic(chapter_id: str, subtopic_id: str, thesis_id: str = Query(""
     "/chapters/{chapter_id}/subtopics/{subtopic_id}/suggested-sources",
     summary="Get sources whose index cards are tagged for this subtopic"
 )
-def get_suggested_sources(chapter_id: str, subtopic_id: str):
+def get_suggested_sources(chapter_id: str, subtopic_id: str, thesis_id: str = Query("")):
     """
     Returns all sources across all groups that have tagged this subtopic
     in their index card's relevant_subtopics field.
     Use this when building the source selection UI for a subtopic.
     """
-    sources = storage.find_sources_for_subtopic(subtopic_id)
+    sources = storage.find_sources_for_subtopic(subtopic_id, thesis_id=thesis_id)
     return {
         "subtopic_id": subtopic_id,
         "suggested_sources": sources,

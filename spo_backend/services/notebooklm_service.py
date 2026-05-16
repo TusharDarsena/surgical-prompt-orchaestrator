@@ -155,18 +155,21 @@ def generate_batch_id(chapter_id: str) -> str:
 PDF_SIZE_LIMIT_MB = 10.0
 
 
-async def check_pdf_sizes(validated_subtopics: list[dict]) -> list[dict]:
+async def check_pdf_sizes(validated_subtopics: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
     """
-    Resolves PDFs for every subtopic in the list and returns a list of
-    oversized file dicts (empty list means all files are within the limit).
+    Resolves PDFs for every subtopic in the list and returns a tuple of
+    (oversized_files, resolved_paths_map).
 
-    Each returned dict has keys: subtopic_id, file, size_mb.
+    Each returned dict in oversized has keys: subtopic_id, file, size_mb.
+    resolved_paths_map maps subtopic_id to a list of resolved path dicts.
     """
     oversized: list[dict] = []
+    resolved_paths_map: dict[str, list[dict]] = {}
     for subtopic in validated_subtopics:
         source_ids = subtopic.get("source_ids", [])
         required_sources = await asyncio.to_thread(_resolve_required_sources, source_ids)
         resolved_paths = await asyncio.to_thread(_resolve_absolute_paths, required_sources)
+        resolved_paths_map[subtopic["subtopic_id"]] = resolved_paths
         for entry in resolved_paths:
             size_mb = entry.get("file_size_mb")
             if size_mb is not None and size_mb > PDF_SIZE_LIMIT_MB:
@@ -175,7 +178,7 @@ async def check_pdf_sizes(validated_subtopics: list[dict]) -> list[dict]:
                     "file": entry["file_name"],
                     "size_mb": size_mb,
                 })
-    return oversized
+    return oversized, resolved_paths_map
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -202,7 +205,7 @@ def _compile_prompt_data(
         idx = ids_in_order.index(subtopic_id)
         if idx > 0:
             previous_summary = storage.read_section_summary(
-                chapter_id, ids_in_order[idx - 1]
+                chapter_id, ids_in_order[idx - 1], thesis_id=thesis_id
             )
 
     prompts = _render_notebooklm_prompt(
@@ -237,7 +240,7 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
     Deduplication:
       - If multiple source_ids resolve to the same PDF, upload only once
     """
-    scan = storage.read_misc("drive_scan_result") or {}
+    scan = storage.read_misc("drive_scan_result", thesis_id="") or {}
     seen: set[str] = set()
     result = []
 
@@ -315,8 +318,10 @@ async def _run_sequence(
     word_count: Optional[int],
     academic_style_notes: Optional[str],
     batch_id: Optional[str] = None,
+    resolved_paths: Optional[list[dict]] = None,
     strict_mode: bool = True,
     upload_method: str = "drive",
+    thesis_id: str = "",
 ):
     """
     The background sequence. Holds the in-memory run lock for its entire
@@ -326,7 +331,7 @@ async def _run_sequence(
 
     try:
         async with run_lock:
-            existing_state = storage.read_nlm_state(chapter_id, subtopic_id) or {}
+            existing_state = storage.read_nlm_state(chapter_id, subtopic_id, thesis_id=thesis_id) or {}
         state = {
             **existing_state,
             "chapter_id": chapter_id,
@@ -340,7 +345,7 @@ async def _run_sequence(
             "sources_failed": [],
             "batch_id": batch_id,
         }
-        storage.write_nlm_state(chapter_id, subtopic_id, state)
+        storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
 
         try:
             # ── Step 1: compile prompt ─────────────────────────────────────
@@ -357,10 +362,11 @@ async def _run_sequence(
             prompt_2 = prompts["prompt_2"]
 
             # ── Step 2: resolve absolute paths ────────────────────────────
-            # Sync filesystem check — run in thread
-            resolved_paths = await asyncio.to_thread(
-                _resolve_absolute_paths, required_sources
-            )
+            # Sync filesystem check — run in thread if not provided
+            if resolved_paths is None:
+                resolved_paths = await asyncio.to_thread(
+                    _resolve_absolute_paths, required_sources
+                )
 
             # ── Step 3–6: all NotebookLM API calls inside one context ──────
             async with _nlm_client() as client:
@@ -385,7 +391,7 @@ async def _run_sequence(
                     logger.info(f"Created notebook '{notebook_id}' for '{subtopic_id}'")
 
                 state["notebook_id"] = notebook_id
-                storage.write_nlm_state(chapter_id, subtopic_id, state)
+                storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
 
                 # ── Fix 1 & 2: Dedup and Capacity Check ───────────────────
                 try:
@@ -468,7 +474,7 @@ async def _run_sequence(
 
                 state["sources_uploaded"] = uploaded
                 state["sources_failed"] = failed
-                storage.write_nlm_state(chapter_id, subtopic_id, state)
+                storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
 
                 # ── Completeness Check ─────────────────────────────────────
                 
@@ -495,7 +501,7 @@ async def _run_sequence(
                         "sources_uploaded": uploaded,
                         "sources_failed": failed,
                     })
-                    storage.write_nlm_state(chapter_id, subtopic_id, state)
+                    storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
                     # Gracefully exit without calling prompt_1
                     return
 
@@ -539,7 +545,8 @@ async def _run_sequence(
                         "text": draft_text,
                         "source": "notebooklm_automated",
                         "updated_at": datetime.utcnow().isoformat(),
-                    }
+                    },
+                    thesis_id=thesis_id
                 )
 
                 # ── Done ───────────────────────────────────────────────────
@@ -553,16 +560,20 @@ async def _run_sequence(
                     ),
                     "error": None,
                 })
-                storage.write_nlm_state(chapter_id, subtopic_id, state)
+                storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
                 logger.info(f"Run complete for subtopic '{subtopic_id}'")
 
         except NLMAuthError:
             # Re-raise so batch can catch it and cancel everything
             raise
+        except asyncio.CancelledError:
+            state.update({"status": "cancelled", "error": "Run was cancelled by the system."})
+            storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
+            raise
         except Exception as e:
             logger.error(f"Run failed for '{subtopic_id}': {e}", exc_info=True)
             state.update({"status": "error", "error": str(e)})
-            storage.write_nlm_state(chapter_id, subtopic_id, state)
+            storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
     finally:
         async with _locks_registry_lock:
             if (chapter_id, subtopic_id) in _run_locks:
@@ -577,8 +588,10 @@ async def _run_batch_sequence(
     word_count: Optional[int],
     academic_style_notes: Optional[str],
     notebook_title_prefix: Optional[str],
+    resolved_paths_map: dict[str, list[dict]],
     strict_mode: bool = True,
     upload_method: str = "drive",
+    thesis_id: str = "",
 ):
     """
     Splits subtopic_ids into two halves and runs them with asyncio.gather.
@@ -605,8 +618,10 @@ async def _run_batch_sequence(
                 word_count=word_count,
                 academic_style_notes=academic_style_notes,
                 batch_id=batch_id,
+                resolved_paths=resolved_paths_map.get(sid),
                 strict_mode=strict_mode,
                 upload_method=upload_method,
+                thesis_id=thesis_id,
             )
 
     try:
@@ -615,25 +630,35 @@ async def _run_batch_sequence(
     except NLMAuthError as e:
         logger.error(f"Batch auth expired: {e}")
         final_status = "auth_error"
-        batch_state = storage.read_batch_state(batch_id) or {}
+        batch_state = storage.read_batch_state(batch_id, thesis_id=thesis_id) or {}
         batch_state.update({
             "status": "error",
             "error": f"BatchAuthExpiredError: {e}",
             "completed_at": datetime.utcnow().isoformat(),
         })
-        storage.write_batch_state(batch_id, batch_state)
+        storage.write_batch_state(batch_id, batch_state, thesis_id=thesis_id)
         raise BatchAuthExpiredError(str(e))
+    except asyncio.CancelledError:
+        logger.warning(f"Batch '{batch_id}' was cancelled.")
+        final_status = "cancelled"
+        batch_state = storage.read_batch_state(batch_id, thesis_id=thesis_id) or {}
+        batch_state.update({
+            "status": "cancelled",
+            "completed_at": datetime.utcnow().isoformat(),
+        })
+        storage.write_batch_state(batch_id, batch_state, thesis_id=thesis_id)
+        raise
     except Exception as e:
         logger.error(f"Batch '{batch_id}' encountered an unexpected error: {e}", exc_info=True)
         final_status = "error"
 
     # ── Update batch state to reflect completion ──────────────────────────────
-    batch_state = storage.read_batch_state(batch_id) or {}
+    batch_state = storage.read_batch_state(batch_id, thesis_id=thesis_id) or {}
     batch_state.update({
         "status": final_status,
         "completed_at": datetime.utcnow().isoformat(),
     })
-    storage.write_batch_state(batch_id, batch_state)
+    storage.write_batch_state(batch_id, batch_state, thesis_id=thesis_id)
 
 
 # ── Summarization ──────────────────────────────────────────────────────────────
@@ -699,7 +724,9 @@ async def suggest_summary_service(
                 "what_next_section_must_build_on"
             ),
         }
-        storage.write_section_summary(chapter_id, subtopic_id, summary_record)
+        await asyncio.to_thread(
+            storage.write_section_summary, chapter_id, subtopic_id, summary_record
+        )
         saved = True
 
     return {

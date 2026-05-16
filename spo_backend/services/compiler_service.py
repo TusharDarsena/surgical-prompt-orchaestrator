@@ -28,7 +28,7 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
     """
     results = []
     # Load the scan once — avoids N+1 disk reads of drive_scan_result.json
-    scan = storage.read_misc("drive_scan_result") or {}
+    scan = storage.read_misc("drive_scan_result", thesis_id="") or {}
     for entry in source_ids:
         thesis_name = entry.get("source_id", "")
         chapter_id_raw = entry.get("chapter_id", "")

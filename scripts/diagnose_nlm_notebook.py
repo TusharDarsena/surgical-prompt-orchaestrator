@@ -25,6 +25,7 @@ backend_dir = project_root / "spo_backend"
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
+# pyrefly: ignore [missing-import]
 from services import storage
 
 async def main():

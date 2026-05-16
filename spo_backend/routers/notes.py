@@ -14,7 +14,7 @@ URL pattern: /notes/{scope}/{entity_id}/
   entity_id = the ID of that thing (or "main" for the thesis)
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime
 import uuid
 
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/notes", tags=["Notes"])
 
 
 @router.post("/{scope}/{entity_id}", summary="Add a free-text note to any entity")
-def create_note(scope: str, entity_id: str, req: NoteCreateRequest):
+def create_note(scope: str, entity_id: str, req: NoteCreateRequest, thesis_id: str = Query("")):
     """
     Paste anything here — reading impressions, copied text from the PDF,
     argument ideas, gaps you notice. No structure required.
@@ -48,42 +48,42 @@ def create_note(scope: str, entity_id: str, req: NoteCreateRequest):
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
-    return storage.write_note(scope, note_id, data)
+    return storage.write_note(scope, note_id, data, thesis_id=thesis_id)
 
 
 @router.get("/{scope}/{entity_id}", summary="List all notes for an entity")
-def list_notes(scope: str, entity_id: str):
+def list_notes(scope: str, entity_id: str, thesis_id: str = Query("")):
     _validate_scope(scope)
-    notes = storage.list_notes(scope, entity_id)
+    notes = storage.list_notes(scope, entity_id, thesis_id=thesis_id)
     return {"entity_id": entity_id, "scope": scope, "notes": notes, "count": len(notes)}
 
 
 @router.get("/{scope}/{entity_id}/{note_id}", summary="Get a specific note")
-def get_note(scope: str, entity_id: str, note_id: str):
+def get_note(scope: str, entity_id: str, note_id: str, thesis_id: str = Query("")):
     _validate_scope(scope)
-    data = storage.read_note(scope, note_id)
+    data = storage.read_note(scope, note_id, thesis_id=thesis_id)
     if not data:
         raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found.")
     return data
 
 
 @router.patch("/{scope}/{entity_id}/{note_id}", summary="Update a note")
-def update_note(scope: str, entity_id: str, note_id: str, req: NoteUpdateRequest):
+def update_note(scope: str, entity_id: str, note_id: str, req: NoteUpdateRequest, thesis_id: str = Query("")):
     _validate_scope(scope)
-    data = storage.read_note(scope, note_id)
+    data = storage.read_note(scope, note_id, thesis_id=thesis_id)
     if not data:
         raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found.")
     if req.label is not None:
         data["label"] = req.label
     if req.content is not None:
         data["content"] = req.content
-    return storage.write_note(scope, note_id, data)
+    return storage.write_note(scope, note_id, data, thesis_id=thesis_id)
 
 
 @router.delete("/{scope}/{entity_id}/{note_id}", summary="Delete a note")
-def delete_note(scope: str, entity_id: str, note_id: str):
+def delete_note(scope: str, entity_id: str, note_id: str, thesis_id: str = Query("")):
     _validate_scope(scope)
-    if not storage.delete_note(scope, note_id):
+    if not storage.delete_note(scope, note_id, thesis_id=thesis_id):
         raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found.")
     return {"deleted": note_id}
 

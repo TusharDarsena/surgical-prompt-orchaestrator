@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from fastapi import HTTPException
 from services import storage
 
@@ -29,6 +29,8 @@ from services import storage
 
 class SourceChapterImport(BaseModel):
     """One chapter/section of the external work."""
+    model_config = {"extra": "allow"}
+
     label: str = Field(
         default="Unlabelled",
         description="Short label Claude sees in prompts. e.g. 'Sharma Ch.2'"
@@ -58,12 +60,27 @@ class SourceChapterImport(BaseModel):
     notable_authors_cited: list[str] = Field(default_factory=list)
     additional: Optional[str] = Field(None, description="Extra fields swept from JSON import that didn't match the schema.")
 
+    @model_validator(mode='after')
+    def gather_extra_fields(self) -> 'SourceChapterImport':
+        extras = []
+        if self.__pydantic_extra__:
+            for k, val in self.__pydantic_extra__.items():
+                if val is not None and val != "" and val != []:
+                    extras.append(f"[{k.upper()}]: {val}")
+        if extras:
+            existing = self.additional or ""
+            separator = "\n" if existing else ""
+            self.additional = (existing + separator + "\n".join(extras)).strip()
+        return self
+
 
 class SourceImport(BaseModel):
     """
     Schema for source.json — one file per external work.
     Generate with /prompts/generate_source_json.txt
     """
+    model_config = {"extra": "allow"}
+
     # Work-level metadata
     title: str = Field(default="Untitled Work")
     author: str = Field(default="Unknown Author")
@@ -90,6 +107,19 @@ class SourceImport(BaseModel):
         default_factory=list, description="One entry per PDF/chapter you have downloaded."
     )
     additional: Optional[str] = Field(None, description="Extra work-level fields from JSON import.")
+
+    @model_validator(mode='after')
+    def gather_extra_fields(self) -> 'SourceImport':
+        extras = []
+        if self.__pydantic_extra__:
+            for k, val in self.__pydantic_extra__.items():
+                if val is not None and val != "" and val != []:
+                    extras.append(f"[{k.upper()}]: {val}")
+        if extras:
+            existing = self.additional or ""
+            separator = "\n" if existing else ""
+            self.additional = (existing + separator + "\n".join(extras)).strip()
+        return self
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -173,32 +203,10 @@ def _normalize_source_chapter(ch: dict) -> dict:
     if isinstance(c.get("limitations"), list):
         c["limitations"] = " ".join(c["limitations"])
 
-    # Coerce null values to defaults
-    if c.get("title") is None:
-        c["title"] = "Untitled Chapter"
-    if c.get("label") is None or not c.get("label"):
-        c["label"] = c.get("title", "Unlabelled")[:30]
-    if not c.get("key_claims"):
-        c["key_claims"] = ["No specific claims extracted."]
-    if not c.get("themes"):
-        c["themes"] = ["uncategorized"]
-
-    # Junk drawer: sweep unrecognized keys into additional
-    CANONICAL_KEYS = {
-        "label", "title", "page_range", "file_name",
-        "key_claims", "themes", "time_period_covered",
-        "relevant_subtopics", "limitations", "notable_authors_cited",
-    }
-    extras = []
-    for k in list(c.keys()):
-        if k not in CANONICAL_KEYS:
-            val = c.pop(k)
-            if val is not None and val != "" and val != []:
-                extras.append(f"[{k.upper()}]: {val}")
-    if extras:
-        existing = c.get("additional") or ""
-        separator = "\n" if existing else ""
-        c["additional"] = (existing + separator + "\n".join(extras)).strip()
+    # Strip empty values so Pydantic's default_factory triggers correctly
+    for k in ["key_claims", "themes", "title"]:
+        if k in c and c[k] in (None, [], ""):
+            c.pop(k)
 
     return c
 
@@ -223,29 +231,10 @@ def do_auto_import(data: dict, thesis_id: str = "", scan_key: str = "") -> tuple
         data = dict(data)  # don't mutate caller's dict
         data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
 
-    # Work-level junk drawer
-    WORK_CANONICAL_KEYS = {
-        "title", "author", "year", "source_type",
-        "institution_or_publisher", "description", "work_summary", "chapters",
-    }
-    extras = []
-    for k in list(data.keys()):
-        if k not in WORK_CANONICAL_KEYS:
-            val = data.pop(k)
-            if val is not None and val != "" and val != []:
-                extras.append(f"[{k.upper()}]: {val}")
-    if extras:
-        existing = data.get("additional") or ""
-        separator = "\n" if existing else ""
-        data["additional"] = (existing + separator + "\n".join(extras)).strip()
-
-    # Coerce null values to defaults
-    if data.get("title") is None:
-        data["title"] = "Untitled Work"
-    if data.get("author") is None:
-        data["author"] = "Unknown Author"
-    if not data.get("source_type"):
-        data["source_type"] = "other"
+    # Strip empty values so Pydantic defaults apply
+    for k in ["title", "author", "source_type"]:
+        if k in data and data[k] in (None, ""):
+            data.pop(k)
 
     try:
         validated = SourceImport(**data)

@@ -54,7 +54,7 @@ import os
 import json
 from pathlib import Path
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 from services import storage
@@ -75,12 +75,12 @@ BASE_SCAN_DIR: Path | None = Path(_BASE_SCAN_DIR_ENV).resolve() if _BASE_SCAN_DI
 
 
 def _read_scan() -> dict:
-    data = storage.read_misc(SCAN_KEY)
+    data = storage.read_misc(SCAN_KEY, thesis_id="")
     return data if data else {}
 
 
 def _write_scan(data: dict):
-    storage.write_misc(SCAN_KEY, data)
+    storage.write_misc(SCAN_KEY, data, thesis_id="")
 
 
 def _empty_thesis_entry(thesis_name: str, folder_path: str) -> dict:
@@ -244,7 +244,7 @@ def get_local_files():
 
 
 @router.post("/save-index-card", summary="Save NotebookLM JSON to disk and auto-import to SPO")
-def save_index_card(req: SaveIndexCardRequest):
+def save_index_card(req: SaveIndexCardRequest, thesis_id: str = Query("")):
     scan = _read_scan()
 
     if req.thesis_name not in scan:
@@ -274,7 +274,7 @@ def save_index_card(req: SaveIndexCardRequest):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(parsed, f, indent=2, ensure_ascii=False)
 
-    import_result, import_error = do_auto_import(parsed, scan_key=req.thesis_name)
+    import_result, import_error = do_auto_import(parsed, thesis_id=thesis_id, scan_key=req.thesis_name)
 
     thesis_entry["import_status"] = {
         "imported": import_result is not None,
