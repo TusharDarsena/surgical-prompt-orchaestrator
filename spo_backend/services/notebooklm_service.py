@@ -13,6 +13,7 @@ Exception contract (router must handle):
 """
 
 import asyncio
+import httpx
 import json
 import logging
 import math
@@ -37,6 +38,18 @@ class NLMNotInstalledError(Exception):
 
 class NLMAuthError(Exception):
     """NotebookLM credentials are missing or invalid."""
+
+
+class NotebookCapacityExceeded(Exception):
+    """Notebook reached its 50-source limit."""
+
+
+class BatchAuthExpiredError(Exception):
+    """Auth expired during a batch run."""
+
+
+# Global semaphore to limit concurrent NotebookLM API requests
+_nlm_semaphore = asyncio.Semaphore(1)
 
 
 # ── Client context manager ─────────────────────────────────────────────────────
@@ -290,6 +303,7 @@ async def _run_sequence(
     word_count: Optional[int],
     academic_style_notes: Optional[str],
     batch_id: Optional[str] = None,
+    strict_mode: bool = True,
 ):
     """
     The background sequence. Holds the in-memory run lock for its entire
@@ -359,6 +373,23 @@ async def _run_sequence(
                 state["notebook_id"] = notebook_id
                 storage.write_nlm_state(chapter_id, subtopic_id, state)
 
+                # ── Fix 1 & 2: Dedup and Capacity Check ───────────────────
+                try:
+                    async with _nlm_semaphore:
+                        existing_sources = await client.sources.list(notebook_id)
+                except Exception as e:
+                    logger.warning(f"Could not list existing sources: {e}")
+                    existing_sources = []
+                    
+                existing_filenames = {s.title for s in existing_sources}
+                
+                # Check capacity
+                resolvable_count = len([p for p in resolved_paths if p.get("abs_path") and p.get("file_name", "").lower().endswith(".pdf")])
+                if len(existing_sources) + resolvable_count > 50:
+                    raise NotebookCapacityExceeded(
+                        f"Notebook '{notebook_id}' has {len(existing_sources)} sources and we need to add {resolvable_count}. Limit is 50."
+                    )
+
                 # ── Step 4: upload PDFs ────────────────────────────────────
                 uploaded = []
                 failed = []
@@ -399,10 +430,27 @@ async def _run_sequence(
                         logger.warning(f"File missing at '{abs_path}'")
                         continue
 
+                    # Fix 1: Skip if already exists
+                    if file_name in existing_filenames:
+                        logger.info(f"Skipping '{file_name}' (already in notebook)")
+                        uploaded.append(file_name)
+                        continue
+
                     try:
-                        await client.sources.add_file(notebook_id, abs_path, wait=True)
+                        async with _nlm_semaphore:
+                            await asyncio.wait_for(
+                                client.sources.add_file(notebook_id, abs_path, wait=True),
+                                timeout=180.0
+                            )
                         uploaded.append(file_name)
                         logger.info(f"Uploaded '{file_name}'")
+                    except asyncio.TimeoutError:
+                        failed.append({
+                            "file": file_name,
+                            "reason": "upload timed out after 3 minutes",
+                            "failure_type": "timeout"
+                        })
+                        logger.warning(f"Upload timed out for '{file_name}'")
                     except Exception as e:
                         failed.append({
                             "file": file_name,
@@ -410,9 +458,6 @@ async def _run_sequence(
                             "failure_type": "api_error"
                         })
                         logger.warning(f"Upload failed for '{file_name}': {e}")
-
-                    # Rate-limit buffer between uploads
-                    await asyncio.sleep(2)
 
                 state["sources_uploaded"] = uploaded
                 state["sources_failed"] = failed
@@ -438,15 +483,36 @@ async def _run_sequence(
                         p["file_name"] for p in resolvable
                         if p["file_name"] not in uploaded
                     ]
-                    raise RuntimeError(
-                        f"Incomplete upload: {len(uploaded)}/{len(resolvable)} PDFs succeeded. "
-                        f"Missing: {missing}. Aborting to avoid a response based on partial sources."
-                    )
+                    if strict_mode:
+                        raise RuntimeError(
+                            f"Incomplete upload: {len(uploaded)}/{len(resolvable)} PDFs succeeded. "
+                            f"Missing: {missing}. Aborting to avoid a response based on partial sources."
+                        )
+                    else:
+                        logger.warning(f"Proceeding with partial sources. Missing: {missing}")
+                        state["partial_sources"] = True
+
+                # Fix 8: Post-upload indexing buffer
+                await asyncio.sleep(10)
 
                 # ── Step 5: send prompt_1 ──────────────────────────────────
                 logger.info(f"Sending prompt_1 to notebook '{notebook_id}'")
-                result = await client.chat.ask(notebook_id, prompt_1)
-                draft_text = result.answer
+                
+                # Fix 7: Retry wrapper for chat.ask
+                retries = 2
+                draft_text = None
+                for attempt in range(retries + 1):
+                    try:
+                        async with _nlm_semaphore:
+                            result = await client.chat.ask(notebook_id, prompt_1)
+                        draft_text = result.answer
+                        break
+                    except (httpx.TimeoutException, httpx.NetworkError) as e:
+                        if attempt < retries:
+                            logger.warning(f"chat.ask timeout/network error, retrying in 10s... ({e})")
+                            await asyncio.sleep(10)
+                        else:
+                            raise RuntimeError(f"chat.ask failed after {retries} retries: {e}")
 
                 if not draft_text or not draft_text.strip():
                     raise RuntimeError(
@@ -482,6 +548,9 @@ async def _run_sequence(
                 storage.write_nlm_state(chapter_id, subtopic_id, state)
                 logger.info(f"Run complete for subtopic '{subtopic_id}'")
 
+        except NLMAuthError:
+            # Re-raise so batch can catch it and cancel everything
+            raise
         except Exception as e:
             logger.error(f"Run failed for '{subtopic_id}': {e}", exc_info=True)
             state.update({"status": "error", "error": str(e)})
@@ -496,6 +565,7 @@ async def _run_batch_sequence(
     word_count: Optional[int],
     academic_style_notes: Optional[str],
     notebook_title_prefix: Optional[str],
+    strict_mode: bool = True,
 ):
     """
     Splits subtopic_ids into two halves and runs them with asyncio.gather.
@@ -522,11 +592,23 @@ async def _run_batch_sequence(
                 word_count=word_count,
                 academic_style_notes=academic_style_notes,
                 batch_id=batch_id,
+                strict_mode=strict_mode,
             )
 
     try:
         await asyncio.gather(_worker(worker_a_ids), _worker(worker_b_ids))
         final_status = "done"
+    except NLMAuthError as e:
+        logger.error(f"Batch auth expired: {e}")
+        final_status = "auth_error"
+        batch_state = storage.read_batch_state(batch_id) or {}
+        batch_state.update({
+            "status": "error",
+            "error": f"BatchAuthExpiredError: {e}",
+            "completed_at": datetime.utcnow().isoformat(),
+        })
+        storage.write_batch_state(batch_id, batch_state)
+        raise BatchAuthExpiredError(str(e))
     except Exception as e:
         logger.error(f"Batch '{batch_id}' encountered an unexpected error: {e}", exc_info=True)
         final_status = "error"
@@ -584,6 +666,8 @@ async def suggest_summary_service(
     parse_error = None
     try:
         clean = re.sub(r"```(?:json)?|```", "", raw_text).strip()
+        # Fix 9: Strip trailing commas from JSON
+        clean = re.sub(r',\s*([}\]])', r'\1', clean)
         suggested_summary = json.loads(clean)
     except (json.JSONDecodeError, ValueError) as e:
         parse_error = str(e)
