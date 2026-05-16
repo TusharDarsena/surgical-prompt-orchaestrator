@@ -224,13 +224,34 @@ function renderRunTable() {
     if (status === "waiting_for_manual_upload") {
       const note = document.createElement("div");
       note.className = "run-status-note";
-      note.style.color = "#d97706"; // Amber/yellow color for warning
+      note.style.color = "#d97706";
       note.textContent = "Waiting for manual upload...";
       if (rs.missing_sources && rs.missing_sources.length > 0) {
         const missing = document.createElement("div");
         missing.style.fontSize = "10px";
         missing.style.color = "var(--muted)";
-        missing.textContent = `Missing: ${rs.missing_sources.join(", ")}`;
+        missing.style.marginTop = "4px";
+        
+        // Handle new object structure for missing_sources
+        rs.missing_sources.forEach(s => {
+          const name = typeof s === "string" ? s : s.file_name;
+          const link = typeof s === "object" ? s.drive_link : null;
+          
+          const span = document.createElement("span");
+          span.style.display = "block";
+          span.textContent = `• ${name} `;
+          if (link) {
+            const a = document.createElement("a");
+            a.href = link;
+            a.target = "_blank";
+            a.textContent = "↗ Drive";
+            a.style.color = "var(--primary)";
+            a.style.textDecoration = "underline";
+            a.style.marginLeft = "4px";
+            span.appendChild(a);
+          }
+          missing.appendChild(span);
+        });
         note.appendChild(missing);
       }
       nameCol.appendChild(note);
@@ -870,6 +891,38 @@ async function init() {
 
   // ── Load chapters client-side (thesis-aware) ──────────────────────────────
   await loadChaptersFromServer();
+
+  // ── Manual Sync Buttons ───────────────────────────────────────────────────
+  $("btnSyncResume")?.addEventListener("click", async () => {
+    try {
+      $("btnSyncResume").disabled = true;
+      $("btnSyncResume").textContent = "⏳...";
+      
+      // Find all subtopics in the CURRENT chapter that are paused
+      const pausedIds = state.subtopics
+        .filter(s => getRunState(s.subtopic_id).status === "waiting_for_manual_upload")
+        .map(s => s.subtopic_id);
+      
+      if (pausedIds.length === 0) {
+        toast("No paused runs to resume.", "info");
+      } else {
+        toast(`Resuming ${pausedIds.length} subtopic(s)...`, "info");
+        for (const sid of pausedIds) {
+          actions.runSubtopic(sid);
+        }
+      }
+    } catch (err) {
+      toast(`Resume failed: ${err.message}`, "error");
+    } finally {
+      $("btnSyncResume").disabled = false;
+      $("btnSyncResume").textContent = "🔗 Sync & Resume";
+    }
+  });
+
+  $("btnRefreshChapters")?.addEventListener("click", () => {
+    loadChaptersFromServer();
+    toast("Chapter list refreshed.", "success");
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);

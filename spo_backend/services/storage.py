@@ -165,7 +165,7 @@ def _list_json(directory: Path) -> list[dict]:
 
 _groups_cache: dict[str, dict] = {}
 _groups_cache_loaded: bool = False
-_groups_cache_thesis_id: str   # tracks which thesis is currently in cache
+_groups_cache_thesis_id: Optional[str] = None  # tracks which thesis is currently in cache
 
 
 def _load_group_from_disk(group_id: str, thesis_id: str) -> Optional[dict]:
@@ -232,7 +232,7 @@ def _get_group_entry(group_id: str, thesis_id: str) -> Optional[dict]:
 
 _notes_cache: dict[str, dict[str, list[dict]]] = {}
 _notes_cache_loaded: set[str] = set()
-_notes_cache_thesis_id: str
+_notes_cache_thesis_id: Optional[str] = None
 
 def _ensure_notes_loaded(scope: str, thesis_id: str) -> None:
     global _notes_cache_loaded, _notes_cache_thesis_id
@@ -290,7 +290,7 @@ _drive_scan_loaded: bool = False
 def _get_drive_scan() -> dict:
     global _drive_scan_cache, _drive_scan_loaded
     if not _drive_scan_loaded:
-        _drive_scan_cache = _read(_misc_dir() / "drive_scan_result.json") or {}
+        _drive_scan_cache = _read(_misc_dir("") / "drive_scan_result.json") or {}
         _drive_scan_loaded = True
     return _drive_scan_cache or {}
 

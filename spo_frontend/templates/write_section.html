@@ -87,9 +87,17 @@
             <!-- Active subtopic — populated by JS on chapter select -->
             <div class="ctx-select-wrap">
               <div class="ctx-label">Active Subtopic</div>
-              <select id="subtopicSelect">
-                <option value="">— select chapter —</option>
-              </select>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <select id="subtopicSelect" style="flex: 1; min-width: 0; max-width: 300px;">
+                  <option value="">— select chapter —</option>
+                </select>
+                <div style="display:flex; gap:4px; flex-shrink: 0;">
+                  <button id="btnRefreshChapters" class="btn btn-ghost" title="Refresh chapter list"
+                    style="padding:4px 8px;font-size:11px; min-width:28px;">⟳</button>
+                  <button id="btnSyncResume" class="btn btn-ghost" title="Sync & Resume Paused Runs"
+                    style="padding:4px 8px;font-size:11px;">🔗 Sync & Resume</button>
+                </div>
+              </div>
             </div>
 
           </div>

@@ -22,6 +22,14 @@ All notable changes to this project will be documented in this file.
 - Google Drive file uploads as the default source addition method (significantly faster, avoids timeouts). Local file upload remains as a fallback.
 - `waiting_for_manual_upload` state: Process gracefully pauses instead of failing if sources are missing, allowing manual sync and seamless resumption.
 
+note - Because of the way asyncio.gather and your workers are structured, if Worker A hits a missing source on Subtopic 1, it changes Subtopic 1's state to waiting_for_manual_upload and gracefully exits that specific run.
+
+Worker A does not pause the whole batch! It immediately moves on to process Subtopic 2, 3, and 4.
+
+This is actually the ideal production behavior. If you queue a batch of 20 subtopics overnight, and Subtopic #4 has a broken PDF link, you want the batch to finish the other 19 successfully. In the morning, you will see 19 subtopics marked done, and 1 marked waiting_for_manual_upload. You manually upload the PDF for that 1 subtopic, click your new "Resume" button, and it finishes the job independently.
+
+Summary: The backend architecture is bulletproof. To make it a usable product, your next step should be moving to the frontend (spo_frontend/) to build out the UI state handling for this new pause/resume feature!
+
 ### Fixed
 - Path traversal vulnerability in absolute path resolution.
 - Duplicate uploads and premature 50-source limit crashes by correctly comparing extensions and calculating counts *after* deduplication.

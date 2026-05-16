@@ -189,6 +189,7 @@ def _compile_prompt_data(
     chapter_id: str,
     word_count: Optional[int],
     academic_style_notes: Optional[str],
+    thesis_id: str,
 ) -> tuple[dict, list[dict]]:
     """
     Synchronous. Called via asyncio.to_thread — does not block the event loop.
@@ -274,9 +275,9 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
                         "Re-run POST /drive/scan-local if files have moved."
                     )
             
-            # Parse drive link for upload
+            # Extract drive ID from the link resolved by compiler_service/source_resolver
             drive_file_id = None
-            link = thesis_entry.get("link")
+            link = entry.get("drive_link")
             if link:
                 match = re.search(r'/d/([a-zA-Z0-9_-]+)', link)
                 if match:
@@ -302,6 +303,7 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
             "abs_path": abs_path,
             "file_size_mb": round(file_size_mb, 2) if file_size_mb is not None else None,
             "drive_file_id": drive_file_id,
+            "drive_link": entry.get("drive_link"),
         })
 
     return result
@@ -357,6 +359,7 @@ async def _run_sequence(
                 chapter_id=chapter_id,
                 word_count=word_count,
                 academic_style_notes=academic_style_notes,
+                thesis_id=thesis_id,
             )
             prompt_1 = prompts["prompt_1"]
             prompt_2 = prompts["prompt_2"]
@@ -490,7 +493,11 @@ async def _run_sequence(
                 # Some PDFs resolved but not all uploaded successfully
                 if len(uploaded) < len(resolvable):
                     missing = [
-                        p["file_name"] for p in resolvable
+                        {
+                            "file_name": p["file_name"],
+                            "drive_link": p.get("drive_link")
+                        }
+                        for p in resolvable
                         if p["file_name"] not in uploaded
                     ]
                     
@@ -669,6 +676,7 @@ async def suggest_summary_service(
     subtopic: dict,
     notebook_id: str,
     save: bool,
+    thesis_id: str,
 ) -> dict:
     """
     Sends a structured prompt to the existing notebook asking it to produce
@@ -725,7 +733,7 @@ async def suggest_summary_service(
             ),
         }
         await asyncio.to_thread(
-            storage.write_section_summary, chapter_id, subtopic_id, summary_record
+            storage.write_section_summary, chapter_id, subtopic_id, summary_record, thesis_id=thesis_id
         )
         saved = True
 

@@ -114,3 +114,9 @@ export const generateConsistencyPrompt = (chapterId, subtopicId, wordCount, styl
   const qs = params.toString() ? `?${params}` : "";
   return _get(`/compile/notebooklm-prompt/${chapterId}/${subtopicId}${qs}`);
 };
+// ── Drive & Local Scanner ───────────────────────────────────────────────────
+export const registerDriveLinks = (driveFolderId) =>
+  _post("/drive/register-links", { drive_parent_folder_id: driveFolderId });
+
+export const getDriveLinks = (thesisName) =>
+  _get(`/drive/links/${thesisName}`);

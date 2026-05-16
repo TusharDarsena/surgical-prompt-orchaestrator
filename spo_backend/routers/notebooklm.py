@@ -445,7 +445,7 @@ async def get_batch_state(batch_id: str, thesis_id: str = Query("")):
     chapter_id = batch["chapter_id"]
     subtopic_ids = batch["subtopic_ids"]
 
-    counts = {"done": 0, "running": 0, "error": 0, "pending": 0}
+    counts = {"done": 0, "running": 0, "error": 0, "pending": 0, "waiting_for_manual_upload": 0}
     subtopic_snapshots = []
 
     for sid in subtopic_ids:
@@ -465,15 +465,19 @@ async def get_batch_state(batch_id: str, thesis_id: str = Query("")):
             "subtopic_id": sid,
             "status": status,
             "error": state.get("error") if state else None,
+            "missing_sources": state.get("missing_sources", []) if state else [],
             "sources_uploaded": state.get("sources_uploaded", []) if state else [],
             "sources_failed": state.get("sources_failed", []) if state else [],
             "poll_url": f"/notebooklm/state/{chapter_id}/{sid}",
         })
 
     total = len(subtopic_ids)
-    all_terminal = (counts["done"] + counts["error"]) == total
+    # A batch is terminal if everything is either done, error, or explicitly waiting for manual upload
+    all_terminal = (counts["done"] + counts["error"] + counts["waiting_for_manual_upload"]) == total
+    
     derived_status = (
-        "done" if counts["error"] == 0 and all_terminal
+        "done" if counts["error"] == 0 and counts["waiting_for_manual_upload"] == 0 and all_terminal
+        else "waiting" if counts["waiting_for_manual_upload"] > 0
         else "error" if all_terminal
         else "running"
     )
@@ -551,6 +555,7 @@ async def suggest_summary(
             subtopic=subtopic,
             notebook_id=state["notebook_id"],
             save=req.save,
+            thesis_id=thesis_id,
         )
     except (NLMNotInstalledError, NLMAuthError) as e:
         raise HTTPException(status_code=503, detail=str(e))
