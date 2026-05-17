@@ -59,6 +59,12 @@ _PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "generate_sourc
 _index_locks: dict[str, asyncio.Lock] = {}
 _locks_registry_lock = asyncio.Lock()
 
+# ── Active task registry (Fix 1) ───────────────────────────────────────────────
+# Stores the asyncio.Task reference so cancel_index_job can actually stop execution.
+# lock.pop() alone only orphans the lock — the task keeps running.
+
+_active_tasks: dict[str, asyncio.Task] = {}
+
 
 async def _get_index_lock(thesis_name: str) -> asyncio.Lock:
     async with _locks_registry_lock:
@@ -163,16 +169,34 @@ async def run_index_sequence(
     thesis_name: str,
     thesis_id: str = "",
     batch_id: Optional[str] = None,
+    skip_if_done: bool = False,
 ) -> None:
     """
     Full NLM source-card pipeline for one thesis folder.
     Writes state to misc/source_index_{safe_name}.json at each step.
     Must be called as a background task — never awaited directly by the router.
+
+    skip_if_done=True: used by batch runner to avoid re-running a folder that
+    a concurrent single run already indexed while the batch was waiting on the lock.
     """
     lock = await _get_index_lock(thesis_name)
 
     try:
+        # Fix 1: register task reference so cancel_index_job can actually stop it
+        _active_tasks[thesis_name] = asyncio.current_task()
+
         async with lock:
+            # Fix 2 (batch guard): re-check state after acquiring lock.
+            # If a single run finished this folder while we were waiting, skip.
+            if skip_if_done:
+                current_status = _read_state(thesis_name).get("status", "idle")
+                if current_status in ("done", "warn"):
+                    logger.info(
+                        f"Skipping '{thesis_name}' — already indexed "
+                        f"(status={current_status}) by a concurrent run."
+                    )
+                    return
+
             state = _read_state(thesis_name)
             state.update({
                 "thesis_name": thesis_name,
@@ -381,6 +405,27 @@ async def run_index_sequence(
                             f"Raw response (first 500 chars): {raw_answer[:500]}"
                         )
 
+                    # ── Step 12b: Save raw JSON to disk (Fix 3) ───────────────
+                    # Written BEFORE do_auto_import so data survives a validation
+                    # crash. If import fails, user can manually inspect the file.
+                    folder_path = scan_entry.get("folder_path", "")
+                    json_backup_path: Optional[str] = None
+                    if folder_path:
+                        try:
+                            cards_dir = os.path.join(folder_path, "index_cards")
+                            os.makedirs(cards_dir, exist_ok=True)
+                            json_backup_path = os.path.join(
+                                cards_dir, f"{_safe_name(thesis_name)}.json"
+                            )
+                            with open(json_backup_path, "w", encoding="utf-8") as fh:
+                                json.dump(parsed, fh, indent=2, ensure_ascii=False)
+                            logger.info(f"Raw JSON saved to: {json_backup_path}")
+                        except Exception as backup_err:
+                            logger.warning(
+                                f"Could not save JSON backup for '{thesis_name}': {backup_err}"
+                            )
+                            json_backup_path = None
+
                     # ── Step 13: Auto-import ───────────────────────────────────
                     import_result, import_error = do_auto_import(
                         parsed, thesis_id=thesis_id, scan_key=thesis_name
@@ -417,7 +462,7 @@ async def run_index_sequence(
                             "imported_at": datetime.utcnow().isoformat(),
                             "group_id": group_id,
                             "error": None,
-                            "json_path": None,
+                            "json_path": json_backup_path,  # Fix 3: link to backup
                         }
                         scan[thesis_name]["index_notebook_id"] = notebook_id
                         await asyncio.to_thread(_write_scan, scan)
@@ -436,6 +481,16 @@ async def run_index_sequence(
                         f"status={final_status}, group={group_id}, sources={sources_created}"
                     )
 
+            except asyncio.CancelledError:
+                # Fix 1: task.cancel() raises CancelledError — write cancelled state
+                logger.info(f"Index job cancelled for '{thesis_name}'")
+                state.update({
+                    "status": "cancelled",
+                    "error": "Run was cancelled by the user.",
+                })
+                _write_state(thesis_name, state)
+                raise  # must re-raise so asyncio knows the task is done
+
             except (NLMAuthError, NLMNotInstalledError) as e:
                 logger.error(f"NLM auth/install error for '{thesis_name}': {e}")
                 state.update({
@@ -443,7 +498,7 @@ async def run_index_sequence(
                     "error": str(e),
                 })
                 _write_state(thesis_name, state)
-                raise
+                raise  # Fix 4: let batch runner detect auth failure and abort
 
             except Exception as e:
                 logger.error(f"Source indexing failed for '{thesis_name}': {e}", exc_info=True)
@@ -454,6 +509,8 @@ async def run_index_sequence(
                 _write_state(thesis_name, state)
 
     finally:
+        # Fix 1: clean up task reference on any exit path
+        _active_tasks.pop(thesis_name, None)
         async with _locks_registry_lock:
             _index_locks.pop(thesis_name, None)
 
@@ -484,17 +541,51 @@ async def run_batch_index_sequence(
 
     async def _worker(names: list[str]) -> None:
         for name in names:
+            # Fix 2: skip folders already running from a concurrent single run
+            if await is_index_running(name):
+                logger.info(
+                    f"Batch skipping '{name}' — already running from a single run. "
+                    "Will re-check after lock is released via skip_if_done."
+                )
+
             try:
-                await run_index_sequence(name, thesis_id=thesis_id, batch_id=batch_id)
+                # skip_if_done=True: if a single run finished while we waited on
+                # the lock, we skip instead of re-running and overwriting the result.
+                await run_index_sequence(
+                    name, thesis_id=thesis_id, batch_id=batch_id, skip_if_done=True
+                )
+                # Fix 5: explicitly read the written status — captures "warn" correctly
                 final = _read_state(name).get("status", "done")
+
+            except (NLMAuthError, NLMNotInstalledError) as auth_err:
+                # Fix 4: auth failure → abort the entire batch immediately
+                logger.error(
+                    f"Batch '{batch_id}' aborting — auth error on '{name}': {auth_err}"
+                )
+                batch_state["jobs"][name] = "error"
+                batch_state.update({
+                    "status": "auth_error",
+                    "completed_at": datetime.utcnow().isoformat(),
+                })
+                storage.write_misc(batch_id, batch_state, thesis_id="")
+                raise  # propagates to asyncio.gather, cancels the sibling worker
+
+            except asyncio.CancelledError:
+                batch_state["jobs"][name] = "cancelled"
+                storage.write_misc(batch_id, batch_state, thesis_id="")
+                raise
+
             except Exception:
                 final = "error"
+
             batch_state["jobs"][name] = final
             storage.write_misc(batch_id, batch_state, thesis_id="")
 
     try:
         await asyncio.gather(_worker(worker_a), _worker(worker_b))
         final_status = "done"
+    except (NLMAuthError, NLMNotInstalledError):
+        final_status = "auth_error"
     except Exception as e:
         logger.error(f"Batch '{batch_id}' unexpected error: {e}", exc_info=True)
         final_status = "error"
@@ -553,18 +644,31 @@ def get_batch_status(batch_id: str) -> dict:
 
 async def cancel_index_job(thesis_name: str) -> bool:
     """
-    Cancels a running index job by clearing the in-memory lock and setting
-    the state to cancelled. Returns True if a lock was held, False otherwise.
+    Cancels a running index job.
+
+    Fix 1: calls task.cancel() on the actual asyncio.Task so execution stops.
+    Simply removing the lock was wrong — the task kept running in memory.
+    CancelledError is caught inside run_index_sequence which writes state=cancelled.
+
+    Returns True if a running task was found and cancelled.
     """
+    # Cancel the actual task first — this raises CancelledError inside run_index_sequence
+    task = _active_tasks.get(thesis_name)
+    had_task = task is not None and not task.done()
+    if had_task:
+        task.cancel()
+        logger.info(f"cancel_index_job: task.cancel() called for '{thesis_name}'")
+
+    # Also clear the lock registry so a new run can start after cancellation
     async with _locks_registry_lock:
-        lock = _index_locks.get(thesis_name)
-        had_lock = lock is not None and lock.locked()
         _index_locks.pop(thesis_name, None)
 
+    # Write cancelled state immediately (task's CancelledError handler also writes it,
+    # but this ensures the state is visible before the task finishes unwinding).
     state = _read_state(thesis_name)
     state.update({
         "status": "cancelled",
         "error": "Run was cancelled by the user.",
     })
     _write_state(thesis_name, state)
-    return had_lock
+    return had_task

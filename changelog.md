@@ -60,3 +60,9 @@ Summary: The backend architecture is bulletproof. To make it a usable product, y
 - **Concurrency Verification**: Added stress tests to verify that `asyncio.Lock` properly serializes subtopic runs and prevents state-lock corruption.
 - **Batch Resilience**: Verified that batch sequences correctly handle partial failures and authentication expiry.
 
+### Automated Source Card Indexing (Card 02b)
+- **Automated Pipeline**: Implemented a fully autonomous pipeline (`source_index_service.py`) that uploads entire thesis folders to NotebookLM, generates scholarly index cards via specific prompts, and imports them directly into the Source Library.
+- **Concurrency & Resiliency**: Built with rigorous in-memory mutexes (`asyncio.Lock`) and active task tracking (`asyncio.Task`) to prevent race conditions and allow true cancellation of running background jobs.
+- **Batch Processing Guards**: Batch runs intelligently skip folders currently locked by concurrent single runs. Global authentication failures (`NLMAuthError`) abort the entire batch immediately instead of triggering rate limits.
+- **Data Safety**: Implemented a 10MB file size guard and a partial-upload halt state (`waiting_for_manual_upload`). Raw NotebookLM JSON responses are backed up to local disk (`index_cards/`) *before* database import to prevent data loss on validation errors.
+- **Production UI**: Added a new "Source Card Indexing" interface (Card 02b) featuring live polling, status chips with animations, confirmation modals for batch runs, and duplicate-prevention warnings with deep-links to existing library entries.

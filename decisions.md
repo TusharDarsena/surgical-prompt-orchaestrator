@@ -179,34 +179,37 @@ Both use `_nlm_client()` from `notebooklm_service.py`. Neither deletes notebooks
 - **Reasoning:** The system relies on precise lock management (`_run_locks`). Manual testing cannot easily trigger race conditions. Automated tests ensure that multiple simultaneous requests for the same resource are correctly serialized.
 
 
-### Rough text - core workflow about importing jsons in source library page - 
-Looking at your codebase, here's the current JSON import flow for the Source Library:
+## 13. Source Library & Indexing Workflow
 
-**Where you make the JSONs**
+This section outlines how external works (PDFs) and their corresponding scholarly index cards enter the SPO database. The core principle is that all paths ultimately delegate to a single authority for data normalization and storage.
 
-You manually create `source.json` files locally. The schema is defined in `SourceImport` (source_importer.py) — one JSON per external work, containing work-level metadata plus a `chapters` array where each entry is an index card for one PDF.
+### The Three Import Paths
 
-**How you get them into SPO**
+**Path 1: Direct File Upload (Card 01 - Manual)**
+The user drags and drops a manually created `.json` file into the UI. The frontend POSTs it to `/import/source`, where it is immediately handed to `do_auto_import()`.
 
-There are two paths, both ultimately hitting the same backend function:
+**Path 2: Drive Setup Paste-back (Card 02 - Semi-Automated)**
+After scanning a local or Drive folder (`/drive/scan-local`), the user manually prompts NotebookLM, copies the JSON response, and pastes it into the UI. The backend (`/drive/save-index-card`) saves a raw backup of the JSON to `index_cards/<thesis_name>.json` and then calls `do_auto_import()`.
 
-**Path 1 — Direct file upload in the Source Library page (Card 01)**
+**Path 3: Automated Source Indexing (Card 02b - Fully Automated)**
+The system orchestrates the entire pipeline:
+1. Gathers all PDFs for a scanned thesis folder.
+2. Checks file sizes (rejecting >10MB) and NotebookLM capacity limits (max 50 sources).
+3. Uploads PDFs to a dedicated NotebookLM notebook.
+4. Pauses if files are missing (`waiting_for_manual_upload`), allowing the user to manually sync missing files and resume.
+5. Queries the notebook using the standard `generate_source_json.txt` prompt.
+6. Saves the raw JSON to disk as a backup *before* attempting database insertion.
+7. Calls `do_auto_import()`.
 
-You drag and drop `.json` files into the drop zone in `source_library.html`. The JS in `source_library.js` reads the file, parses it, and calls `API.importSourceJson()` from `source_library_api.js`, which POSTs to `POST /import/source`. The router in `importer.py` receives this and delegates entirely to `do_auto_import()` in `source_importer.py`. That function normalizes field names (via `_normalize_source_chapter`), validates with Pydantic, then writes a SourceGroup + Sources + IndexCards to disk.
+### The Import Authority (`do_auto_import`)
+`services/source_importer.py -> do_auto_import()` is the single source of truth for creating source records. 
+- **Normalization Tolerance:** It acts as a "translation layer", mapping messy or hallucinated JSON keys (e.g., `filename` → `file_name`, `claims` → `key_claims`) to strict Pydantic models (`SourceImport`, `SourceChapterImport`).
+- **Data Sweeping:** Unrecognized extra fields are not discarded; they are swept into an `additional` string field.
+- **Storage:** It generates a `group_id`, writes one `group_meta.json`, and one `source_id.json` per chapter. Index cards are embedded directly inside the source file, setting `has_index_card: True` immediately.
 
-**Path 2 — Drive Setup scan → save-index-card (Card 02)**
-
-You scan a local folder (`POST /drive/scan-local`), which discovers PDF files grouped by parent folder and stores that tree. Then you paste a JSON into the "save index card" flow (`POST /drive/save-index-card`), which saves it to disk at `level2_path/index_cards/<thesis_name>.json` and also calls `do_auto_import()` internally.
-
-**What `do_auto_import` does**
-
-This is the single authority for all imports. It normalizes alternative field names (e.g. `filename` → `file_name`, `claims` → `key_claims`), validates via `SourceImport` Pydantic model, generates a `group_id`, writes one `group_meta.json`, and writes one `source_id.json` per chapter — with the index card embedded directly in the source file and `has_index_card: True` set immediately. No separate index card creation step needed.
-
-**The normalization tolerance**
-
-The importer deliberately accepts messy JSONs — it maps about a dozen alternative field names so that what NotebookLM produces doesn't need to exactly match the schema. Extra fields get swept into an `additional` column rather than causing failures.
-
-**What's missing from the flow**
-
-The `TEST_WORKFLOW.md` notes a missing prompt compiler endpoint (`GET /prompts/architect/...`), but that's since been replaced by `GET /compile/notebooklm-prompt/{chapter_id}/{subtopic_id}` which reads from chapterization data rather than index cards. The index cards themselves are used only for the `suggested-sources` endpoint and as reference during writing — they're not directly injected into prompts anymore.
+### Automation Resiliency
+The fully automated pipeline (Card 02b) is built with strict concurrency controls:
+- **Mutex Locks & Active Tasks:** Background jobs are tracked via `asyncio.Lock` and `asyncio.Task` registries. This prevents double-clicks from spawning duplicate uploads and allows true cancellation by raising `CancelledError` inside the worker.
+- **Batch Safe:** Batch runs intelligently skip folders that are currently locked by a concurrent single-run.
+- **Fail-Safe Data:** If NotebookLM hallucinates a JSON structure that `do_auto_import` cannot parse, the pipeline crashes safely *after* writing the raw JSON backup to disk. The user loses zero API effort and can manually fix the JSON.
 
