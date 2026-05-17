@@ -270,6 +270,9 @@ function renderThesisFolders() {
 
     list.appendChild(row);
   }
+
+  // Keep Card 02b in sync with the same folder list
+  if (typeof renderIndexTable === "function") renderIndexTable();
 }
 
 window.copyFolderLinks = async function(thesisName) {
@@ -710,6 +713,17 @@ function init() {
   $("btnScan").addEventListener("click", handleScan);
   $("btnRegisterLinks").addEventListener("click", handleRegisterLinks);
 
+  // ── Card 02b: source card indexing ────────────────────────────────────────
+  $("btnRunAllUnindexed").addEventListener("click", handleRunAllUnindexed);
+  $("btnBatchConfirm").addEventListener("click", confirmBatch);
+  $("btnBatchCancel").addEventListener("click", () => { $("batchConfirmModal").style.display = "none"; });
+  $("btnRerunCancel").addEventListener("click", () => { $("rerunWarnModal").style.display = "none"; });
+  $("btnGoToCard03").addEventListener("click", () => {
+    $("rerunWarnModal").style.display = "none";
+    $("card03").classList.add("active");
+    $("card03").scrollIntoView({ behavior: "smooth" });
+  });
+
   // ── Card 03: register new work ────────────────────────────────────────────
   $("btnRegisterWork").addEventListener("click", registerNewWork);
   $("btnShowAddGroup").addEventListener("click", () => {
@@ -735,3 +749,359 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+// =============================================================================
+// CARD 02b — SOURCE CARD INDEXING
+// =============================================================================
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+
+const BASE = () => window.SPO_API_BASE || "";
+
+async function _apiPost(path, body, thesisId = "") {
+  const url = `${BASE()}${path}${thesisId ? `?thesis_id=${encodeURIComponent(thesisId)}` : ""}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function _apiGet(path) {
+  const res = await fetch(`${BASE()}${path}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function _apiDelete(path, thesisId = "") {
+  const url = `${BASE()}${path}${thesisId ? `?thesis_id=${encodeURIComponent(thesisId)}` : ""}`;
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── State for Card 02b ────────────────────────────────────────────────────────
+
+const indexState = {
+  folders: [],            // from thesisFolders after loadThesisFolders
+  statuses: {},           // { thesis_name: { status, ... } }
+  pollerTimer: null,
+  pendingBatchNames: [],  // names queued for batch confirm modal
+};
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function renderIndexTable() {
+  const container = $("indexRunTable");
+  if (!state.thesisFolders.length) {
+    container.innerHTML = `<div class="index-loading">Scan a folder in Drive Setup first.</div>`;
+    _updateIndexPill();
+    return;
+  }
+
+  container.innerHTML = "";
+
+  for (const folder of state.thesisFolders) {
+    const s = indexState.statuses[folder.name] || {};
+    const status = s.status || "idle";
+    const hasDrive = folder.drive_linked;
+    const pdfCount = folder.pdfs?.length ?? 0;
+    const groupId = s.group_id || folder.import_status?.group_id;
+    const isIndexed = status === "done" || status === "warn" || folder.import_status?.imported;
+
+    const rowEl = document.createElement("div");
+    rowEl.className = `index-row state-${status}`;
+    rowEl.id = `idx-row-${folder.name.replace(/\W/g, "_")}`;
+
+    // ── Name + sub-note ──
+    const nameCell = document.createElement("div");
+    nameCell.className = "index-folder-name";
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = folder.name;
+    nameCell.appendChild(nameSpan);
+
+    let noteEl = null;
+    if (status === "running") {
+      const uploaded = s.sources_uploaded?.length ?? 0;
+      const total    = (s.sources_uploaded?.length ?? 0) + (s.sources_failed?.length ?? 0);
+      noteEl = document.createElement("span");
+      noteEl.className = "index-progress-note";
+      noteEl.textContent = uploaded > 0 || total > 0
+        ? `Uploading: ${uploaded} / ${Math.max(uploaded, total)} files done`
+        : "Starting…";
+    } else if (status === "error" && s.error) {
+      noteEl = document.createElement("span");
+      noteEl.className = "index-error-note";
+      noteEl.textContent = s.error.slice(0, 100);
+    } else if (status === "warn" && s.warn_message) {
+      noteEl = document.createElement("span");
+      noteEl.className = "index-warn-note";
+      noteEl.textContent = s.warn_message.slice(0, 100);
+    } else if (status === "waiting_for_manual_upload") {
+      noteEl = document.createElement("span");
+      noteEl.className = "index-warn-note";
+      noteEl.textContent = "Upload incomplete — some files failed. Fix and re-run.";
+    }
+    if (noteEl) nameCell.appendChild(noteEl);
+
+    // ── PDF count ──
+    const countCell = document.createElement("div");
+    countCell.className = "index-pdf-count";
+    countCell.textContent = pdfCount;
+
+    // ── Upload mode badge ──
+    const modeCell = document.createElement("div");
+    const modeBadge = document.createElement("span");
+    if (hasDrive) {
+      modeBadge.className = "badge-drive";
+      modeBadge.textContent = "🟢 Drive";
+    } else {
+      modeBadge.className = "badge-local";
+      modeBadge.title = "Drive links not registered — upload will use local paths (slower)";
+      modeBadge.textContent = "🟡 Local only";
+    }
+    modeCell.appendChild(modeBadge);
+
+    // ── Status chip ──
+    const statusCell = document.createElement("div");
+    const chip = document.createElement("span");
+    chip.className = `index-status-chip ${_chipClass(status, isIndexed)}`;
+    chip.textContent = _chipLabel(status, isIndexed);
+    statusCell.appendChild(chip);
+
+    // ── Actions ──
+    const actionsCell = document.createElement("div");
+    actionsCell.className = "index-action-cell";
+
+    if (status === "running") {
+      const stopBtn = document.createElement("button");
+      stopBtn.className = "btn btn-danger";
+      stopBtn.style.cssText = "padding:4px 10px;font-size:11px;";
+      stopBtn.textContent = "Stop";
+      stopBtn.addEventListener("click", () => handleStop(folder.name));
+      actionsCell.appendChild(stopBtn);
+    } else {
+      const isAlreadyDone = status === "done" || status === "warn";
+      const isRerun = isAlreadyDone || folder.import_status?.imported;
+
+      const runBtn = document.createElement("button");
+      runBtn.className = "btn btn-run";
+      runBtn.textContent = isRerun ? "Re-run" : "▶ Run";
+      runBtn.addEventListener("click", () => {
+        if (isRerun && groupId) {
+          showRerunWarning(folder.name, groupId);
+        } else {
+          handleRunSingle(folder.name);
+        }
+      });
+      actionsCell.appendChild(runBtn);
+
+      // ↗ scroll to Card 03 button (only when indexed)
+      if (isRerun && groupId) {
+        const openBtn = document.createElement("button");
+        openBtn.className = "idx-open-btn";
+        openBtn.title = "Go to group in Card 03 →";
+        openBtn.textContent = "↗";
+        openBtn.addEventListener("click", () => scrollToGroup(groupId));
+        actionsCell.appendChild(openBtn);
+      }
+    }
+
+    rowEl.appendChild(nameCell);
+    rowEl.appendChild(countCell);
+    rowEl.appendChild(modeCell);
+    rowEl.appendChild(statusCell);
+    rowEl.appendChild(actionsCell);
+    container.appendChild(rowEl);
+  }
+
+  _updateIndexPill();
+  _startPoller();
+}
+
+function _chipClass(status, isIndexed) {
+  if (isIndexed && status === "idle") return "chip-done";
+  switch (status) {
+    case "done":                    return "chip-done";
+    case "running":                 return "chip-running";
+    case "warn":                    return "chip-warn";
+    case "error":                   return "chip-error";
+    case "waiting_for_manual_upload": return "chip-waiting";
+    case "cancelled":               return "chip-cancelled";
+    case "queued":                  return "chip-running";
+    default:                        return "chip-idle";
+  }
+}
+
+function _chipLabel(status, isIndexed) {
+  if (isIndexed && status === "idle") return "✓ Indexed";
+  switch (status) {
+    case "done":                    return "✓ Indexed";
+    case "running":                 return "⚙ Running…";
+    case "warn":                    return "⚠ Warn";
+    case "error":                   return "✕ Error";
+    case "waiting_for_manual_upload": return "⏳ Upload needed";
+    case "cancelled":               return "— Cancelled";
+    case "queued":                  return "⏳ Queued";
+    default:                        return "⬜ idle";
+  }
+}
+
+function _updateIndexPill() {
+  const pill = $("indexPill");
+  const total    = state.thesisFolders.length;
+  const indexed  = state.thesisFolders.filter(f => {
+    const s = indexState.statuses[f.name]?.status;
+    return s === "done" || s === "warn" || f.import_status?.imported;
+  }).length;
+  if (!total) { pill.textContent = "—"; pill.className = "pill pill-idle"; return; }
+  pill.textContent = `${indexed} / ${total} indexed`;
+  pill.className = indexed === total ? "pill pill-done" : "pill pill-active";
+}
+
+// ── Poller ────────────────────────────────────────────────────────────────────
+
+function _startPoller() {
+  if (indexState.pollerTimer) return; // already running
+  const running = state.thesisFolders.some(f => {
+    const s = indexState.statuses[f.name]?.status;
+    return s === "running" || s === "queued";
+  });
+  if (!running) return;
+
+  indexState.pollerTimer = setInterval(async () => {
+    const allNames = state.thesisFolders.map(f => f.name);
+    if (!allNames.length) return;
+    try {
+      const results = await _apiGet(
+        `/source-index/status?thesis_names=${encodeURIComponent(allNames.join(","))}`
+      );
+      let anyActive = false;
+      for (const r of results) {
+        indexState.statuses[r.thesis_name] = r;
+        if (r.status === "running" || r.status === "queued") anyActive = true;
+      }
+      renderIndexTable();
+
+      if (!anyActive) {
+        clearInterval(indexState.pollerTimer);
+        indexState.pollerTimer = null;
+        // Refresh Card 03 when any jobs completed
+        await actions.loadLibrary();
+        toast("Source indexing complete", "success");
+      }
+    } catch (err) {
+      // silently ignore transient poll errors
+    }
+  }, 3000);
+}
+
+function _stopPoller() {
+  if (indexState.pollerTimer) {
+    clearInterval(indexState.pollerTimer);
+    indexState.pollerTimer = null;
+  }
+}
+
+// ── Handlers ──────────────────────────────────────────────────────────────────
+
+async function handleRunSingle(thesisName) {
+  const thesisId = _activeThesisId();
+  try {
+    await _apiPost("/source-index/run", { thesis_name: thesisName }, thesisId);
+    indexState.statuses[thesisName] = { ...indexState.statuses[thesisName], status: "queued" };
+    renderIndexTable();
+  } catch (err) {
+    if (err.message.includes("409")) {
+      toast(`Already running: ${thesisName}`, "error");
+    } else {
+      toast(`Run failed: ${err.message}`, "error");
+    }
+  }
+}
+
+async function handleStop(thesisName) {
+  const thesisId = _activeThesisId();
+  try {
+    await _apiDelete(`/source-index/stop/${encodeURIComponent(thesisName)}`, thesisId);
+    indexState.statuses[thesisName] = { ...indexState.statuses[thesisName], status: "cancelled" };
+    renderIndexTable();
+    toast(`Stopped: ${thesisName}`, "info");
+  } catch (err) {
+    toast(`Stop failed: ${err.message}`, "error");
+  }
+}
+
+function handleRunAllUnindexed() {
+  const unindexed = state.thesisFolders.filter(f => {
+    const s = indexState.statuses[f.name]?.status;
+    return !s || s === "idle" || s === "error" || s === "cancelled" || s === "waiting_for_manual_upload";
+  }).filter(f => !f.import_status?.imported);
+
+  if (!unindexed.length) {
+    toast("All folders are already indexed", "info");
+    return;
+  }
+
+  const totalPdfs = unindexed.reduce((n, f) => n + (f.pdfs?.length ?? 0), 0);
+
+  $("batchFolderCount").textContent = unindexed.length;
+  $("batchPdfCount").textContent    = totalPdfs;
+  indexState.pendingBatchNames      = unindexed.map(f => f.name);
+  $("batchConfirmModal").style.display = "flex";
+}
+
+async function confirmBatch() {
+  $("batchConfirmModal").style.display = "none";
+  const thesisId = _activeThesisId();
+  const names = indexState.pendingBatchNames;
+  if (!names.length) return;
+
+  try {
+    const result = await _apiPost("/source-index/run-batch", { thesis_names: names }, thesisId);
+    for (const job of (result.jobs || [])) {
+      indexState.statuses[job.thesis_name] = { status: "queued" };
+    }
+    renderIndexTable();
+    toast(`Batch started — ${names.length} folders queued`, "success");
+  } catch (err) {
+    toast(`Batch failed: ${err.message}`, "error");
+  }
+}
+
+function showRerunWarning(thesisName, groupId) {
+  $("rerunGroupId").textContent = groupId;
+  $("rerunWarnModal").style.display = "flex";
+  // The "Go to Card 03" btn is already wired in init().
+  // We don't fire the run here — user must manually dismiss, delete old group, then re-run.
+}
+
+function scrollToGroup(groupId) {
+  const el = $(`group-${groupId}`);
+  if (!el) {
+    // Make sure Card 03 is expanded
+    $("card03").classList.add("active");
+    toast("Group not found in Card 03 — it may still be loading", "info");
+    return;
+  }
+  $("card03").classList.add("active");
+  el.classList.add("open");
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ── Hook into existing loadThesisFolders ─────────────────────────────────────
+// After thesis folders load (Card 02), also refresh index table
+
+const _origLoadThesisFolders = loadThesisFolders;
+// Redefine to also refresh Card 02b
+// (function-level reassignment used since module scope prohibits let/const redeclaration)
+window._refreshIndexTable = function() {
+  // state.thesisFolders is already updated when called — just re-render
+  renderIndexTable();
+};
+

@@ -110,10 +110,10 @@ When you are about to make a design choice, check here first.
 
 **Decision:** SPO has two distinct NLM automation paths with different notebook lifecycles:
 
-| Path | Notebook | Duration | Used For |
-|---|---|---|---|
-| Draft Generation | Persistent, per subtopic | Long-lived (thesis project) | Writing Section |
-| Source Indexing | Persistent, per thesis folder | Long-lived (reused on re-run) | Source Library Card 02b |
+| Path             | Notebook                      | Duration                      | Used For                |
+| ---------------- | ----------------------------- | ----------------------------- | ----------------------- |
+| Draft Generation | Persistent, per subtopic      | Long-lived (thesis project)   | Writing Section         |
+| Source Indexing  | Persistent, per thesis folder | Long-lived (reused on re-run) | Source Library Card 02b |
 
 Both use `_nlm_client()` from `notebooklm_service.py`. Neither deletes notebooks automatically.
 
@@ -177,4 +177,36 @@ Both use `_nlm_client()` from `notebooklm_service.py`. Neither deletes notebooks
 **Decision 12.2: Concurrency Stress Testing**
 - **Decision:** Every NLM service modification requires a concurrency test using `asyncio.gather`.
 - **Reasoning:** The system relies on precise lock management (`_run_locks`). Manual testing cannot easily trigger race conditions. Automated tests ensure that multiple simultaneous requests for the same resource are correctly serialized.
+
+
+### Rough text - core workflow about importing jsons in source library page - 
+Looking at your codebase, here's the current JSON import flow for the Source Library:
+
+**Where you make the JSONs**
+
+You manually create `source.json` files locally. The schema is defined in `SourceImport` (source_importer.py) — one JSON per external work, containing work-level metadata plus a `chapters` array where each entry is an index card for one PDF.
+
+**How you get them into SPO**
+
+There are two paths, both ultimately hitting the same backend function:
+
+**Path 1 — Direct file upload in the Source Library page (Card 01)**
+
+You drag and drop `.json` files into the drop zone in `source_library.html`. The JS in `source_library.js` reads the file, parses it, and calls `API.importSourceJson()` from `source_library_api.js`, which POSTs to `POST /import/source`. The router in `importer.py` receives this and delegates entirely to `do_auto_import()` in `source_importer.py`. That function normalizes field names (via `_normalize_source_chapter`), validates with Pydantic, then writes a SourceGroup + Sources + IndexCards to disk.
+
+**Path 2 — Drive Setup scan → save-index-card (Card 02)**
+
+You scan a local folder (`POST /drive/scan-local`), which discovers PDF files grouped by parent folder and stores that tree. Then you paste a JSON into the "save index card" flow (`POST /drive/save-index-card`), which saves it to disk at `level2_path/index_cards/<thesis_name>.json` and also calls `do_auto_import()` internally.
+
+**What `do_auto_import` does**
+
+This is the single authority for all imports. It normalizes alternative field names (e.g. `filename` → `file_name`, `claims` → `key_claims`), validates via `SourceImport` Pydantic model, generates a `group_id`, writes one `group_meta.json`, and writes one `source_id.json` per chapter — with the index card embedded directly in the source file and `has_index_card: True` set immediately. No separate index card creation step needed.
+
+**The normalization tolerance**
+
+The importer deliberately accepts messy JSONs — it maps about a dozen alternative field names so that what NotebookLM produces doesn't need to exactly match the schema. Extra fields get swept into an `additional` column rather than causing failures.
+
+**What's missing from the flow**
+
+The `TEST_WORKFLOW.md` notes a missing prompt compiler endpoint (`GET /prompts/architect/...`), but that's since been replaced by `GET /compile/notebooklm-prompt/{chapter_id}/{subtopic_id}` which reads from chapterization data rather than index cards. The index cards themselves are used only for the `suggested-sources` endpoint and as reference during writing — they're not directly injected into prompts anymore.
 

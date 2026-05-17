@@ -147,7 +147,31 @@
       </div>
     </div>
 
+    <!-- ══ CARD 02b: SOURCE CARD INDEXING ══ -->
+    <div class="card active" id="card02b">
+      <div class="card-header" data-card="card02b">
+        <span class="card-num">02b</span>
+        <span class="card-title">Source Card Indexing</span>
+        <span class="pill pill-idle" id="indexPill">—</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div class="card-divider"></div>
+
+        <div class="run-all-row">
+          <button class="btn btn-primary" id="btnRunAllUnindexed">▶ Run All Unindexed</button>
+        </div>
+
+        <!-- Index run table — populated by JS -->
+        <div class="index-run-table" id="indexRunTable">
+          <div class="index-loading">Scan a folder in Drive Setup first.</div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ══ CARD 03: SOURCE LIBRARY ══ -->
+
     <div class="card active" id="card03">
       <div class="card-header" data-card="card03">
         <span class="card-num">03</span>
@@ -220,6 +244,40 @@
 
 <!-- TOAST CONTAINER -->
 <div class="toast-container" id="toastContainer"></div>
+
+<!-- BATCH CONFIRM MODAL -->
+<div class="modal-overlay" id="batchConfirmModal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title">Confirm Batch Indexing</div>
+    <div class="modal-body" id="batchConfirmBody">
+      You are about to index <strong id="batchFolderCount">N</strong> folders
+      (<strong id="batchPdfCount">X</strong> PDFs total).
+      Each folder will be uploaded to NotebookLM and a source card JSON will be
+      generated automatically. This may take several minutes.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary"  id="btnBatchConfirm">▶ Proceed</button>
+      <button class="btn btn-ghost"    id="btnBatchCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- RE-RUN DUPLICATE WARNING MODAL -->
+<div class="modal-overlay" id="rerunWarnModal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title">⚠ Duplicate Entry Warning</div>
+    <div class="modal-body">
+      This folder is already indexed and imported into Card 03 as
+      <code id="rerunGroupId"></code>.
+      Running again will create a <strong>new duplicate entry</strong> in the
+      Source Library. Delete the old group from Card 03 first, then re-run.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btnGoToCard03">Go to Card 03 →</button>
+      <button class="btn btn-ghost"     id="btnRerunCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <script type="module" src="/static/js/source_library.js"></script>
 </body>
