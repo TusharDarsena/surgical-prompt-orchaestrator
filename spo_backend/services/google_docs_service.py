@@ -94,7 +94,10 @@ def _save_token(token_json: str) -> None:
             "keyring unavailable — storing OAuth token in plaintext JSON. "
             "Do not commit spo_data/ to version control."
         )
-    storage.write_misc(MISC_TOKEN_KEY, json.loads(token_json), thesis_id="")
+    try:
+        storage.write_misc(MISC_TOKEN_KEY, json.loads(token_json), thesis_id="")
+    except Exception as e:
+        logger.error("Failed to write token to storage: %s", e)
 
 
 def _load_token() -> Optional[str]:
@@ -281,8 +284,18 @@ def _normalize(text: str) -> str:
     SHA-256 on raw Docs text false-positives constantly due to \x0b (line break)
     vs \n normalization. Comparing normalized strings is both simpler and correct.
     """
-    text = text.replace("\x0b", "\n").replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\x0b", "\n").replace("\r\n", "\n").replace("\r", "\n").replace("\u200b", "")
     return " ".join(text.split()).strip()
+
+
+
+def _get_utf16_length(text: str) -> int:
+    """
+    Calculates the length of a string in UTF-16 code units.
+    Essential for Google Docs API indexing, where surrogate pairs 
+    (emojis, complex math symbols) count as 2 units instead of 1.
+    """
+    return len(text.encode('utf-16-le')) // 2
 
 
 # ── Core export logic ──────────────────────────────────────────────────────────
@@ -447,7 +460,8 @@ async def export_subtopic(
                 old_end = range_segments[-1]["endIndex"]
                 old_length = old_end - old_start
                 new_full_text = f"{subtopic_title}\n{draft_text}\n"
-                new_length = len(new_full_text)
+                new_length = _get_utf16_length(new_full_text)
+                heading_length = _get_utf16_length(subtopic_title)
 
                 requests = [
                     # Step 1: Insert new text at old_start
@@ -457,7 +471,7 @@ async def export_subtopic(
                         "updateParagraphStyle": {
                             "range": {
                                 "startIndex": old_start,
-                                "endIndex": old_start + len(subtopic_title) + 1,
+                                "endIndex": old_start + heading_length + 1,
                             },
                             "paragraphStyle": {"namedStyleType": "HEADING_2"},
                             "fields": "namedStyleType",
@@ -490,7 +504,9 @@ async def export_subtopic(
             # Insert before the last index (which is a trailing newline/paragraph)
             insert_at = max(1, doc_end - 1)
             full_text = f"{subtopic_title}\n{draft_text}\n"
-            heading_end = insert_at + len(subtopic_title) + 1
+            heading_length = _get_utf16_length(subtopic_title)
+            heading_end = insert_at + heading_length + 1
+            new_length = _get_utf16_length(full_text)
 
             requests = [
                 {"insertText": {"location": {"index": insert_at}, "text": full_text}},
@@ -510,7 +526,7 @@ async def export_subtopic(
             logger.info("Appended subtopic %s to doc %s.", subtopic_id, gdoc_id)
 
             # Create a named range for the inserted content
-            new_end = insert_at + len(full_text)
+            new_end = insert_at + new_length
             range_name = f"spo_{subtopic_id}"
             result = await asyncio.to_thread(
                 lambda: docs.documents()

@@ -47,3 +47,16 @@ Summary: The backend architecture is bulletproof. To make it a usable product, y
 - **Conflict Resolution UI**: Added a side-by-side diff modal in the frontend to handle 409 Conflicts, allowing the user to either keep their Google Docs changes or force an overwrite with the new SPO draft.
 - **Chapter-Native Document Tracking**: Google Doc IDs are now tracked natively within `chapter_XX.json` metadata, ensuring 1:1 mapping between SPO chapters and Google Docs.
 - **Authentication**: Added Web OAuth 2.0 flow with `keyring` storage for secure token management, falling back to plaintext JSON where unavailable. Included `GDOCS_REDIRECT_URI` environment variable support for deployment flexibility.
+
+### Two-Stage Scholarly Expansion (Prompt 2 Automation)
+- **Automated Stage 2 Pipeline**: Implemented a fully autonomous two-stage writing pipeline. Stage 1 generates the base draft, and Stage 2 expands it using scholarly evidence.
+- **Source-Based Expansion**: Replaced unreliable prompt concatenation (pasting Draft 1 into the chat) with server-side source injection via `client.sources.add_text`.
+- **Atomic Draft Persistence**: The system now commits Draft 1 to storage *before* attempting expansion, ensuring work is never lost even if the LLM crashes.
+- **Force Unlock**: Added a safety hatch for "zombie" NotebookLM runs. If a job hangs for >10 mins, users can force-unlock the subtopic, which triggers backend cleanup and state reset.
+- **Error States**: Introduced `stage2_error` status to gracefully handle scholarly expansion failures without blocking the manual editor.
+
+### Rigorous Backend Testing
+- **Sandbox Testing Framework**: Implemented a complete `pytest` suite using `tmp_path` fixtures to verify storage operations, JSON serialization, and path resolution without touching production data.
+- **Concurrency Verification**: Added stress tests to verify that `asyncio.Lock` properly serializes subtopic runs and prevents state-lock corruption.
+- **Batch Resilience**: Verified that batch sequences correctly handle partial failures and authentication expiry.
+

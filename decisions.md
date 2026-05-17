@@ -144,3 +144,37 @@ Both use `_nlm_client()` from `notebooklm_service.py`. Neither deletes notebooks
 - **Decision:** Google Doc IDs (`gdoc_id`) are stored in the chapter metadata, and Named Range IDs (`gdoc_named_range_id`) in the subtopic metadata. All updates to chapter JSON MUST use a read-merge-write pattern.
 - **Reasoning:** `storage.write_chapter()` performs a full dictionary replacement. Blindly writing back to the chapter will clobber the `gdoc_id` and other metadata.
 - **Enforcement:** Services must always read the chapter, mutate the specific keys they own, and write it back.
+
+---
+
+## 11. Two-Stage Scholarly Expansion (Prompt 2)
+
+**Decision 11.1: Source Injection vs. Prompt Concatenation**
+- **Decision:** Do NOT paste Draft 1 into the LLM chatbox for Stage 2. Instead, upload it as a temporary text source via `client.sources.add_text(wait=True)`.
+- **Reasoning:** NotebookLM has undocumented character limits on the chat input. Pasting a full Draft 1 (often 2000+ words) causes silent failures or hallucinations. Injecting it as a source ensures the LLM can query the full context without truncation.
+- **Cleanup:** This source MUST be deleted in a `finally` block to keep the notebook within the 50-source limit.
+
+**Decision 11.2: Thread Isolation for Evidence Integrity**
+- **Decision:** Stage 2 must NEVER pass a `conversation_id`. Every scholarly expansion call creates a fresh chat thread.
+- **Reasoning:** Reusing the Stage 1 thread contaminates the expansion with the base draft's generation logic. A fresh thread forces the LLM to look purely at the assigned sources and the newly injected Draft 1 source, ensuring citations are grounded in reality.
+
+**Decision 11.3: Draft-First Atomic Persistence**
+- **Decision:** The backend MUST commit Draft 1 to disk before starting the Stage 2 expansion.
+- **Reasoning:** Stage 2 is high-latency and prone to API timeouts. If we wait for the full expansion to finish before saving, a Stage 2 crash loses the valid Stage 1 work. Saving first allows the user to recover the base draft even if scholarly expansion fails.
+
+**Decision 11.4: Force Unlock Escape Hatch**
+- **Decision:** Subtopics that have been in the `expanding` state for >10 minutes are eligible for a **Force Unlock**.
+- **Reasoning:** Because `asyncio.Lock` is per-subtopic, a hung "expanding" process blocks all future attempts to fix that subtopic. Since server-side jobs can be orphaned by crashes, we provide a manual override that clears the backend lock and resets state.
+
+---
+
+## 12. Automated Testing Principles
+
+**Decision 12.1: Sandbox File I/O (tmp_path)**
+- **Decision:** All tests that touch `storage.py` or filesystem-dependent services MUST use the `tmp_path` fixture to override `SPO_DATA_DIR`.
+- **Reasoning:** Mocking `storage` methods with in-memory dictionaries hides JSON serialization errors (e.g., non-serializable objects). Real file I/O against a temporary directory catches path resolution bugs and schema mismatches that mocks would miss.
+
+**Decision 12.2: Concurrency Stress Testing**
+- **Decision:** Every NLM service modification requires a concurrency test using `asyncio.gather`.
+- **Reasoning:** The system relies on precise lock management (`_run_locks`). Manual testing cannot easily trigger race conditions. Automated tests ensure that multiple simultaneous requests for the same resource are correctly serialized.
+

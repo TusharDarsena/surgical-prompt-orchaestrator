@@ -1,0 +1,111 @@
+
+suggested test and how it interacts with your current `google_docs_service.py` implementation.
+
+### 1. Token Storage & Environment Failures
+
+These tests are highly relevant because OS-level credential managers are notoriously brittle across different environments (e.g., local development vs. a headless VPS).
+
+* **The "Schrödinger's Keyring" Trap:** Great test. Your code currently wraps `keyring.get_password` in a bare `except Exception:`. This test will successfully verify that your fallback to `storage.read_misc` executes smoothly when dbus/keyring errors occur.
+* **The Read-Only Fallback:** **This test will likely fail (which is good).** If `keyring` fails, `_save_token` falls back to `storage.write_misc`. If `write_misc` throws a `PermissionError`, your code doesn't currently catch it. It will crash the OAuth flow. This test exposes a spot where you might need an additional `try/except` block or a fallback to in-memory storage if disk writing fails.
+* **Corrupted Token State:** Solid. Your `_load_and_refresh_credentials` safely wraps `json.loads` and catches structural errors, translating them into `GDocsAuthError`. The test will pass and confirm the behavior.
+
+### 2. OAuth State & CSRF Hostility
+
+OAuth flows are frequently targets for state manipulation, and access tokens can be revoked by the user at any time.
+
+* **The CSRF Collision:** Spot on. Your code explicitly checks `stored.get("state") != state` in `complete_auth_flow`. This test will pass and validate your security boundary.
+* **The Revoked Refresh Token:** Essential test. It verifies that Google's `RefreshError` gets properly wrapped into your domain-specific `GDocsAuthError`, ensuring the router can safely return a 401 instead of a 500.
+
+### 3. Concurrency & The Async Event Loop
+
+Because SPO uses batch workers, validating your asynchronous lock mechanisms is critical to preventing data corruption.
+
+* **The Thundering Herd:** Excellent stress test for `_get_chapter_doc_lock`. It will confirm that your `_chapter_locks_mutex` successfully prevents multiple workers from creating duplicate Google Docs for a single chapter.
+* **The Orphaned Lock:** Your code uses `async with lock:` which guarantees the lock is released even if `storage.write_chapter` throws an `IOError` during the read-merge-write step. This test will pass and confirm your concurrency hygiene.
+* **Cross-Chapter Deadlock Check:** Crucial for throughput. It ensures your global `_chapter_locks_mutex` is only held just long enough to fetch/create the individual chapter lock, preventing a global bottleneck.
+
+### 4. Google Docs Document State Corruption
+
+Users will inevitably manually edit, delete, or reformat Google Docs while your tool is trying to sync.
+
+* **The Phantom Named Range:** Very realistic scenario. If a user deletes the text containing the named range, Google's API might still return the range ID with an empty `ranges` array. Your `_read_named_range_text` handles this safely with `if not segments: return None`.
+* **The Partial Batch Failure:** This verifies the atomicity of your local database state. Because you call `storage.write_chapter` *after* the `docs.documents().batchUpdate()` call, an API failure guarantees `last_gdoc_export_at` remains unchanged.
+* **Empty Document End-Index Boundary:** Good edge-case coverage. Your `_get_document_end_index` properly returns `1` if the content array is empty.
+
+### 5. Safe Sync & The Text Normalization Engine
+
+**These two tests are the most valuable on the list and expose actual bugs in your current implementation.**
+
+* **The UTF-16 Indexing Mismatch (CRITICAL):** The AI nailed this one. Python's `len(new_full_text)` counts characters (e.g., the emoji `📊` has a length of 1). However, the Google Docs API calculates indices based on **UTF-16 code units** (where `📊` has a length of 2). If your draft text contains emojis, complex unicode characters, or surrogate pairs, your `new_length` calculation will be lower than what Google Docs expects. The subsequent `deleteContentRange` will leave behind leftover characters, slowly corrupting the document.
+* **The Invisible Edit Guard:** Another great catch. Your current `_normalize` function relies on `.split()` to collapse whitespace. Standard Python `.split()` does *not* treat zero-width spaces (`\u200b`) as whitespace. Therefore, if a zero-width space is introduced, your normalizer won't strip it, the strings won't match, and the `GDocsConflictError` will fire incorrectly.
+
+### 1. The UTF-16 Length Helper
+
+Python strings are inherently Unicode, and `len()` counts human-readable characters. Google Docs API counts UTF-16 code units. The cleanest way to calculate this in Python is to encode the string to UTF-16 Little Endian (which uses exactly 2 bytes per code unit) and divide the byte length by 2.
+
+Drop this helper into `google_docs_service.py`:
+
+```python
+def _get_utf16_length(text: str) -> int:
+    """
+    Calculates the length of a string in UTF-16 code units.
+    Essential for Google Docs API indexing, where surrogate pairs 
+    (emojis, complex math symbols) count as 2 units instead of 1.
+    """
+    return len(text.encode('utf-16-le')) // 2
+
+```
+
+**Where to apply it in `export_subtopic`:**
+When you calculate `new_length` and `old_length` during the named range update step, replace the standard `len()` calls:
+
+```python
+# Instead of: new_length = len(new_full_text)
+new_length = _get_utf16_length(new_full_text)
+
+# Instead of: old_length = old_end - old_start (This is technically already in UTF-16 from the API, but be careful with subtopic_title)
+heading_length = _get_utf16_length(subtopic_title)
+
+# Update the heading style range using the UTF-16 length
+{
+    "updateParagraphStyle": {
+        "range": {
+            "startIndex": old_start,
+            "endIndex": old_start + heading_length + 1, # +1 for the newline
+        },
+        ...
+
+```
+
+
+
+
+---
+
+### New Testing Guidance: Router Integration & State Management
+
+Since the previous tests covered the underlying service (`google_docs_service.py`), these new tests focus on the FastAPI router (`gdocs.py`), the API contract, and how the system behaves as a cohesive unit. For a personal project, testing these boundaries saves you from hours of debugging silent frontend failures.
+
+**6. Router Exception Mapping (The Contract Guard)**
+Your frontend relies entirely on specific HTTP status codes to render the correct UI (e.g., showing a login button for 401, or a conflict modal for 409).
+
+* **The Status Code Trap:** Mock the `export_subtopic` service to explicitly raise a `GDocsConflictError`. Fire a test request to `POST /gdocs/export` and assert that the router catches it and returns exactly a `409` status code, and that the JSON response body contains `gdoc_excerpt` and `spo_excerpt`.
+* **The Unconfigured Bailout:** Mock `is_connected` to raise `GDocsNotConfiguredError` (simulating a missing `service-account.json`). Hit the `/auth` endpoint and verify it returns a `503 Service Unavailable` rather than crashing the server with a 500 traceback.
+
+**7. Draft State & Sequence Validation**
+In an academic workflow, a user might define a chapter and subtopic heading but attempt to export it *before* generating or saving the actual draft text.
+
+* **The "Empty Chamber" Export:** Send a valid `chapter_id` and `subtopic_id` to the export endpoint, but mock `storage.read_section_draft` to return `None` or an empty text string. Assert that the router intercepts this and returns a `404` with the specific message "Save a draft first," ensuring the Google Docs API is never called with empty payloads.
+
+**8. Forced Overwrites & The Override Flag**
+The `force=True` flag is your escape hatch for when the user intentionally wants to overwrite their manual Google Docs edits with the SPO draft.
+
+* **The Override Bypass:** Set up a mock where `_normalize(current_text)` drastically differs from `last_normalized` (which would normally trigger the conflict error). Send a request to `POST /gdocs/export` with `"force": true` in the JSON payload. Assert that the router successfully bypasses the conflict block, completes the batch update, and returns a 200 OK.
+
+**9. Multi-Thesis Isolation (The Namespace Check)**
+Since you are orchestrating complex, multi-layered documents, ensuring that data doesn't bleed across different thesis workspaces is critical.
+
+* **The Cross-Contamination Test:** Create two mocked storage states: `thesis_A` and `thesis_B`. Both have a chapter with `chapter_id="intro"` and a subtopic with `subtopic_id="hook"`. Send an export request targeting `thesis_B`. Verify that the router's `storage.read_chapter` and `storage.read_section_draft` calls specifically use the `thesis_id="thesis_B"` query parameter, ensuring it doesn't accidentally grab and export the text from `thesis_A`.
+
+
+---
