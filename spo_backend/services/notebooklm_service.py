@@ -666,9 +666,9 @@ async def _run_sequence(
             })
             storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
     finally:
-        async with _locks_registry_lock:
-            if (chapter_id, subtopic_id) in _run_locks:
-                del _run_locks[(chapter_id, subtopic_id)]
+        pass
+        # Intentionally NOT deleting the lock from _run_locks to prevent the
+        # Lock Deletion Race Condition. Idle locks consume virtually zero memory.
 
 
 async def _run_batch_sequence(
@@ -685,7 +685,7 @@ async def _run_batch_sequence(
     thesis_id: str = "",
 ):
     """
-    Splits subtopic_ids into two halves and runs them with asyncio.gather.
+    Splits subtopic_ids into two halves and runs them with asyncio.TaskGroup.
     Each worker processes its half sequentially.
     Writes final batch state when both workers complete.
     """
@@ -700,35 +700,56 @@ async def _run_batch_sequence(
                 subtopic,
                 prefix=notebook_title_prefix or "SPO",
             )
-            await _run_sequence(
-                chapter_id=chapter_id,
-                subtopic_id=sid,
-                chapter={"subtopics": list(subtopics_map.values())},
-                subtopic=subtopic,
-                notebook_title=notebook_title,
-                word_count=word_count,
-                academic_style_notes=academic_style_notes,
-                batch_id=batch_id,
-                resolved_paths=resolved_paths_map.get(sid),
-                strict_mode=strict_mode,
-                upload_method=upload_method,
-                thesis_id=thesis_id,
-            )
+            try:
+                sub_task = asyncio.create_task(
+                    _run_sequence(
+                        chapter_id=chapter_id,
+                        subtopic_id=sid,
+                        chapter={"subtopics": list(subtopics_map.values())},
+                        subtopic=subtopic,
+                        notebook_title=notebook_title,
+                        word_count=word_count,
+                        academic_style_notes=academic_style_notes,
+                        batch_id=batch_id,
+                        resolved_paths=resolved_paths_map.get(sid),
+                        strict_mode=strict_mode,
+                        upload_method=upload_method,
+                        thesis_id=thesis_id,
+                    )
+                )
+                await sub_task
+            except asyncio.CancelledError:
+                # Local cancellation for a single job - swallow it so the batch worker continues!
+                logger.info(f"Batch skipping '{sid}' — run was manually cancelled.")
+                batch_state = storage.read_batch_state(batch_id, thesis_id=thesis_id) or {}
+                batch_state["jobs"] = batch_state.get("jobs", {})
+                batch_state["jobs"][sid] = "cancelled"
+                storage.write_batch_state(batch_id, batch_state, thesis_id=thesis_id)
+                continue
 
     try:
-        await asyncio.gather(_worker(worker_a_ids), _worker(worker_b_ids))
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(_worker(worker_a_ids))
+            tg.create_task(_worker(worker_b_ids))
         final_status = "done"
-    except NLMAuthError as e:
-        logger.error(f"Batch auth expired: {e}")
-        final_status = "auth_error"
-        batch_state = storage.read_batch_state(batch_id, thesis_id=thesis_id) or {}
-        batch_state.update({
-            "status": "error",
-            "error": f"BatchAuthExpiredError: {e}",
-            "completed_at": datetime.utcnow().isoformat(),
-        })
-        storage.write_batch_state(batch_id, batch_state, thesis_id=thesis_id)
-        raise BatchAuthExpiredError(str(e))
+    except ExceptionGroup as eg:
+        # TaskGroup wraps exceptions in an ExceptionGroup
+        auth_errs = [e for e in eg.exceptions if isinstance(e, NLMAuthError)]
+        if auth_errs:
+            e = auth_errs[0]
+            logger.error(f"Batch auth expired: {e}")
+            final_status = "auth_error"
+            batch_state = storage.read_batch_state(batch_id, thesis_id=thesis_id) or {}
+            batch_state.update({
+                "status": "error",
+                "error": f"BatchAuthExpiredError: {e}",
+                "completed_at": datetime.utcnow().isoformat(),
+            })
+            storage.write_batch_state(batch_id, batch_state, thesis_id=thesis_id)
+            raise BatchAuthExpiredError(str(e))
+        else:
+            logger.error(f"Batch '{batch_id}' encountered an unexpected error: {eg}", exc_info=True)
+            final_status = "error"
     except asyncio.CancelledError:
         logger.warning(f"Batch '{batch_id}' was cancelled.")
         final_status = "cancelled"

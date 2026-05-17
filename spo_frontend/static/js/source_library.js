@@ -17,7 +17,7 @@ import * as API from "./source_library_api.js";
 
 const state = {
   groups:      [],   // full library: [{group_id, title, author, year, sources:[...], ...}]
-  thesisFolders: [], // drive scan result: [{name, pdfs[], import_status, drive_linked}]
+  thesisFolders: [], // drive scan result: [{thesis_name, files[], pdfs[], imported, imported_at, import_group_id, import_error, drive_links_registered, drive_links}]
   fileQueue:   [],   // [{file, status:"queued"|"importing"|"done"|"error", message}]
 };
 
@@ -206,7 +206,14 @@ async function handleRegisterLinks() {
 async function loadThesisFolders() {
   try {
     const data = await API.getLocalFiles();
-    state.thesisFolders = data.folders ?? [];
+    state.thesisFolders = (data.thesis_folders ?? []).map(folder => {
+        // Hydrate pdfs array for UI rendering
+        folder.pdfs = (folder.files ?? []).map(fileName => ({
+            file_name: fileName,
+            drive_link: folder.drive_links?.[fileName] || null
+        }));
+        return folder;
+    });
     renderThesisFolders();
   } catch (_) {
     // Drive not scanned yet — leave list empty
@@ -223,12 +230,12 @@ function renderThesisFolders() {
   }
 
   for (const folder of state.thesisFolders) {
-    const imported = folder.import_status?.imported;
-    const importFailed = folder.import_status && !imported && folder.import_status.error;
-    const linked = folder.drive_linked;
+    const imported = folder.imported;
+    const importFailed = !imported && folder.import_error;
+    const linked = folder.drive_links_registered;
 
     const cls = imported ? "state-imported" : importFailed ? "state-error" : "";
-    const tid = `thesis-${folder.name.replace(/\W/g, "_")}`;
+    const tid = `thesis-${folder.thesis_name.replace(/\W/g, "_")}`;
 
     const row = document.createElement("div");
     row.className = `thesis-row ${cls}`;
@@ -236,7 +243,7 @@ function renderThesisFolders() {
 
     row.innerHTML = `
       <div class="thesis-header" onclick="document.getElementById('${tid}').classList.toggle('open')">
-        <span class="thesis-name">${esc(folder.name)}</span>
+        <span class="thesis-name">${esc(folder.thesis_name)}</span>
         <div class="thesis-badges">
           <span>${folder.pdfs?.length ?? 0} PDFs</span>
           ${imported
@@ -251,7 +258,7 @@ function renderThesisFolders() {
         <span class="thesis-chevron">▾</span>
       </div>
       <div class="thesis-body">
-        ${importFailed ? `<div class="error-inline">Import error: ${esc(folder.import_status.error)}</div>` : ""}
+        ${importFailed ? `<div class="error-inline">Import error: ${esc(folder.import_error)}</div>` : ""}
         <div class="pdf-grid">
           ${(folder.pdfs ?? []).map(pdf => pdf.drive_link
             ? `<div class="pdf-chip"><a href="${esc(pdf.drive_link)}" target="_blank">${esc(pdf.file_name)}</a></div>`
@@ -260,7 +267,7 @@ function renderThesisFolders() {
         </div>
         <div class="copy-links-row">
           <button class="btn btn-ghost" style="padding:4px 12px;font-size:11px;"
-            onclick="copyFolderLinks('${esc(folder.name)}')">
+            onclick="copyFolderLinks('${esc(folder.thesis_name)}')">
             📋 ${linked ? "Copy All Drive Links" : "Copy Filenames"}
           </button>
           <span class="copy-links-note">${linked ? "Paste into NotebookLM Add Source" : "No Drive links — upload manually to NotebookLM"}</span>
@@ -276,7 +283,7 @@ function renderThesisFolders() {
 }
 
 window.copyFolderLinks = async function(thesisName) {
-  const folder = state.thesisFolders.find(f => f.name === thesisName);
+  const folder = state.thesisFolders.find(f => f.thesis_name === thesisName);
   if (!folder) return;
   const linked = (folder.pdfs ?? []).filter(p => p.drive_link).map(p => p.drive_link);
   const filenames = (folder.pdfs ?? []).map(p => p.file_name ?? p);
@@ -807,22 +814,22 @@ function renderIndexTable() {
   container.innerHTML = "";
 
   for (const folder of state.thesisFolders) {
-    const s = indexState.statuses[folder.name] || {};
+    const s = indexState.statuses[folder.thesis_name] || {};
     const status = s.status || "idle";
-    const hasDrive = folder.drive_linked;
+    const hasDrive = folder.drive_links_registered;
     const pdfCount = folder.pdfs?.length ?? 0;
-    const groupId = s.group_id || folder.import_status?.group_id;
-    const isIndexed = status === "done" || status === "warn" || folder.import_status?.imported;
+    const groupId = s.group_id || folder.import_group_id;
+    const isIndexed = status === "done" || status === "warn" || folder.imported;
 
     const rowEl = document.createElement("div");
     rowEl.className = `index-row state-${status}`;
-    rowEl.id = `idx-row-${folder.name.replace(/\W/g, "_")}`;
+    rowEl.id = `idx-row-${folder.thesis_name.replace(/\W/g, "_")}`;
 
     // ── Name + sub-note ──
     const nameCell = document.createElement("div");
     nameCell.className = "index-folder-name";
     const nameSpan = document.createElement("span");
-    nameSpan.textContent = folder.name;
+    nameSpan.textContent = folder.thesis_name;
     nameCell.appendChild(nameSpan);
 
     let noteEl = null;
@@ -883,20 +890,20 @@ function renderIndexTable() {
       stopBtn.className = "btn btn-danger";
       stopBtn.style.cssText = "padding:4px 10px;font-size:11px;";
       stopBtn.textContent = "Stop";
-      stopBtn.addEventListener("click", () => handleStop(folder.name));
+      stopBtn.addEventListener("click", () => handleStop(folder.thesis_name));
       actionsCell.appendChild(stopBtn);
     } else {
       const isAlreadyDone = status === "done" || status === "warn";
-      const isRerun = isAlreadyDone || folder.import_status?.imported;
+      const isRerun = isAlreadyDone || folder.imported;
 
       const runBtn = document.createElement("button");
       runBtn.className = "btn btn-run";
       runBtn.textContent = isRerun ? "Re-run" : "▶ Run";
       runBtn.addEventListener("click", () => {
         if (isRerun && groupId) {
-          showRerunWarning(folder.name, groupId);
+          showRerunWarning(folder.thesis_name, groupId);
         } else {
-          handleRunSingle(folder.name);
+          handleRunSingle(folder.thesis_name);
         }
       });
       actionsCell.appendChild(runBtn);
@@ -956,8 +963,8 @@ function _updateIndexPill() {
   const pill = $("indexPill");
   const total    = state.thesisFolders.length;
   const indexed  = state.thesisFolders.filter(f => {
-    const s = indexState.statuses[f.name]?.status;
-    return s === "done" || s === "warn" || f.import_status?.imported;
+    const s = indexState.statuses[f.thesis_name]?.status;
+    return s === "done" || s === "warn" || f.imported;
   }).length;
   if (!total) { pill.textContent = "—"; pill.className = "pill pill-idle"; return; }
   pill.textContent = `${indexed} / ${total} indexed`;
@@ -969,13 +976,13 @@ function _updateIndexPill() {
 function _startPoller() {
   if (indexState.pollerTimer) return; // already running
   const running = state.thesisFolders.some(f => {
-    const s = indexState.statuses[f.name]?.status;
+    const s = indexState.statuses[f.thesis_name]?.status;
     return s === "running" || s === "queued";
   });
   if (!running) return;
 
   indexState.pollerTimer = setInterval(async () => {
-    const allNames = state.thesisFolders.map(f => f.name);
+    const allNames = state.thesisFolders.map(f => f.thesis_name);
     if (!allNames.length) return;
     try {
       const results = await _apiGet(
@@ -1039,9 +1046,9 @@ async function handleStop(thesisName) {
 
 function handleRunAllUnindexed() {
   const unindexed = state.thesisFolders.filter(f => {
-    const s = indexState.statuses[f.name]?.status;
+    const s = indexState.statuses[f.thesis_name]?.status;
     return !s || s === "idle" || s === "error" || s === "cancelled" || s === "waiting_for_manual_upload";
-  }).filter(f => !f.import_status?.imported);
+  }).filter(f => !f.imported);
 
   if (!unindexed.length) {
     toast("All folders are already indexed", "info");
@@ -1052,7 +1059,7 @@ function handleRunAllUnindexed() {
 
   $("batchFolderCount").textContent = unindexed.length;
   $("batchPdfCount").textContent    = totalPdfs;
-  indexState.pendingBatchNames      = unindexed.map(f => f.name);
+  indexState.pendingBatchNames      = unindexed.map(f => f.thesis_name);
   $("batchConfirmModal").style.display = "flex";
 }
 

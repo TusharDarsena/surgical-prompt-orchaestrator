@@ -194,6 +194,33 @@ def _build_chapter_record(chapter_id: str, data: ChapterizationImport) -> dict:
 
 
 @router.post(
+    "/chapterization/bulk",
+    summary="Bulk-import chapterization JSONs — multiple chapters in one upload"
+)
+def import_chapterization_bulk(chapters: list[ChapterizationImport] = Body(...), thesis_id: str = Query("")):
+    """
+    Accepts an array of chapter chapterization objects.
+    Each chapter's `number` field is used as the chapter_id (e.g. 1 → 'ch1').
+    """
+    results = []
+    for ch_data in chapters:
+        chapter_id = f"ch{ch_data.number}"
+        record = _build_chapter_record(chapter_id, ch_data)
+        storage.write_chapter(chapter_id, record, thesis_id=thesis_id)
+        results.append({
+            "chapter_id": chapter_id,
+            "title": ch_data.title,
+            "subtopics_created": len(record["subtopics"]),
+        })
+
+    return {
+        "imported": "chapterization_bulk",
+        "chapters_created": len(results),
+        "chapters": results,
+    }
+
+
+@router.post(
     "/chapterization/{chapter_id}",
     summary="Import chapterization.json — sets up chapter arc + all subtopics at once"
 )
@@ -214,33 +241,6 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport, thesis_id
         "chapter_arc_set": True,
         "arc_word_count": len(data.chapter_arc.split()),
         "source_ids_stored": sum(len(s.source_ids) for s in data.subtopics),
-    }
-
-
-@router.post(
-    "/chapterization/bulk",
-    summary="Bulk-import chapterization JSONs — multiple chapters in one upload"
-)
-def import_chapterization_bulk(chapters: list[ChapterizationImport], thesis_id: str = Query("")):
-    """
-    Accepts an array of chapter chapterization objects.
-    Each chapter's `number` field is used as the chapter_id (e.g. 1 → 'ch1').
-    """
-    results = []
-    for ch_data in chapters:
-        chapter_id = f"ch{ch_data.number}"
-        record = _build_chapter_record(chapter_id, ch_data)
-        storage.write_chapter(chapter_id, record, thesis_id=thesis_id)
-        results.append({
-            "chapter_id": chapter_id,
-            "title": ch_data.title,
-            "subtopics_created": len(record["subtopics"]),
-        })
-
-    return {
-        "imported": "chapterization_bulk",
-        "chapters_created": len(results),
-        "chapters": results,
     }
 
 

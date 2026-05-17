@@ -190,7 +190,13 @@ def get_auth_url() -> str:
         CLIENT_SECRET_FILE, scopes=SCOPES, redirect_uri=REDIRECT_URI
     )
     auth_url, state = flow.authorization_url(prompt="consent", access_type="offline")
-    storage.write_misc(MISC_STATE_KEY, {"state": state}, thesis_id="")
+    
+    # Save both state (for CSRF) and code_verifier (for PKCE validation)
+    storage.write_misc(
+        MISC_STATE_KEY, 
+        {"state": state, "code_verifier": getattr(flow, "code_verifier", None)}, 
+        thesis_id=""
+    )
     logger.info("OAuth flow initiated. Redirect URI: %s", REDIRECT_URI)
     return auth_url
 
@@ -209,6 +215,11 @@ def complete_auth_flow(code: str, state: str) -> None:
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRET_FILE, scopes=SCOPES, redirect_uri=REDIRECT_URI, state=state
     )
+    
+    # Restore the PKCE code_verifier so Google accepts the token exchange
+    if stored.get("code_verifier"):
+        flow.code_verifier = stored["code_verifier"]
+        
     flow.fetch_token(code=code)
     _save_token(flow.credentials.to_json())
     logger.info("OAuth flow complete. Token saved.")

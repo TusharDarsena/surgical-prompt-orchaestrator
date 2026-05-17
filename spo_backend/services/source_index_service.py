@@ -511,8 +511,9 @@ async def run_index_sequence(
     finally:
         # Fix 1: clean up task reference on any exit path
         _active_tasks.pop(thesis_name, None)
-        async with _locks_registry_lock:
-            _index_locks.pop(thesis_name, None)
+        pass
+        # Intentionally NOT deleting the lock from _index_locks to prevent the
+        # Lock Deletion Race Condition. Idle locks consume virtually zero memory.
 
 
 # ── Batch pipeline ─────────────────────────────────────────────────────────────
@@ -523,8 +524,8 @@ async def run_batch_index_sequence(
     thesis_id: str = "",
 ) -> None:
     """
-    Splits thesis_names into two halves and runs them with asyncio.gather.
-    Each worker processes its half sequentially (same pattern as _run_batch_sequence).
+    Splits thesis_names into two halves and runs them with asyncio.TaskGroup.
+    Each worker processes its half sequentially.
     """
     mid = math.ceil(len(thesis_names) / 2)
     worker_a = thesis_names[:mid]
@@ -551,30 +552,21 @@ async def run_batch_index_sequence(
             try:
                 # skip_if_done=True: if a single run finished while we waited on
                 # the lock, we skip instead of re-running and overwriting the result.
-                await run_index_sequence(
-                    name, thesis_id=thesis_id, batch_id=batch_id, skip_if_done=True
+                sub_task = asyncio.create_task(
+                    run_index_sequence(
+                        name, thesis_id=thesis_id, batch_id=batch_id, skip_if_done=True
+                    )
                 )
+                await sub_task
                 # Fix 5: explicitly read the written status — captures "warn" correctly
                 final = _read_state(name).get("status", "done")
 
-            except (NLMAuthError, NLMNotInstalledError) as auth_err:
-                # Fix 4: auth failure → abort the entire batch immediately
-                logger.error(
-                    f"Batch '{batch_id}' aborting — auth error on '{name}': {auth_err}"
-                )
-                batch_state["jobs"][name] = "error"
-                batch_state.update({
-                    "status": "auth_error",
-                    "completed_at": datetime.utcnow().isoformat(),
-                })
-                storage.write_misc(batch_id, batch_state, thesis_id="")
-                raise  # propagates to asyncio.gather, cancels the sibling worker
-
             except asyncio.CancelledError:
+                logger.info(f"Batch skipping '{name}' — run was manually cancelled.")
                 batch_state["jobs"][name] = "cancelled"
                 storage.write_misc(batch_id, batch_state, thesis_id="")
-                raise
-
+                continue # Local cancellation; move to next job!
+                
             except Exception:
                 final = "error"
 
@@ -582,10 +574,29 @@ async def run_batch_index_sequence(
             storage.write_misc(batch_id, batch_state, thesis_id="")
 
     try:
-        await asyncio.gather(_worker(worker_a), _worker(worker_b))
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(_worker(worker_a))
+            tg.create_task(_worker(worker_b))
         final_status = "done"
-    except (NLMAuthError, NLMNotInstalledError):
-        final_status = "auth_error"
+    except ExceptionGroup as eg:
+        # TaskGroup wraps exceptions in ExceptionGroup
+        auth_errs = [e for e in eg.exceptions if isinstance(e, (NLMAuthError, NLMNotInstalledError))]
+        if auth_errs:
+            final_status = "auth_error"
+            # State is written below in the finally/success block
+            # For auth errors, the individual worker already updated its jobs map
+        else:
+            logger.error(f"Batch '{batch_id}' unexpected error: {eg}", exc_info=True)
+            final_status = "error"
+    except asyncio.CancelledError:
+        logger.warning(f"Batch '{batch_id}' was cancelled.")
+        final_status = "cancelled"
+        batch_state.update({
+            "status": "cancelled",
+            "completed_at": datetime.utcnow().isoformat(),
+        })
+        storage.write_misc(batch_id, batch_state, thesis_id="")
+        raise
     except Exception as e:
         logger.error(f"Batch '{batch_id}' unexpected error: {e}", exc_info=True)
         final_status = "error"
@@ -659,16 +670,9 @@ async def cancel_index_job(thesis_name: str) -> bool:
         task.cancel()
         logger.info(f"cancel_index_job: task.cancel() called for '{thesis_name}'")
 
-    # Also clear the lock registry so a new run can start after cancellation
-    async with _locks_registry_lock:
-        _index_locks.pop(thesis_name, None)
-
-    # Write cancelled state immediately (task's CancelledError handler also writes it,
-    # but this ensures the state is visible before the task finishes unwinding).
-    state = _read_state(thesis_name)
-    state.update({
-        "status": "cancelled",
-        "error": "Run was cancelled by the user.",
-    })
-    _write_state(thesis_name, state)
+    # Do NOT delete the lock and do NOT write the cancelled state manually!
+    # The task.cancel() above triggers the Except CancelledError block inside 
+    # run_index_sequence, which will synchronously and safely write the state 
+    # as its final act before exiting. This avoids the State Overwrite Race Condition!
+    
     return had_task

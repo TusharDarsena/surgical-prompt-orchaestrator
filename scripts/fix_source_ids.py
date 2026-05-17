@@ -159,12 +159,28 @@ def main():
     parser.add_argument("--thesis-id", default="", help="Thesis ID (e.g. t_1773774349746)")
     args = parser.parse_args()
 
+    if not args.thesis_id:
+        theses_dir = DATA_DIR / "theses"
+        if theses_dir.exists():
+            theses = [d.name for d in theses_dir.iterdir() if d.is_dir()]
+            if len(theses) == 1:
+                args.thesis_id = theses[0]
+                print(f"Auto-detected thesis ID: {args.thesis_id}")
+            elif len(theses) > 1:
+                print("Multiple theses found. Please specify --thesis-id. Available:")
+                for t in theses:
+                    print(f"  --thesis-id {t}")
+                sys.exit(1)
+        if not args.thesis_id:
+            print("Please specify --thesis-id.")
+            sys.exit(1)
+
     scan = load_scan_keys()
     scan_key_list = sorted(scan.keys())
     chapters = load_chapters(args.thesis_id)
 
     if not chapters:
-        print("No chapter files found.")
+        print(f"No chapter files found in thesis {args.thesis_id}.")
         return
 
     print(f"\nLoaded {len(chapters)} chapter(s), {len(scan_key_list)} scan keys.")
