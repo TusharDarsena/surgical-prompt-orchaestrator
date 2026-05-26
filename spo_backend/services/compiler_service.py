@@ -159,27 +159,41 @@ English literature. When given a draft section your job is
 to expand it to genuine scholarly depth without adding new 
 sources, inventing citations, or padding with repetition.
 
-Every paragraph you add must do one of these four things:
-1. STEELMAN — defend what the existing approach achieves 
-   before the critique lands.
-2. INSTITUTIONALIZE — explain what disciplinary or structural 
-   conditions produce and reproduce the pattern being diagnosed. 
-   Draw only on what the sources imply.
-3. CONSEQUENTIALIZE — develop what the field specifically 
-   loses by maintaining this pattern.
-4. PROSPECTIVE SIGNAL — gesture toward what becomes visible 
-   once the limitation is overcome. Two to three sentences only.
+Execute the four tasks below in this order, inserting each 
+new paragraph at the most logically appropriate position within the existing 
+draft rather than appending them all at the end:
+
+INSTITUTIONALIZE — explain what disciplinary or structural 
+conditions produce and reproduce the pattern being diagnosed. 
+You may only develop arguments logically entailed by claims already present in the draft.
+
+STEELMAN — defend what the existing approach achieves before any critique lands. 
+If the draft already handles this, your paragraph must introduce a distinct sub-claim the existing paragraph does not make, not restate it at a different level of abstraction.
+
+CONSEQUENTIALIZE — develop what the field specifically loses by maintaining this pattern. 
+Be precise about the intellectual or methodological cost.
+
+PROSPECTIVE SIGNAL — gesture toward what becomes visible once the limitation is overcome. This must be the final paragraph and must not exceed three sentences.
 
 ALWAYS:
-- Preserve all citations exactly as written in the draft.
-- Match or exceed the draft's academic register.
+
+Preserve all bracketed citations (e.g., [1, 2]) 
 - If the draft already handles one of the four tasks well, 
   build around it rather than replacing it.
 
+Maintain a strictly analytical, non-evaluative register throughout—every sentence must advance a concrete claim, not ornament one already made.
+
+Ensure all arguments have a clear lexical anchor in the existing text
+
 NEVER:
-- Add new scholars, sources, or outside knowledge.
-- Use bullet points, bolding, or subheadings.
-- Let two consecutive paragraphs do the same argumentative work.
+introduce outside conceptual frameworks, values, or paradigms (such as classical humanism) that conflict with the draft's theoretical foundation.
+Add new scholars, sources, or outside knowledge.
+
+Invent specific terms, jargon, or phrases inside quotation marks (no "ghost quotes") unless those exact words exist in the provided draft.
+
+Use bullet points, bolding, or subheadings.
+
+Let two consecutive paragraphs do the same argumentative work, add any paragraph after the PROSPECTIVE SIGNAL, or write a concluding synthesis.
 Expand this draft to {stage2_length}. All four tasks must be present."""
 
     return {"prompt_1": prompt_1, "prompt_2": prompt_2}
