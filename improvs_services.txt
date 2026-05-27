@@ -1,0 +1,73 @@
+### Part 1: The Orchestration & State Engine
+
+1.  **Narrow Lock Scope in Pipeline Execution**  
+    *Reference:* `notebooklm_service.py:L365-L366`  
+    The `run_lock` in `_run_sequence` only wraps the initial metadata read. The entire heavy pipeline—including `add_drive` (L477) and `chat.ask` (L551)—runs outside the lock, allowing concurrent requests to corrupt the same notebook/state.
+
+2.  **Global Namespace Hardcoding in Drive Scan**  
+    *Reference:* `storage.py:L293`  
+    `_get_drive_scan()` is hardcoded to retrieve `drive_scan_result.json` from `_misc_dir("")` (the global root). This makes the orchestration layer invisible to per-thesis scan results.
+
+3.  **Static Workload Splitting in Batch Runs**  
+    *Reference:* `notebooklm_service.py:L692-L694`  
+    `_run_batch_sequence` splits the subtopic list at a fixed midpoint. This creates structural idle time if one half is slower. Transitioning to a dynamic `asyncio.Queue` would ensure full worker utilization.
+
+4.  **Lack of Batch Outcome Verification**  
+    *Reference:* `notebooklm_service.py:L720`  
+    The NLM batch runner does not read back the final state after `sub_task` completes. Unlike the indexing batch, it cannot correctly report `warn` or `cancelled` statuses in the manifest.
+
+5.  **Duplicated Lock Registry Boilerplate**  
+    *Reference:* `notebooklm_service.py:L107-125` vs `source_index_service.py:L59-79`  
+    The `_locks_registry_lock` mutex and lazy-instantiation pattern for `asyncio.Lock` dictionaries is duplicated identically across two files.
+
+6.  **Misplaced Path Resolution Helper**  
+    *Reference:* `notebooklm_service.py:L255-339`  
+    `_resolve_absolute_paths` is a file-system matching concern that belongs in `source_resolver.py`. It is currently imported as a private symbol by `source_index_service.py:L41`.
+
+---
+
+### Part 2: The Ingestion Pipeline
+
+1.  **Race Condition on Chapter Metadata Writes**  
+    *Reference:* `google_docs_service.py:L572`  
+    The final `write_chapter` call at the end of `export_subtopic` is not protected by the creation lock. In parallel batch exports, workers overwrite each other's `gdoc_named_range_id`.
+
+2.  **Triple Google Docs Document Fetch**  
+    *Reference:* `google_docs_service.py:L432`, `L458`, `L501`  
+    `export_subtopic` makes three sequential API calls (read text, read segments, batch update). The first two should be combined into a single document read to reduce latency and quota usage.
+
+3.  **Collision Risk in UUID Truncation**  
+    *Reference:* `source_importer.py:L247`  
+    `do_auto_import` truncates `uuid4()` to 8 characters without a collision check (`read_source_group`). This can lead to silent metadata overwrites in growing libraries.
+
+4.  **FastAPI Import in Service Layer**  
+    *Reference:* `source_importer.py:L22`  
+    `from fastapi import HTTPException` violates the service-layer contract (documented in L10). Services should raise domain-specific exceptions, leaving HTTP concerns to the routers.
+
+5.  **Unscoped Prompt Source Resolution**  
+    *Reference:* `compiler_service.py:L31`  
+    `_resolve_required_sources` ignores current context and hardcodes `thesis_id=""` when reading the drive scan, preventing prompt compilation for multiple theses.
+
+---
+
+### Part 3: The File Management & Resolution Layer
+
+1.  **Identical Paths for Drafts and Orchestration State**  
+    *Reference:* `storage.py:L108`, `L112`  
+    `_drafts_dir` and `_nlm_state_dir` helpers return the same path (`sections/chapter_id`). This prevents independent scanning or cleanup of draft files vs. temporary run states.
+
+2.  **Brute-Force Cache Invalidation**  
+    *Reference:* `storage.py:L212`  
+    `_evict_group` clears the entire glob-warmed `_groups_cache` on any thesis mismatch. This causes severe performance degradation in workflows that alternate between theses.
+
+3.  **Redundant Filename Parsing in Resolution Loop**  
+    *Reference:* `source_resolver.py:L217`  
+    `_match_chapter_to_file` builds the `parsed_files` list inside its body. Since it is called in a loop (L43), it re-parses the folder's entire file list for every chapter reference.
+
+4.  **Hard-Capped Chapter Resolution Limits**  
+    *Reference:* `source_resolver.py:L162`, `L170`  
+    `_WORD_TO_NUM` and `_ROMAN_TO_NUM` are hard-capped at 15 and 12 respectively. References beyond these limits fall back to imprecise fuzzy matching without warning.
+
+5.  **Unscoped Drive Scan Cache Blob**  
+    *Reference:* `storage.py:L286`  
+    `_drive_scan_cache` is a single process-global variable. It lacks a `dict[thesis_id, dict]` structure, making it impossible to cache scans for multiple theses independently.

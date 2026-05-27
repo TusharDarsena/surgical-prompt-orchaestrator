@@ -304,14 +304,17 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
                         f"'{file_name}' not found at '{candidate}'. "
                         "Re-run POST /drive/scan-local if files have moved."
                     )
-            
-            # Extract drive ID from the link resolved by compiler_service/source_resolver
-            drive_file_id = None
+
+        # Prefer the raw drive_file_id written directly by register-links (new path).
+        # Fall back to extracting the ID from the URL for legacy entries.
+        drive_file_id = entry.get("drive_file_id")
+        if not drive_file_id:
             link = entry.get("drive_link")
             if link:
                 match = re.search(r'/d/([a-zA-Z0-9_-]+)', link)
                 if match:
                     drive_file_id = match.group(1)
+
         else:
             logger.warning(
                 f"Thesis '{thesis_name}' not found in scan. "

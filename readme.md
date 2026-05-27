@@ -70,3 +70,29 @@ The index card is the most important data point in SPO. Claude generates bluepri
 
 For details on the system design, tech stack, and data persistence layer, see:
 👉 **[architecture.md](./architecture.md)**
+
+
+
+PROBLEM 1 — Client lifecycle (FIXED)
+  notebooklm-py manages an httpx.AsyncClient internally. The context manager
+  `async with await NotebookLMClient.from_storage() as client:` opens and closes
+  that httpx session properly. A singleton that never enters the context manager
+  leaves the session in an unopened state and every API call will fail.
+  FIX: _nlm_client() is an asynccontextmanager that wraps EVERY call in the
+  correct `async with await ...` pattern. No singleton.
+
+PROBLEM 2 — add_file with non-PDF files (FIXED)
+  notebooklm-py's add_file() auto-detects source type from extension. PDFs are
+  fully supported. The risk is if a resolved path somehow points to a non-PDF
+  (e.g. a .txt notes file in the same folder). We guard this explicitly:
+  - Only files ending in .pdf are uploaded via add_file()
+  - Non-PDF files are reported in sources_failed with a clear reason
+  - File existence is verified before the API call (avoids a confusing 500)
+
+PROBLEM 3 — Windows asyncio event loop (FIXED)
+  FastAPI on Windows uses the ProactorEventLoop by default, which can cause
+  issues with asyncio.Lock() and asyncio primitives in background tasks.
+  notebooklm-py v0.2.1+ is Windows-tested but the FastAPI app itself needs
+  the SelectorEventLoopPolicy set at startup.
+  FIX: Add to main.py (see main_nlm_addition.py).
+  The router itself is unaffected — the fix goes in main.py.

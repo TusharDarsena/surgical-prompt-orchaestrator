@@ -410,21 +410,45 @@ def _walk_drive_folder(
             return
         thesis_name = matched  # use the scan key casing
 
-    # Build filename → shareable link
+    # Build filename → shareable link (existing scan dict format)
     links = {
         f["name"]: f"https://drive.google.com/file/d/{f['id']}/view"
         for f in files
     }
+    # Build filename → raw Drive file ID (for source records)
+    drive_file_ids = {f["name"]: f["id"] for f in files}
 
     scan[thesis_name]["drive_links"] = links
     scan[thesis_name]["drive_links_registered_at"] = datetime.utcnow().isoformat()
     scan[thesis_name]["drive_folder_id"] = folder_id
 
+    # ── Write drive_file_id directly to source records ────────────────────────
+    # This decouples Drive resolution from local folder names: source_resolver.py
+    # can look up drive_file_id from source records without consulting the scan dict.
+    group = storage.find_group_by_scan_key(thesis_name, thesis_id="")
+    sources_linked = 0
+    if group:
+        group_sources = group.get("sources", [])  # capture before any cache eviction
+        for source in group_sources:
+            fname = source.get("file_name")
+            if fname and fname in drive_file_ids:
+                source_data = dict(source)
+                source_data["drive_file_id"] = drive_file_ids[fname]
+                storage.write_source(
+                    group["group_id"],
+                    source_data["source_id"],
+                    source_data,
+                    thesis_id="",
+                )
+                sources_linked += 1
+
     registered.append({
         "thesis_name": thesis_name,
         "drive_folder_id": folder_id,
         "files_registered": len(links),
+        "source_records_linked": sources_linked,
     })
+
 
 
 @router.get("/links/{thesis_name}", summary="Return stored Drive links for a thesis")

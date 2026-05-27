@@ -21,13 +21,14 @@ from services import storage
 def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
     """
     For each entry in source_ids, resolve the thesis name + chapter_id
-    to a local filename (and Drive link if available) using the scan dictionary.
+    to a filename, Drive link, and Drive file ID.
 
-    Loads drive_scan_result once per call — callers in a loop should pass
-    a pre-loaded scan dict if they need to avoid repeated disk reads.
+    Primary path: source_resolver looks up source records by scan_key —
+    Drive file IDs come directly from source records (no local scan needed).
+    Fallback: scan dict (drive_scan_result.json) for legacy groups.
     """
     results = []
-    # Load the scan once — avoids N+1 disk reads of drive_scan_result.json
+    # Load the scan once as fallback — source_resolver uses it only for legacy groups
     scan = storage.read_misc("drive_scan_result", thesis_id="") or {}
     for entry in source_ids:
         thesis_name = entry.get("source_id", "")
@@ -43,6 +44,7 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
                 "source_guidance": source_guidance,
                 "file_name": None,
                 "drive_link": None,
+                "drive_file_id": None,
             })
         else:
             for r in resolved:
@@ -52,6 +54,7 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
                     "source_guidance": source_guidance,
                     "file_name": r["file_name"],
                     "drive_link": r["drive_link"],
+                    "drive_file_id": r.get("drive_file_id"),
                 })
 
     return results

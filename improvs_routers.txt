@@ -1,0 +1,66 @@
+Here is the complete, consolidated architectural roadmap for the Surgical Prompt Orchestrator (SPO) backend. It breaks down the system layers, prioritizes the core feature upgrades, and catalogs the deferred architectural and codebase refactoring tasks.
+
+### Part 1: System Analysis Breakdown
+
+The backend architecture is divided into three distinct operational layers:
+
+* **The Orchestration & State Engine:** Manages the automated Stage 1 writing loop via NotebookLM, handling state transitions, browser task scheduling, and maintaining the linear consistency chain between subtopics.
+* **The Ingestion Pipeline:** Serves as the data translation layer. It parses structured JSONs (Thesis and Chapterization schemas), compiles the prompt payloads, and handles Google Docs conflict resolution and exports.
+* **The File Management & Resolution Layer:** The physical bridge that scans local file systems, groups PDFs by thesis, and maps them to shareable Google Drive links to feed the compiler.
+
+---
+
+### Part 2: Necessary Upgrades (The Roadmap)
+
+These are the prioritized, high-impact improvements to implement for a more resilient workflow.
+
+1. **Upgrade from FastAPI BackgroundTasks to a Persistent Task Queue**
+* **Action:** Offload the browser automation sequences to a dedicated message broker (like Redis Queue or Celery).
+* **Impact:** Decouples heavy, memory-intensive Playwright/NotebookLM tasks from the main API thread. If a browser process crashes, the queue preserves the task and restarts it automatically.
+
+
+2. **Idempotent Execution & DAG-Based Resiliency**
+* **Action:** Refactor the linear orchestration script into distinct, checkpointed nodes (e.g., `CompilePrompt` → `CreateNotebook` → `UploadPDFs` → `GenerateDraft`).
+* **Impact:** If a run fails on PDF upload #4, the next trigger reads the checkpoint and resumes exactly where it left off instead of creating a brand new notebook from scratch.
+
+
+3. **Two-Way GDocs Sync (The "Stale Consistency" Fix)**
+* **Action:** Create a `POST /gdocs/sync-back` endpoint that pulls manual edits from Google Docs back into the SPO backend, replacing the saved draft and regenerating the consistency summary.
+* **Impact:** Ensures the semantic consistency chain remains perfectly aligned with actual, human-edited text, rather than drifting out of sync.
+
+
+4. **Non-Destructive JSON Patching for the Importer**
+* **Action:** Introduce a `PATCH /import/chapterization/{chapter_id}/subtopic/{subtopic_id}` endpoint.
+* **Impact:** Allows surgical updates to specific `source_ids`, goals, or page estimates for a single subtopic without requiring a full re-upload of the chapterization JSON.
+
+
+5. **Decouple File Matching from Brittle Folder Names**
+* **Action:** Allow the tool to bypass local folder name matching entirely. Accept a direct Google Drive Folder ID during setup and map files via filename and file size (or a lightweight hash).
+* **Impact:** Prevents the orchestration pipeline from breaking just because a folder was renamed locally but not in Drive, enabling a cloud-first workflow.
+
+
+
+---
+
+### Part 3: Deferred Upgrades (Not Now)
+
+These are architectural and code-quality improvements that are structurally sound but deprioritized for the current development sprint.
+
+**Feature & Architecture Deferrals**
+
+* **Server-Sent Events (SSE):** Upgrading the frontend polling mechanism to push state changes directly from the server.
+* **Semantic Consistency via Vector RAG:** Replacing the chronological consistency chain with a RAG pipeline that pulls the most relevant arguments from anywhere in the chapter.
+* **Dynamic "Negative Constraints" in the Compiler:** Programmatically inverting previous section summaries to explicitly instruct the LLM on what *not* to repeat.
+* **Asynchronous Drive Sync:** Moving the recursive Google Drive scanning logic into async threadpools to prevent the main API worker from hanging on deep folder structures.
+* **Graduate from the Monolithic JSON Blob:** Replacing the single flat `drive_scan_result` JSON key with a lightweight local SQLite database to prevent race conditions.
+
+**Code Quality & Refactoring (Technical Debt)**
+
+* **Enforce Strict Router/Service Boundaries:** Remove the re-exporting of private service symbols (e.g., `_resolve_required_sources`) through `compiler.py`, and stop importing private service functions (e.g., `_run_sequence`) directly into routers like `notebooklm.py`.
+* **DRY Subtopic Lookup Pattern:** Centralize the repeated 4-step chapter/subtopic lookup and `404` handling (currently duplicated across four separate routers) into a single shared helper function.
+* **De-bloat the `drive.py` Router:** Strip out the Drive API helpers and local scan logic into dedicated `drive_service.py` and `scan_service.py` files. The router should strictly handle HTTP transport.
+* **Relocate Pydantic Models:** Move `ThesisImport`, `SubtopicImport`, and `ChapterizationImport` out of `importer.py` and into a dedicated `models/` directory to prevent awkward router-to-router imports.
+* **Centralize `_build_chapter_record`:** Move this data normalization authority out of the transport layer so other services can interact with chapter records without importing from a router.
+* **Dependency Injection for Global Query Params:** Use FastAPI's `Depends()` to centralize the ubiquitous `thesis_id: str = Query("")` parameter across all endpoints.
+* **Resolve Dual-Key Legacy Tech Debt:** Write a one-time migration script to drop the `level2_path` key in favor of `folder_path` in the drive scan state, eliminating the need to write both keys indefinitely.
+* **Fix Layer Violations in Error Handling:** Stop raising FastAPI `HTTPException`s directly from service-layer helpers in `drive.py`. Mirror the cleaner `gdocs.py` pattern where services raise custom Python exceptions and the router converts them to HTTP responses.

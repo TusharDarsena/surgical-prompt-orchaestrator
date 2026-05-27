@@ -1,8 +1,16 @@
 """
 Source Resolver Service
 =======================
-Matches chapterization source_ids to local scan folder names and
-resolves chapter references to specific PDF filenames + Drive links.
+Matches chapterization source_ids to source group records (primary) or the
+local scan folder dict (legacy fallback) and resolves chapter references to
+specific PDF filenames + Drive file IDs / links.
+
+Primary path (new): uses storage.find_group_by_scan_key — Drive file IDs are
+read directly from source records written by drive.py's register-links step.
+No local scan dict required.
+
+Fallback path (legacy): uses the scan dict (drive_scan_result.json) for groups
+that pre-date the new architecture or have not been re-linked via register-links.
 
 Used by compiler.py via storage.resolve_source_files() (re-exported).
 """
@@ -10,13 +18,31 @@ Used by compiler.py via storage.resolve_source_files() (re-exported).
 import re
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
+# ── Public API ─────────────────────────────────────────────────────────────────────────────
 
-def resolve_source_files(thesis_name: str, chapter_id_raw: str, scan: dict) -> list[dict]:
+def resolve_source_files(
+    thesis_name: str,
+    chapter_id_raw: str,
+    scan: dict,
+    thesis_id: str = "",
+) -> list[dict]:
     """
     Given a thesis name (source_id from chapterization), a raw chapter_id string,
     and the scan dictionary, returns a list of resolved file entries:
-        [{ "segment": "Chapter Two: ...", "file_name": "08_chapter 2.pdf", "drive_link": "https://..." or None }]
+        [
+          {
+            "segment":        "Chapter Two: ...",
+            "file_name":      "08_chapter 2.pdf" or None,
+            "drive_link":     "https://drive.google.com/..." or None,
+            "drive_file_id":  "1A2B3C..." or None,
+          }
+        ]
+
+    Resolution strategy:
+      1. Primary (new): look up source group by scan_key in storage.
+         Drive file IDs come directly from source records (no scan dict needed).
+      2. Fallback (legacy): use the scan dict passed in.
+         For groups that pre-date the new architecture.
 
     Handles:
       - AND / and / & splitting for multi-chapter references
@@ -24,20 +50,54 @@ def resolve_source_files(thesis_name: str, chapter_id_raw: str, scan: dict) -> l
       - Special chapter keywords: Introduction, Abstract, Preface, Conclusion, Bibliography etc.
       - Returns unresolved entries (file_name=None) instead of crashing on no match
     """
+    # ── Step 1: split chapter_id_raw into individual chapter segments ───────────
+    segments = _split_chapter_references(chapter_id_raw)
+
+    # ── Step 2 (primary path): look up source group from storage ────────────────
+    # Avoids depending on the scan dict for Drive file IDs.
+    from services import storage as _storage
+    group = _storage.find_group_by_scan_key(thesis_name, thesis_id)
+
+    if group:
+        group_sources = group.get("sources", [])
+        files = [s["file_name"] for s in group_sources if s.get("file_name")]
+
+        results = []
+        for segment in segments:
+            file_name = _match_chapter_to_file(segment, files)
+            drive_file_id = None
+            drive_link = None
+            if file_name:
+                src = next(
+                    (s for s in group_sources if s.get("file_name") == file_name),
+                    None,
+                )
+                if src:
+                    drive_file_id = src.get("drive_file_id")
+                    if drive_file_id:
+                        drive_link = f"https://drive.google.com/file/d/{drive_file_id}/view"
+                    elif src.get("drive_link"):
+                        # Preserve any manually set drive_link on the source record
+                        drive_link = src["drive_link"]
+            results.append({
+                "segment": segment,
+                "file_name": file_name,
+                "drive_link": drive_link,
+                "drive_file_id": drive_file_id,
+            })
+        return results
+
+    # ── Step 3 (legacy fallback): use scan dict ───────────────────────────────────
+    # Runs when no source group exists yet (group not imported, or no scan_key set).
     if not scan:
         return []
 
-    # ── Step 1: match thesis name to scan key ─────────────────────────────────
     thesis_entry = _match_thesis_name(thesis_name, scan)
     if not thesis_entry:
         return []
 
     files = thesis_entry.get("files", [])
 
-    # ── Step 2: split chapter_id_raw into individual chapter segments ─────────
-    segments = _split_chapter_references(chapter_id_raw)
-
-    # ── Step 3: resolve each segment to a filename ────────────────────────────
     results = []
     for segment in segments:
         file_name = _match_chapter_to_file(segment, files)
@@ -48,6 +108,7 @@ def resolve_source_files(thesis_name: str, chapter_id_raw: str, scan: dict) -> l
             "segment": segment,
             "file_name": file_name,
             "drive_link": drive_link,
+            "drive_file_id": None,  # legacy path — raw ID not stored in scan dict
         })
 
     return results

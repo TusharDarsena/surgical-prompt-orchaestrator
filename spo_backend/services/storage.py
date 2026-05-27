@@ -530,6 +530,22 @@ def find_sources_for_subtopic(subtopic_id: str, thesis_id: str) -> list[dict]:
     return matches
 
 
+def find_group_by_scan_key(scan_key: str, thesis_id: str = "") -> Optional[dict]:
+    """
+    Find a source group by its scan_key field (the thesis name used at import time).
+    Uses the warm _groups_cache — O(n_groups), zero disk reads after first access.
+    Returns the full group entry (with sources embedded) or None if not found.
+
+    Used by source_resolver.py so Drive file IDs can be read from source records
+    instead of from the scan dict, decoupling Drive resolution from local folder names.
+    """
+    _ensure_groups_loaded(thesis_id)
+    for entry in _groups_cache.values():
+        if entry.get("scan_key") == scan_key:
+            return entry
+    return None
+
+
 def find_sources_by_theme(theme: str, thesis_id: str) -> list[dict]:
     """
     Scan all index cards across all groups for a specific theme tag.
