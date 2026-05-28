@@ -52,6 +52,7 @@ Setup required:
 
 import os
 import json
+import shutil
 from pathlib import Path
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
@@ -480,6 +481,226 @@ def delete_drive_links(thesis_name: str):
     _write_scan(scan)
 
     return {"deleted": True, "thesis_name": thesis_name}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SOURCE ID CHECK & FIX
+# ══════════════════════════════════════════════════════════════════════════════
+
+class FixSourceIdRequest(BaseModel):
+    thesis_id: str = ""
+    chapter_id: str
+    old_source_id: str
+    new_source_id: str
+
+
+def _chapters_dir(thesis_id: str) -> Path:
+    """Mirrors fix_source_ids.py — returns the chapters directory for the thesis."""
+    data_dir = Path(os.environ.get("SPO_DATA_DIR", Path.home() / "spo_data"))
+    if thesis_id:
+        return data_dir / "theses" / thesis_id / "thesis_context" / "chapters"
+    return data_dir / "thesis_context" / "chapters"
+
+
+def _extract_source_ids_from_chapter(chapter: dict) -> list[str]:
+    """Returns sorted list of all unique source_id strings in a chapter JSON."""
+    ids: set[str] = set()
+    for sub in chapter.get("subtopics", []):
+        for src in sub.get("source_ids", []):
+            sid = src.get("source_id", "").strip()
+            if sid:
+                ids.add(sid)
+    for reserved in chapter.get("sources_reserved_for_later_chapters", []):
+        sid = reserved.get("source_id", "").strip()
+        if sid:
+            ids.add(sid)
+    return sorted(ids)
+
+
+def _find_subtopics_using(chapter: dict, source_id: str) -> list[str]:
+    """Returns subtopic numbers that use this source_id."""
+    result = []
+    for sub in chapter.get("subtopics", []):
+        for src in sub.get("source_ids", []):
+            if src.get("source_id", "").strip() == source_id:
+                result.append(sub.get("number", "?"))
+                break
+    for reserved in chapter.get("sources_reserved_for_later_chapters", []):
+        if reserved.get("source_id", "").strip() == source_id:
+            result.append("(reserved)")
+            break
+    return result
+
+
+def _replace_source_id_in_chapter(chapter: dict, old_id: str, new_id: str) -> int:
+    """Replaces all occurrences of old_id with new_id. Returns replacement count."""
+    count = 0
+    for sub in chapter.get("subtopics", []):
+        for src in sub.get("source_ids", []):
+            if src.get("source_id", "").strip() == old_id:
+                src["source_id"] = new_id
+                count += 1
+    for reserved in chapter.get("sources_reserved_for_later_chapters", []):
+        if reserved.get("source_id", "").strip() == old_id:
+            reserved["source_id"] = new_id
+            count += 1
+    return count
+
+
+@router.get("/check-source-ids", summary="Check all chapter source_ids against the drive scan for mismatches")
+def check_source_ids(thesis_id: str = Query("")):
+    """
+    Read-only. Loads all chapter JSONs for the thesis and checks every source_id
+    against the drive_scan_result.json using the same matcher the backend uses.
+
+    Returns a list of source_ids that could not be matched (mismatches) along with
+    the full list of available scan keys (candidates for the fix UI dropdown).
+    """
+    from services.source_resolver import _match_thesis_name
+
+    cdir = _chapters_dir(thesis_id)
+    if not cdir.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chapters directory not found for thesis '{thesis_id}'. Check thesis_id."
+        )
+
+    scan = _read_scan()
+    scan_key_list = sorted(scan.keys())
+
+    chapter_files = sorted(cdir.glob("*.json"))
+    if not chapter_files:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No chapter JSON files found in '{cdir}'."
+        )
+
+    mismatches: list[dict] = []
+    total_checked = 0
+    resolved = 0
+    seen_ids: set[str] = set()  # deduplicate across chapters
+
+    for filepath in chapter_files:
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                chapter = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Could not read chapter file '{filepath.name}': {e}"
+            )
+
+        chapter_id = chapter.get("chapter_id", filepath.stem)
+        source_ids = _extract_source_ids_from_chapter(chapter)
+
+        for sid in source_ids:
+            if sid in seen_ids:
+                continue
+            seen_ids.add(sid)
+            total_checked += 1
+
+            if _match_thesis_name(sid, scan) is not None:
+                resolved += 1
+            else:
+                subtopics = _find_subtopics_using(chapter, sid)
+                mismatches.append({
+                    "source_id": sid,
+                    "chapters": [chapter_id],
+                    "used_in_subtopics": subtopics,
+                    "scan_candidates": scan_key_list,
+                })
+
+    # Merge chapters for source_ids that appear across multiple chapter files
+    # (second pass to aggregate chapter_ids for the same source_id)
+    merged: dict[str, dict] = {}
+    for m in mismatches:
+        sid = m["source_id"]
+        if sid in merged:
+            merged[sid]["chapters"].extend(m["chapters"])
+            for sub in m["used_in_subtopics"]:
+                if sub not in merged[sid]["used_in_subtopics"]:
+                    merged[sid]["used_in_subtopics"].append(sub)
+        else:
+            merged[sid] = m
+
+    return {
+        "thesis_id": thesis_id,
+        "total_checked": total_checked,
+        "resolved": resolved,
+        "mismatch_count": len(merged),
+        "mismatches": list(merged.values()),
+    }
+
+
+@router.post("/fix-source-id", summary="Replace a mismatched source_id in a chapter JSON (creates .bak backup)")
+async def fix_source_id(req: FixSourceIdRequest):
+    """
+    Replaces all occurrences of old_source_id with new_source_id in the chapter
+    JSON file. Creates a .bak backup before writing.
+
+    Returns 409 if any subtopic in the chapter has an active run in progress,
+    since _run_sequence compiles prompts from disk at run start — a concurrent
+    fix could silently affect a running job.
+    """
+    from services.notebooklm_service import is_run_active
+
+    cdir = _chapters_dir(req.thesis_id)
+    chapter_file = cdir / f"{req.chapter_id}.json"
+
+    if not chapter_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chapter file '{req.chapter_id}.json' not found."
+        )
+
+    try:
+        with open(chapter_file, "r", encoding="utf-8") as f:
+            chapter = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read chapter file: {e}"
+        )
+
+    # ── Concurrent-run guard ──────────────────────────────────────────────────
+    subtopics = chapter.get("subtopics", [])
+    for sub in subtopics:
+        sid = sub.get("subtopic_id", "")
+        if sid and await is_run_active(req.chapter_id, sid):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A run is in progress for subtopic '{sid}' in chapter '{req.chapter_id}'. "
+                    "Wait for it to finish before fixing source IDs, as the prompt is "
+                    "compiled from disk at run start and a concurrent fix could silently "
+                    "affect the running job."
+                )
+            )
+
+    # ── Apply replacement ─────────────────────────────────────────────────────
+    fixed_count = _replace_source_id_in_chapter(chapter, req.old_source_id, req.new_source_id)
+
+    if fixed_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail=f"source_id '{req.old_source_id}' not found in chapter '{req.chapter_id}'."
+        )
+
+    # ── Backup + write ────────────────────────────────────────────────────────
+    bak_path = chapter_file.with_suffix(".json.bak")
+    shutil.copy2(chapter_file, bak_path)
+
+    with open(chapter_file, "w", encoding="utf-8") as f:
+        json.dump(chapter, f, indent=2, ensure_ascii=False)
+
+    return {
+        "fixed": True,
+        "chapter_id": req.chapter_id,
+        "old_source_id": req.old_source_id,
+        "new_source_id": req.new_source_id,
+        "fixed_count": fixed_count,
+        "backed_up_to": bak_path.name,
+    }
 
 
 # ── Drive API helpers ──────────────────────────────────────────────────────────

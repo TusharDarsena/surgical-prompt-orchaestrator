@@ -43,6 +43,9 @@ const state = {
 
   // saved consistency text for the active subtopic
   consistencyText: null,
+
+  // pre-flight source ID check result
+  preflight: null,  // { total_checked, resolved, mismatch_count, mismatches }
 };
 
 function getActiveSubtopic() {
@@ -202,8 +205,13 @@ function renderRunTable() {
     nameCol.className = "subtopic-name";
 
     const nameLine = document.createElement("div");
-    nameLine.innerHTML =
-      `<span class="sub-num">${sub.number}</span><span class="sub-label">${_esc(sub.title)}</span>`;
+    // D1: clickable notebook title when notebook_id is available
+    const notebookUrl = rs.notebook_id
+      ? `https://notebooklm.google.com/notebook/${rs.notebook_id}`
+      : null;
+    nameLine.innerHTML = notebookUrl
+      ? `<span class="sub-num">${sub.number}</span><a class="sub-label" href="${notebookUrl}" target="_blank" title="Open in NotebookLM">${_esc(sub.title)} ⇗</a>`
+      : `<span class="sub-num">${sub.number}</span><span class="sub-label">${_esc(sub.title)}</span>`;
     nameCol.appendChild(nameLine);
 
     if (status === "running") {
@@ -225,14 +233,30 @@ function renderRunTable() {
       const note = document.createElement("div");
       note.className = "run-status-note";
       note.style.color = "#f87171"; // error/red
-      note.textContent = rs.error ?? "Error";
-      
-      if (status === "stage2_error") {
-        const subNote = document.createElement("div");
-        subNote.style.fontSize = "10px";
-        subNote.style.marginTop = "2px";
-        subNote.textContent = "Stage 2 failed. Draft 1 is available.";
-        note.appendChild(subNote);
+
+      // D4: detect NotebookCapacityExceeded by its specific message fragment
+      if (rs.error?.includes("Limit is 50")) {
+        const capMsg = document.createElement("div");
+        capMsg.textContent = "📦 Notebook is full (50-source limit).";
+        note.appendChild(capMsg);
+        const capHint = document.createElement("div");
+        capHint.style.fontSize = "10px";
+        capHint.style.marginTop = "2px";
+        if (notebookUrl) {
+          capHint.innerHTML = `<a href="${notebookUrl}" target="_blank" style="color:var(--primary);text-decoration:underline;">Open notebook ↗</a> and remove old sources, then Re-run.`;
+        } else {
+          capHint.textContent = "Open the notebook in NotebookLM and remove old sources, then Re-run.";
+        }
+        note.appendChild(capHint);
+      } else {
+        note.textContent = rs.error ?? "Error";
+        if (status === "stage2_error") {
+          const subNote = document.createElement("div");
+          subNote.style.fontSize = "10px";
+          subNote.style.marginTop = "2px";
+          subNote.textContent = "Stage 2 failed. Draft 1 is available.";
+          note.appendChild(subNote);
+        }
       }
       nameCol.appendChild(note);
     }
@@ -246,12 +270,12 @@ function renderRunTable() {
         missing.style.fontSize = "10px";
         missing.style.color = "var(--muted)";
         missing.style.marginTop = "4px";
-        
+
         // Handle new object structure for missing_sources
         rs.missing_sources.forEach(s => {
           const name = typeof s === "string" ? s : s.file_name;
           const link = typeof s === "object" ? s.drive_link : null;
-          
+
           const span = document.createElement("span");
           span.style.display = "block";
           span.textContent = `• ${name} `;
@@ -269,6 +293,40 @@ function renderRunTable() {
         });
         note.appendChild(missing);
       }
+
+      // D2: surface failure_type for each failed upload with actionable hints
+      if (rs.sources_failed && rs.sources_failed.length > 0) {
+        const failedBlock = document.createElement("div");
+        failedBlock.style.fontSize = "10px";
+        failedBlock.style.marginTop = "6px";
+
+        rs.sources_failed.forEach(f => {
+          const fname = f.file ?? f.file_name ?? "unknown file";
+          let hint, hintColor;
+
+          if (f.failure_type === "timeout") {
+            hint = `⏱ ${fname} — upload timed out. Sync & Resume to retry.`;
+            hintColor = "#d97706";
+          } else if (f.failure_type === "api_error" && f.reason?.includes("Limit is 50")) {
+            hint = `📦 ${fname} — notebook is full (50-source limit). Open notebook and remove old sources.`;
+            hintColor = "#a78bfa";
+          } else if (f.failure_type === "api_error") {
+            hint = `❌ ${fname} — upload rejected. Check Drive permissions.`;
+            hintColor = "#f87171";
+          } else {
+            hint = `⚠️ ${fname} — upload failed.`;
+            hintColor = "#d97706";
+          }
+
+          const span = document.createElement("span");
+          span.style.display = "block";
+          span.style.color = hintColor;
+          span.textContent = hint;
+          failedBlock.appendChild(span);
+        });
+        note.appendChild(failedBlock);
+      }
+
       nameCol.appendChild(note);
     }
 
@@ -362,6 +420,93 @@ function renderRunTable() {
     tbody.appendChild(row);
   }
 }
+
+// ── Card 01 pre-flight: source ID check ──────────────────────────────────────
+
+function renderPreflightCard() {
+  const container = $("preflightResult");
+  const pill = $("preflightPill");
+  if (!container) return;
+
+  const pf = state.preflight;
+  if (!pf) {
+    container.innerHTML = '<span style="color:var(--muted);font-size:11.5px;">Click "Check Source IDs" to validate your chapterization files.</span>';
+    if (pill) { pill.textContent = "—"; pill.className = "pill pill-idle"; }
+    return;
+  }
+
+  if (pf.mismatch_count === 0) {
+    container.innerHTML = `<span style="color:var(--success);font-size:12px;">✅ All ${pf.total_checked} source IDs resolved — ready to generate.</span>`;
+    if (pill) { pill.textContent = "✓ Ready"; pill.className = "pill pill-done"; }
+    return;
+  }
+
+  if (pill) {
+    pill.textContent = `⚠ ${pf.mismatch_count} mismatch${pf.mismatch_count !== 1 ? "es" : ""}`;
+    pill.className = "pill pill-warn";
+  }
+
+  container.innerHTML = "";
+  const header = document.createElement("div");
+  header.style.cssText = "font-size:11.5px;color:#d97706;margin-bottom:8px;";
+  header.textContent = `⚠ ${pf.mismatch_count} of ${pf.total_checked} source ID(s) could not be matched to a thesis in the drive scan. Fix them before generating drafts.`;
+  container.appendChild(header);
+
+  for (const m of pf.mismatches) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);";
+
+    // Left: source_id info
+    const info = document.createElement("div");
+
+    const badId = document.createElement("div");
+    badId.style.cssText = "font-size:11px;color:#f87171;font-family:var(--font-mono,monospace);word-break:break-all;margin-bottom:4px;";
+    badId.textContent = m.source_id;
+    info.appendChild(badId);
+
+    if (m.used_in_subtopics?.length) {
+      const where = document.createElement("div");
+      where.style.cssText = "font-size:10px;color:var(--muted);";
+      where.textContent = `Used in subtopics: ${m.used_in_subtopics.join(", ")}`;
+      info.appendChild(where);
+    }
+
+    // Right: dropdown + fix button
+    const controls = document.createElement("div");
+    controls.style.cssText = "display:flex;gap:6px;align-items:center;flex-shrink:0;";
+
+    const sel = document.createElement("select");
+    sel.style.cssText = "font-size:11px;padding:3px 6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;max-width:260px;";
+    sel.innerHTML = '<option value="">— pick correct thesis —</option>';
+    for (const cand of (m.scan_candidates ?? [])) {
+      const opt = document.createElement("option");
+      opt.value = cand;
+      opt.textContent = cand;
+      sel.appendChild(opt);
+    }
+    controls.appendChild(sel);
+
+    const fixBtn = document.createElement("button");
+    fixBtn.className = "btn btn-run";
+    fixBtn.style.cssText = "padding:4px 10px;font-size:11px;flex-shrink:0;";
+    fixBtn.textContent = "Fix";
+    fixBtn.addEventListener("click", () => {
+      const chosen = sel.value;
+      if (!chosen) { toast("Select a thesis to map this source ID to.", "info"); return; }
+      const chapterId = m.chapters?.[0] ?? "";
+      fixBtn.disabled = true;
+      fixBtn.textContent = "Fixing…";
+      actions.fixSourceId(chapterId, m.source_id, chosen)
+        .finally(() => { fixBtn.disabled = false; fixBtn.textContent = "Fix"; });
+    });
+    controls.appendChild(fixBtn);
+
+    row.appendChild(info);
+    row.appendChild(controls);
+    container.appendChild(row);
+  }
+}
+
 
 function renderDraftCard() {
   const sub = getActiveSubtopic();
@@ -600,6 +745,16 @@ const actions = {
     );
     if (!idle.length) { toast("No idle or failed subtopics", "info"); return; }
 
+    // A3: warn before overwriting stage2_error subtopics that already have Draft 1
+    const partialDraft = idle.filter(s => getRunState(s.subtopic_id).status === "stage2_error");
+    if (partialDraft.length > 0) {
+      const names = partialDraft.map(s => `${s.number} ${s.title}`).join("\n• ");
+      const confirmed = confirm(
+        `${partialDraft.length} subtopic(s) already have a saved Draft 1 from a previous run:\n\n• ${names}\n\nRe-running will overwrite Draft 1 with a fresh generation. Continue?`
+      );
+      if (!confirmed) return;
+    }
+
     const idleIds = idle.map(s => s.subtopic_id);
 
     try {
@@ -729,6 +884,39 @@ const actions = {
     }
   },
 
+  // ── Pre-flight: source ID check ──────────────────────────────────────────
+
+  async checkSourceIds() {
+    const thesisId = _activeThesisId();
+    const btn = $("btnCheckSourceIds");
+    if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
+    try {
+      const res = await API.checkSourceIds(thesisId);
+      state.preflight = res;
+      renderPreflightCard();
+    } catch (err) {
+      toast(`Source ID check failed: ${err.message}`, "error");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "🔍 Check Source IDs"; }
+    }
+  },
+
+  async fixSourceId(chapterId, oldId, newId, selectEl) {
+    const thesisId = _activeThesisId();
+    try {
+      await API.fixSourceId(thesisId, chapterId, oldId, newId);
+      toast(`✓ Fixed: "${oldId.slice(0, 40)}…" → "${newId.slice(0, 40)}…"`, "success");
+      // Auto-re-check so the mismatch table updates without a manual click
+      await actions.checkSourceIds();
+    } catch (err) {
+      if (err.message?.includes("409")) {
+        toast("A run is in progress for this chapter — wait for it to finish before fixing source IDs.", "error", 6000);
+      } else {
+        toast(`Fix failed: ${err.message}`, "error");
+      }
+    }
+  },
+
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -752,9 +940,11 @@ const poller = {
 
   // Called after chapter load — start only if needed
   sync() {
-    const anyRunning = state.subtopics.some(
-      s => getRunState(s.subtopic_id).status === "running"
-    );
+    // A2: also check 'expanding' — without this, a page refresh mid-expansion stops polling
+    const anyRunning = state.subtopics.some(s => {
+      const st = getRunState(s.subtopic_id).status;
+      return st === "running" || st === "expanding";
+    });
     anyRunning ? this.start() : this.stop();
   },
 
@@ -810,10 +1000,12 @@ const poller = {
       return;
     }
 
-    // ── Solo mode: poll each running subtopic individually (unchanged) ─────────
-    const running = state.subtopics.filter(
-      s => getRunState(s.subtopic_id).status === "running"
-    );
+    // ── Solo mode: poll each running or expanding subtopic individually ────────────
+    // A4: include 'expanding' so Stage 2 keeps updating after Stage 1 completes
+    const running = state.subtopics.filter(s => {
+      const st = getRunState(s.subtopic_id).status;
+      return st === "running" || st === "expanding";
+    });
     if (!running.length) { this.stop(); return; }
 
     await Promise.allSettled(
@@ -886,6 +1078,9 @@ async function init() {
     state.uploadMethod = e.target.value;
   });
 
+  // ── Pre-flight check (card-01) ───────────────────────────────────────────
+  $("btnCheckSourceIds")?.addEventListener("click", () => actions.checkSourceIds());
+
   // ── Card accordion headers ────────────────────────────────────────────────
   document.querySelectorAll(".card-header[data-card]").forEach(header => {
     header.addEventListener("click", () => toggleCard(header.dataset.card));
@@ -945,18 +1140,25 @@ async function init() {
     try {
       $("btnSyncResume").disabled = true;
       $("btnSyncResume").textContent = "⏳...";
-      
-      // Find all subtopics in the CURRENT chapter that are paused
-      const pausedIds = state.subtopics
-        .filter(s => getRunState(s.subtopic_id).status === "waiting_for_manual_upload")
-        .map(s => s.subtopic_id);
-      
-      if (pausedIds.length === 0) {
+
+      // A1: find paused subtopics FIRST so we can show them in a confirmation dialog
+      const pausedSubs = state.subtopics
+        .filter(s => getRunState(s.subtopic_id).status === "waiting_for_manual_upload");
+
+      if (pausedSubs.length === 0) {
         toast("No paused runs to resume.", "info");
       } else {
-        toast(`Resuming ${pausedIds.length} subtopic(s)...`, "info");
-        for (const sid of pausedIds) {
-          actions.runSubtopic(sid);
+        // Show confirmation listing all affected subtopics so the user
+        // can verify they've actually uploaded the PDFs for ALL of them
+        const names = pausedSubs.map(s => `${s.number} ${s.title}`).join("\n\u2022 ");
+        const confirmed = confirm(
+          `Resume ${pausedSubs.length} paused subtopic(s)?\n\n\u2022 ${names}\n\nOnly click OK if you have uploaded the missing PDFs for ALL of these in NotebookLM.`
+        );
+        if (confirmed) {
+          toast(`Resuming ${pausedSubs.length} subtopic(s)...`, "info");
+          for (const s of pausedSubs) {
+            actions.runSubtopic(s.subtopic_id);
+          }
         }
       }
     } catch (err) {

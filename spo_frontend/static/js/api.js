@@ -123,6 +123,19 @@ export const registerDriveLinks = (driveFolderId) =>
 export const getDriveLinks = (thesisName) =>
   _get(`/drive/links/${thesisName}`);
 
+export const checkSourceIds = (thesisId) => {
+  const qs = thesisId ? `?thesis_id=${encodeURIComponent(thesisId)}` : "";
+  return _get(`/drive/check-source-ids${qs}`);
+};
+
+export const fixSourceId = (thesisId, chapterId, oldSourceId, newSourceId) =>
+  _post("/drive/fix-source-id", {
+    thesis_id: thesisId,
+    chapter_id: chapterId,
+    old_source_id: oldSourceId,
+    new_source_id: newSourceId,
+  });
+
 // ── Google Docs ───────────────────────────────────────────────────────────────
 
 export const getGDocsStatus = () =>

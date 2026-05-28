@@ -503,6 +503,7 @@ async def get_batch_state(batch_id: str, thesis_id: str = Query("")):
             "missing_sources": state.get("missing_sources", []) if state else [],
             "sources_uploaded": state.get("sources_uploaded", []) if state else [],
             "sources_failed": state.get("sources_failed", []) if state else [],
+            "notebook_id": state.get("notebook_id") if state else None,
             "poll_url": f"/notebooklm/state/{chapter_id}/{sid}",
         })
 

@@ -126,17 +126,34 @@
           <span id="chapterDocStatus" style="color:var(--muted); margin-left:8px;"></span>
         </div>
 
-        <!-- ══ CARD 01: CONFIGURE ══ -->
+        <!-- ══ CARD 01: PRE-FLIGHT & CONFIGURE ══ -->
         <div class="card done" id="card01">
           <div class="card-header" data-card="card01">
             <span class="card-num">01</span>
-            <span class="card-title">Configure</span>
-            <span class="pill pill-done" id="configurePill">✓ Saved</span>
+            <span class="card-title">Pre-flight &amp; Configure</span>
+            <span class="pill pill-idle" id="preflightPill">—</span>
             <span class="chevron">▾</span>
           </div>
           <div class="card-body">
             <div class="card-divider"></div>
-            <div class="form-row">
+
+            <!-- Section A: Source ID Pre-flight Check -->
+            <div style="margin-bottom:16px;">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <span style="font-size:12px;font-weight:600;color:var(--text);">Source ID Check</span>
+                <button id="btnCheckSourceIds" class="btn btn-ghost" type="button" style="font-size:11px;padding:4px 10px;">
+                  🔍 Check Source IDs
+                </button>
+              </div>
+              <div id="preflightResult" style="font-size:11.5px;color:var(--muted);">
+                Click "Check Source IDs" to validate your chapterization files.
+              </div>
+            </div>
+
+            <div class="card-divider"></div>
+
+            <!-- Section B: Configure (unchanged) -->
+            <div class="form-row" style="margin-top:12px;">
               <div class="form-group" style="max-width:180px;">
                 <label class="form-label">Word count target</label>
                 <div class="num-input">

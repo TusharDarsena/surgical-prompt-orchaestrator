@@ -358,6 +358,13 @@
    UNIFIED ACCORDION TABLE (replaces thesis-list + index-run-table)
    ───────────────────────────────────────────────────────── */
 
+/* Workspace Max Width to prevent extreme widescreen stretching */
+.workspace > .card {
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* Grid columns: chevron | title | pdfs | drive | status | action */
 .unified-table-wrap {
   border: 1px solid var(--border);
@@ -403,6 +410,10 @@
   border-bottom: 1px solid var(--border);
   transition: background 0.12s;
 }
+/* Zebra striping for wide screens */
+.unified-row:nth-child(even) {
+  background: rgba(255,255,255,0.008);
+}
 .unified-row:last-child { border-bottom: none; }
 
 /* Summary strip — always visible */
@@ -419,7 +430,7 @@
 .unified-pdf-count { text-align: right; }
 /* Status cell: left-aligned, consistent with header */
 .unified-status-cell { text-align: left; padding-left: 4px; }
-.unified-row-summary:hover { background: rgba(255,255,255,0.018); }
+.unified-row-summary:hover { background: rgba(255,255,255,0.025); }
 
 .unified-chevron {
   color: var(--muted);
@@ -496,11 +507,11 @@
   padding: 12px 14px 14px 40px; /* left indent to align with title column */
 }
 
-/* ── PDF checkbox grid (3-column) ── */
+/* ── PDF checkbox grid (Fluid) ── */
 .pdf-checkbox-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px 12px;
   margin-bottom: 10px;
 }
 
