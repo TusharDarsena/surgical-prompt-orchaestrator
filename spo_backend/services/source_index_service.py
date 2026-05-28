@@ -438,18 +438,39 @@ async def run_index_sequence(
 
                     # ── Step 14: Quality check ─────────────────────────────────
                     DEFAULT_CLAIMS = {"No specific claims extracted."}
+                    DEFAULT_THEMES = {"uncategorized"}
                     all_chapters = parsed.get("chapters", [])
-                    all_default = all(
-                        set(ch.get("key_claims", [])) <= DEFAULT_CLAIMS
-                        for ch in all_chapters
-                    ) if all_chapters else True
+                    
+                    def _is_empty_or_default(val, defaults):
+                        if not val:
+                            return True
+                        if isinstance(val, str):
+                            return val in defaults
+                        try:
+                            return set(val) <= defaults
+                        except Exception:
+                            return True
 
-                    if sources_created == 0 or all_default:
+                    problematic_chapters = []
+                    for i, ch in enumerate(all_chapters):
+                        if _is_empty_or_default(ch.get("key_claims"), DEFAULT_CLAIMS) or \
+                           _is_empty_or_default(ch.get("themes"), DEFAULT_THEMES):
+                            
+                            # Try to get a readable name, fallback to index
+                            name = ch.get("label") or ch.get("title") or ch.get("file_name") or f"Chapter {i+1}"
+                            problematic_chapters.append(name)
+
+                    if sources_created == 0 or problematic_chapters:
                         final_status = "warn"
-                        warn_message = (
-                            "Indexed but may be incomplete — "
-                            "index cards have default or empty key_claims. Check Card 03."
-                        )
+                        if sources_created == 0:
+                            warn_message = "Indexed but no sources were created."
+                        else:
+                            names_str = ", ".join(problematic_chapters)
+                            warn_message = (
+                                f"Indexed but may be incomplete — "
+                                f"default/empty key_claims or themes in: {names_str}"
+                            )
+                        logger.warning(f"Quality check warning for '{thesis_name}': {warn_message}")
                     else:
                         final_status = "done"
                         warn_message = None

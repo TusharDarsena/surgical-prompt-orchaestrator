@@ -203,10 +203,10 @@ def _normalize_source_chapter(ch: dict) -> dict:
     if isinstance(c.get("limitations"), list):
         c["limitations"] = " ".join(c["limitations"])
 
-    # Strip empty values so Pydantic's default_factory triggers correctly
-    for k in ["key_claims", "themes", "title"]:
-        if k in c and c[k] in (None, [], ""):
-            c.pop(k)
+    # Strip all empty values so Pydantic's default_factory triggers correctly for any field
+    keys_to_remove = [k for k, v in c.items() if v in (None, [], "")]
+    for k in keys_to_remove:
+        c.pop(k)
 
     return c
 
@@ -231,10 +231,10 @@ def do_auto_import(data: dict, thesis_id: str = "", scan_key: str = "") -> tuple
         data = dict(data)  # don't mutate caller's dict
         data["chapters"] = [_normalize_source_chapter(ch) for ch in data["chapters"]]
 
-    # Strip empty values so Pydantic defaults apply
-    for k in ["title", "author", "source_type"]:
-        if k in data and data[k] in (None, ""):
-            data.pop(k)
+    # Strip all empty values so Pydantic defaults apply for any field
+    keys_to_remove = [k for k, v in data.items() if v in (None, [], "") and k != "chapters"]
+    for k in keys_to_remove:
+        data.pop(k)
 
     try:
         validated = SourceImport(**data)

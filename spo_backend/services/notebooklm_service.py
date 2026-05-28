@@ -315,10 +315,15 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
                 if match:
                     drive_file_id = match.group(1)
 
-        else:
+        # Warn only when the entry is completely unresolvable (no abs_path AND no drive_file_id).
+        # For Drive-mode groups this is normal if scan-local was never run — abs_path stays
+        # None but drive_file_id is set, so the upload still succeeds.
+        if not abs_path and not drive_file_id:
             logger.warning(
-                f"Thesis '{thesis_name}' not found in scan. "
-                "Run POST /drive/scan-local first."
+                f"'{file_name}' (thesis='{thesis_name}') could not be resolved: "
+                "no Drive file ID on source record and no local path from scan. "
+                "Run POST /drive/register-links to link Drive files, "
+                "or POST /drive/scan-local for local-mode uploads."
             )
 
         # Deduplicate — same PDF from multiple source_id entries

@@ -213,3 +213,101 @@ The fully automated pipeline (Card 02b) is built with strict concurrency control
 - **Batch Safe:** Batch runs intelligently skip folders that are currently locked by a concurrent single-run.
 - **Fail-Safe Data:** If NotebookLM hallucinates a JSON structure that `do_auto_import` cannot parse, the pipeline crashes safely *after* writing the raw JSON backup to disk. The user loses zero API effort and can manually fix the JSON.
 
+---
+
+## 14. Drive-First Source Resolution Architecture
+
+This section documents the architectural shift made on 2026-05-27 to decouple Drive file ID resolution from the local filesystem scan.
+
+### The Problem Being Solved
+
+The original architecture stored Drive file IDs inside the `drive_scan_result.json` scan dict, keyed by local folder name:
+
+```
+scan["My Thesis"]["drive_links"]["sharma_2003.pdf"] = "https://drive.google.com/..."
+```
+
+This created a three-way coupling: the chapterization JSON's `source_id` string, the local folder name in the scan dict, and the Drive folder name all had to match exactly. Any rename broke the entire pipeline.
+
+### Decision 14.1: Drive File IDs Belong on Source Records, Not the Scan Dict
+
+**Decision:** `drive_file_id` (the raw Google Drive file ID, e.g. `1A2B3Cxyz`) is stored directly on each source record (`source_id.json`) as a first-class field, alongside `file_name`.
+
+**Reasoning:** Source records already have `file_name`. They are the natural home for the Drive-side identity of that file. Storing it in the scan dict instead forces the entire resolution chain to go through a string-keyed dict that is coupled to the local filesystem layout. Once `drive_file_id` lives on the source record, the scan dict is no longer needed for Drive-mode uploads.
+
+**Enforcement:** `drive.py`'s `_walk_drive_folder` writes `drive_file_id` to each matching source record after writing to the scan dict. The scan dict write is preserved for backward compat.
+
+**Implication for new features:** Never assume Drive file IDs are in `drive_links`. Always check `source_record.get("drive_file_id")` first, and treat `drive_links` as a legacy fallback.
+
+---
+
+### Decision 14.2: `register-links` Is the Write Point — No New Endpoint
+
+**Decision:** `drive_file_id` is written to source records inside the existing `POST /drive/register-links` flow (`_walk_drive_folder`), not via a new endpoint.
+
+**Reasoning:** Creating a new `link-source-group` endpoint (as an earlier plan proposed) would have downgraded UX: users would need to manually paste a Drive folder ID for every thesis group separately. The existing `register-links` already walks the entire Drive tree in one call. Piggy-backing the source record write onto the existing walk preserves the one-click UX.
+
+**Enforcement:** `_walk_drive_folder` writes to both the scan dict (legacy) and source records (new) on every `register-links` call. Running `register-links` once is sufficient to activate the new resolution path.
+
+---
+
+### Decision 14.3: Dual-Mode Resolver with Explicit Fallback
+
+**Decision:** `source_resolver.resolve_source_files` uses source group records as the primary path and the scan dict as an explicit, named fallback — never silently.
+
+**Reasoning:** Zero-downtime migration requires both old (scan dict) and new (source records) data to work. A silent fallback risks hiding bugs. The fallback is reached only when `find_group_by_scan_key` returns `None`, which means the group either hasn't been imported yet or predates the new architecture. The code path is clearly commented.
+
+**Enforcement:** The function has two explicit branches: a `if group:` block (primary) and a `if not group:` block (fallback). The fallback block reads from the scan dict with `_match_thesis_name` exactly as before. All chapter-matching logic (`_WORD_TO_NUM`, `_ROMAN_TO_NUM`, all regex) is shared between both paths.
+
+---
+
+### Decision 14.4: `source_index_service.py` Is Deliberately Excluded
+
+**Decision:** The automated source card indexing pipeline (`source_index_service.py`) is **not** updated to read from source records. It continues reading from the scan entry.
+
+**Reasoning:** `source_index_service._build_required_sources` runs *before* `do_auto_import` is called. The group does not exist in the database yet at that point — it is created by `do_auto_import` as step 13 of the pipeline. Attempting to read from the group at step 3 would be a circular dependency (group doesn't exist → `find_group_by_scan_key` returns `None` → crash). The scan entry is the only coherent data source for the pre-import upload phase.
+
+**Enforcement:** `source_index_service.py` is not touched. Its `_build_required_sources` function continues reading `scan_entry["files"]` and `scan_entry["drive_links"]`.
+
+---
+
+### Decision 14.5: `find_group_by_scan_key` Uses `thesis_id=""`
+
+**Decision:** `storage.find_group_by_scan_key` defaults `thesis_id` to `""` and `source_resolver.py` calls it without threading `thesis_id` through the compiler call chain.
+
+**Reasoning:** The existing compiler pipeline already hardcodes `thesis_id=""` when reading `drive_scan_result.json`:
+```python
+scan = storage.read_misc("drive_scan_result", thesis_id="") or {}
+```
+Using the same default is consistent with the existing behavior. Threading `thesis_id` through `_resolve_required_sources` → `storage.resolve_source_files` → `source_resolver.resolve_source_files` would require cascading signature changes with no practical benefit for the current single-thesis usage pattern.
+
+**Implication for new features:** If multi-thesis support ever requires per-thesis isolation in source resolution, `thesis_id` must be threaded through this call chain at that point. It is a known pre-existing limitation.
+
+---
+
+### The New Resolution Flow (End-to-End)
+
+```
+POST /drive/register-links (one click, same as before)
+  └── _walk_drive_folder
+        ├── writes to scan["My Thesis"]["drive_links"]      ← preserved for legacy
+        └── writes drive_file_id onto each source record    ← NEW
+
+Compile prompt for subtopic
+  └── _resolve_required_sources (compiler_service.py)
+        └── storage.resolve_source_files (storage.py re-export)
+              └── source_resolver.resolve_source_files
+                    ├── find_group_by_scan_key("My Thesis") → group found
+                    │     ├── file list from group["sources"][*]["file_name"]
+                    │     └── drive_file_id from group["sources"][?]["drive_file_id"]
+                    └── [fallback] _match_thesis_name → scan dict
+
+_resolve_required_sources returns:
+  { source_id, chapter_id, file_name, drive_link, drive_file_id }  ← drive_file_id now included
+
+notebooklm_service._resolve_absolute_paths
+  ├── reads drive_file_id from entry directly (new)
+  └── [fallback] regex extract from drive_link URL (legacy)
+
+client.sources.add_drive(notebook_id, file_id=drive_file_id, ...)   ← direct ID, no regex
+```
