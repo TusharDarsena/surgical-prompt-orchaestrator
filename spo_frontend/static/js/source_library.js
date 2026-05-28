@@ -16,9 +16,10 @@ import * as API from "./source_library_api.js";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const state = {
-  groups:      [],   // full library: [{group_id, title, author, year, sources:[...], ...}]
+  groups:        [],   // full library: [{group_id, title, author, year, sources:[...], ...}]
   thesisFolders: [], // drive scan result: [{thesis_name, files[], pdfs[], imported, imported_at, import_group_id, import_error, drive_links_registered, drive_links}]
-  fileQueue:   [],   // [{file, status:"queued"|"importing"|"done"|"error", message}]
+  fileQueue:     [],   // [{file, status:"queued"|"importing"|"done"|"error", message}]
+  pdfSelections: {},   // { thesis_name → Set<string> } of filenames user wants to include
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,6 +35,65 @@ function esc(str) {
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
+}
+
+// ── NotebookLM link helpers ────────────────────────────────────────────────────
+// Single source of truth for resolving and building notebook links.
+// Prefers the live indexState (most up-to-date) then falls back to the scan
+// entry field returned by /drive/local-files.
+
+function _getNotebookId(folder) {
+  const s = (typeof indexState !== "undefined" ? indexState.statuses[folder.thesis_name] : null) || {};
+  return s.index_notebook_id || folder.index_notebook_id || null;
+}
+
+function _buildNotebookLink(notebookId, displayText) {
+  const a = document.createElement("a");
+  a.className = "nlm-notebook-link";
+  a.href = `https://notebooklm.google.com/notebook/${encodeURIComponent(notebookId)}`;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.title = "Open in NotebookLM ↗";
+  a.textContent = displayText;
+  return a;
+}
+
+// ── PDF selection helpers ──────────────────────────────────────────────────────
+
+const PDF_SEL_KEY = n => `spo_pdf_sel_${n.replace(/\W/g, "_")}`;
+
+function _initPdfSelection(thesisName, allFiles) {
+  if (state.pdfSelections[thesisName]) return; // already initialised
+  const stored = localStorage.getItem(PDF_SEL_KEY(thesisName));
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      // Intersect stored selection with current files (files may have been added/removed)
+      state.pdfSelections[thesisName] = new Set(parsed.filter(f => allFiles.includes(f)));
+      // Add any newly-scanned files that weren't in previous selection → include by default
+      for (const f of allFiles) {
+        if (!parsed.includes(f)) state.pdfSelections[thesisName].add(f);
+      }
+      return;
+    } catch { /* fall through to default */ }
+  }
+  state.pdfSelections[thesisName] = new Set(allFiles);
+}
+
+function _savePdfSelection(thesisName) {
+  const sel = state.pdfSelections[thesisName];
+  if (!sel) return;
+  localStorage.setItem(PDF_SEL_KEY(thesisName), JSON.stringify([...sel]));
+}
+
+function _getPdfSelection(thesisName) {
+  return state.pdfSelections[thesisName] ?? new Set();
+}
+
+function _getAlreadyUploaded(thesisName) {
+  // indexState is defined later in the file but in the same module scope
+  const s = (typeof indexState !== "undefined" ? indexState.statuses[thesisName] : null) || {};
+  return new Set(s.sources_uploaded ?? []);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,6 +272,8 @@ async function loadThesisFolders() {
             file_name: fileName,
             drive_link: folder.drive_links?.[fileName] || null
         }));
+        // Init PDF selection (all checked by default, localStorage overrides)
+        _initPdfSelection(folder.thesis_name, folder.files ?? []);
         return folder;
     });
     renderThesisFolders();
@@ -233,6 +295,7 @@ function renderThesisFolders() {
     const imported = folder.imported;
     const importFailed = !imported && folder.import_error;
     const linked = folder.drive_links_registered;
+    const notebookId = _getNotebookId(folder);
 
     const cls = imported ? "state-imported" : importFailed ? "state-error" : "";
     const tid = `thesis-${folder.thesis_name.replace(/\W/g, "_")}`;
@@ -257,25 +320,38 @@ function renderThesisFolders() {
         </div>
         <span class="thesis-chevron">▾</span>
       </div>
-      <div class="thesis-body">
+      <div class="thesis-body" id="${tid}-body">
         ${importFailed ? `<div class="error-inline">Import error: ${esc(folder.import_error)}</div>` : ""}
-        <div class="pdf-grid">
-          ${(folder.pdfs ?? []).map(pdf => pdf.drive_link
-            ? `<div class="pdf-chip"><a href="${esc(pdf.drive_link)}" target="_blank">${esc(pdf.file_name)}</a></div>`
-            : `<div class="pdf-chip no-link">${esc(pdf.file_name ?? pdf)}</div>`
-          ).join("")}
+        <div class="pdf-selection-header">
+          <span class="pdf-selection-label">PDFs to send to NotebookLM</span>
+          <span class="pdf-selection-count" id="${tid}-selcount"></span>
         </div>
+        <div class="pdf-grid" id="${tid}-grid"></div>
+        <div class="file-status-panel" id="${tid}-statuspanel"></div>
         <div class="copy-links-row">
           <button class="btn btn-ghost" style="padding:4px 12px;font-size:11px;"
-            onclick="copyFolderLinks('${esc(folder.thesis_name)}')">
-            📋 ${linked ? "Copy All Drive Links" : "Copy Filenames"}
+            onclick="copyFolderLinks('${esc(folder.thesis_name)}')"
+            id="${tid}-copybtn">
+            📋 ${linked ? "Copy Selected Drive Links" : "Copy Selected Filenames"}
           </button>
           <span class="copy-links-note">${linked ? "Paste into NotebookLM Add Source" : "No Drive links — upload manually to NotebookLM"}</span>
         </div>
       </div>
     `;
 
+    // ── Notebook badge: injected via DOM (safe URL construction) ──
+    if (notebookId) {
+      const badgesEl = row.querySelector(".thesis-badges");
+      const nbLink = _buildNotebookLink(notebookId, "🔗 Open Notebook");
+      nbLink.className = "badge badge-notebook";
+      nbLink.addEventListener("click", e => e.stopPropagation());
+      badgesEl.appendChild(nbLink);
+    }
+
     list.appendChild(row);
+
+    // Render chips and status panel after row is in DOM
+    _renderPdfChips(folder);
   }
 
   // Keep Card 02b in sync with the same folder list
@@ -285,16 +361,122 @@ function renderThesisFolders() {
 window.copyFolderLinks = async function(thesisName) {
   const folder = state.thesisFolders.find(f => f.thesis_name === thesisName);
   if (!folder) return;
-  const linked = (folder.pdfs ?? []).filter(p => p.drive_link).map(p => p.drive_link);
-  const filenames = (folder.pdfs ?? []).map(p => p.file_name ?? p);
+  const sel = _getPdfSelection(thesisName);
+  const allPdfs = folder.pdfs ?? [];
+  const selectedPdfs = allPdfs.filter(p => sel.has(p.file_name ?? p));
+  const linked = selectedPdfs.filter(p => p.drive_link).map(p => p.drive_link);
+  const filenames = selectedPdfs.map(p => p.file_name ?? p);
   const text = linked.length ? linked.join("\n") : filenames.join("\n");
   try {
     await navigator.clipboard.writeText(text);
-    toast(linked.length ? "Drive links copied" : "Filenames copied", "success");
+    toast(linked.length ? "Drive links copied (selected only)" : "Filenames copied (selected only)", "success");
   } catch (_) {
     toast("Copy failed — select manually", "error");
   }
 };
+
+// ── PDF chip renderer (called after row is in DOM) ────────────────────────────
+
+function _renderPdfChips(folder) {
+  const thesisName = folder.thesis_name;
+  const tid = `thesis-${thesisName.replace(/\W/g, "_")}`;
+  const grid = $(`${tid}-grid`);
+  const selCountEl = $(`${tid}-selcount`);
+  if (!grid) return;
+
+  const allPdfs = folder.pdfs ?? [];
+  const sel = _getPdfSelection(thesisName);
+  const alreadyUploaded = _getAlreadyUploaded(thesisName);
+
+  grid.innerHTML = "";
+
+  for (const pdf of allPdfs) {
+    const fname = pdf.file_name ?? pdf;
+    const isUploaded = alreadyUploaded.has(fname);
+    const isSelected = sel.has(fname);
+
+    const chip = document.createElement("div");
+    // chips that are already-in-notebook: clicking them toggles their upcoming inclusion
+    // even though they're already uploaded, user can still choose to exclude them from next prompt
+    chip.className = `pdf-chip ${isUploaded ? "chip-in-notebook" : isSelected ? "chip-checked" : "chip-unchecked"}`;
+    chip.title = isUploaded ? "Already in notebook — will be skipped on re-upload" : isSelected ? "Selected — will be uploaded" : "Excluded — will NOT be uploaded";
+
+    const checkEl = document.createElement("span");
+    checkEl.className = "pdf-chip-checkbox";
+    checkEl.textContent = (isSelected || isUploaded) ? "✓" : "";
+
+    const nameEl = document.createElement("span");
+    if (pdf.drive_link) {
+      nameEl.innerHTML = `<a href="${esc(pdf.drive_link)}" target="_blank" onclick="event.stopPropagation()">${esc(fname)}</a>`;
+    } else {
+      nameEl.textContent = fname;
+    }
+
+    chip.appendChild(checkEl);
+    chip.appendChild(nameEl);
+
+    // Toggle selection on click (even for already-uploaded, so user can re-include or further exclude)
+    chip.addEventListener("click", (e) => {
+      if (e.target.tagName === "A") return; // let link open
+      if (sel.has(fname)) {
+        sel.delete(fname);
+      } else {
+        sel.add(fname);
+      }
+      _savePdfSelection(thesisName);
+      _renderPdfChips(folder);
+    });
+
+    grid.appendChild(chip);
+  }
+
+  // Update selection count
+  if (selCountEl) {
+    const selectedCount = allPdfs.filter(p => sel.has(p.file_name ?? p)).length;
+    selCountEl.innerHTML = `<span class="count-selected">${selectedCount}</span> / ${allPdfs.length} selected`;
+  }
+
+  // Render file-status panel
+  _renderFileStatusPanel(folder, sel, alreadyUploaded);
+}
+
+function _renderFileStatusPanel(folder, sel, alreadyUploaded) {
+  const tid = `thesis-${folder.thesis_name.replace(/\W/g, "_")}`;
+  const panel = $(`${tid}-statuspanel`);
+  if (!panel) return;
+
+  const allPdfs = (folder.pdfs ?? []).map(p => p.file_name ?? p);
+  const hasNotebook = alreadyUploaded.size > 0;
+
+  if (!hasNotebook) {
+    panel.style.display = "none";
+    return;
+  }
+  panel.style.display = "flex";
+
+  // Compute categories
+  const alreadyIn    = allPdfs.filter(f => alreadyUploaded.has(f));
+  const newToUpload  = allPdfs.filter(f => !alreadyUploaded.has(f) && sel.has(f));
+  const excluded     = allPdfs.filter(f => !sel.has(f));
+
+  panel.innerHTML = `
+    <div class="file-status-row">
+      <span class="file-status-icon">✅</span>
+      <span class="file-status-label">Already in notebook — will be skipped</span>
+      <span class="file-status-count fsc-uploaded">${alreadyIn.length}</span>
+    </div>
+    <div class="file-status-row">
+      <span class="file-status-icon">⬆</span>
+      <span class="file-status-label">Selected — new, will be uploaded</span>
+      <span class="file-status-count fsc-new">${newToUpload.length}</span>
+    </div>
+    <div class="file-status-row">
+      <span class="file-status-icon">☐</span>
+      <span class="file-status-label">Excluded by you</span>
+      <span class="file-status-count fsc-excluded">${excluded.length}</span>
+    </div>
+  `;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CARD 03 — SOURCE LIBRARY
@@ -752,13 +934,32 @@ function init() {
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   actions.loadLibrary();
-  loadThesisFolders();
+  loadThesisFolders().then(_prefetchIndexStatuses);
 }
 
 document.addEventListener("DOMContentLoaded", init);
 
 // =============================================================================
 // CARD 02b — SOURCE CARD INDEXING
+// Pre-fetch: populate indexState.statuses on page load so notebook IDs are
+// available immediately — without waiting for an active polling cycle.
+async function _prefetchIndexStatuses() {
+  const names = state.thesisFolders.map(f => f.thesis_name);
+  if (!names.length) return;
+  try {
+    const results = await _apiGet(
+      `/source-index/status?thesis_names=${encodeURIComponent(names.join(","))}`
+    );
+    for (const r of results) {
+      indexState.statuses[r.thesis_name] = r;
+    }
+    // Re-render both cards so notebook links appear immediately
+    renderThesisFolders();
+    renderIndexTable();
+  } catch (_) {
+    // Non-fatal — links will appear once the poller runs
+  }
+}
 // =============================================================================
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -829,7 +1030,13 @@ function renderIndexTable() {
     const nameCell = document.createElement("div");
     nameCell.className = "index-folder-name";
     const nameSpan = document.createElement("span");
-    nameSpan.textContent = folder.thesis_name;
+    const notebookId02b = _getNotebookId(folder);
+    if (notebookId02b) {
+      const link = _buildNotebookLink(notebookId02b, `${folder.thesis_name} ↗`);
+      nameSpan.appendChild(link);
+    } else {
+      nameSpan.textContent = folder.thesis_name;
+    }
     nameCell.appendChild(nameSpan);
 
     let noteEl = null;
@@ -1019,8 +1226,13 @@ function _stopPoller() {
 
 async function handleRunSingle(thesisName) {
   const thesisId = _activeThesisId();
+  const included = [..._getPdfSelection(thesisName)];
+  if (included.length === 0) {
+    toast(`${thesisName}: no PDFs selected — check at least one PDF before running`, "error");
+    return;
+  }
   try {
-    await _apiPost("/source-index/run", { thesis_name: thesisName }, thesisId);
+    await _apiPost("/source-index/run", { thesis_name: thesisName, included_files: included }, thesisId);
     indexState.statuses[thesisName] = { ...indexState.statuses[thesisName], status: "queued" };
     renderIndexTable();
   } catch (err) {
@@ -1069,8 +1281,14 @@ async function confirmBatch() {
   const names = indexState.pendingBatchNames;
   if (!names.length) return;
 
+  // Build per-folder selection map
+  const included_files_map = {};
+  for (const name of names) {
+    included_files_map[name] = [..._getPdfSelection(name)];
+  }
+
   try {
-    const result = await _apiPost("/source-index/run-batch", { thesis_names: names }, thesisId);
+    const result = await _apiPost("/source-index/run-batch", { thesis_names: names, included_files_map }, thesisId);
     for (const job of (result.jobs || [])) {
       indexState.statuses[job.thesis_name] = { status: "queued" };
     }

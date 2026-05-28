@@ -118,20 +118,100 @@
 .badge-error  { background: var(--danger-dim);  color: var(--danger);  border: 1px solid rgba(239,68,68,0.2); }
 .badge-linked { background: var(--accent-dim);  color: #8aabff;        border: 1px solid rgba(91,127,255,0.2); }
 
-/* PDF chips */
-.pdf-grid { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 10px; margin-bottom: 10px; }
-.pdf-chip {
-  display: inline-flex; align-items: center;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 5px; padding: 3px 9px;
-  font-size: 10.5px; font-family: 'JetBrains Mono', monospace; color: var(--muted2);
+/* PDF checkbox chips (Card 02 interactive selection) */
+.pdf-selection-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 10px; margin-bottom: 6px;
 }
-.pdf-chip a { color: #8aabff; text-decoration: none; }
+.pdf-selection-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); font-weight: 600;
+}
+.pdf-selection-count {
+  font-size: 10.5px; color: var(--muted2); font-family: 'JetBrains Mono', monospace;
+}
+.pdf-selection-count .count-selected { color: #8aabff; font-weight: 600; }
+
+.pdf-grid { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+
+/* Interactive checkbox chip */
+.pdf-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border-radius: 5px; padding: 3px 8px;
+  font-size: 10.5px; font-family: 'JetBrains Mono', monospace;
+  cursor: pointer; user-select: none;
+  transition: all 0.15s; border: 1px solid var(--border);
+}
+/* checked state (default — will be uploaded) */
+.pdf-chip.chip-checked {
+  background: rgba(91,127,255,0.1); border-color: rgba(91,127,255,0.35);
+  color: #c4d0ff;
+}
+.pdf-chip.chip-checked:hover { background: rgba(91,127,255,0.18); border-color: rgba(91,127,255,0.5); }
+/* unchecked state (excluded) */
+.pdf-chip.chip-unchecked {
+  background: var(--surface2); border-color: var(--border);
+  color: var(--muted); opacity: 0.55;
+}
+.pdf-chip.chip-unchecked:hover { opacity: 0.8; }
+/* already-in-notebook state */
+.pdf-chip.chip-in-notebook {
+  background: rgba(52,211,153,0.08); border-color: rgba(52,211,153,0.2);
+  color: var(--success);
+}
+.pdf-chip.chip-in-notebook:hover { background: rgba(52,211,153,0.15); }
+
+.pdf-chip-checkbox {
+  width: 11px; height: 11px; flex-shrink: 0;
+  border: 1.5px solid currentColor; border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; opacity: 0.8;
+}
+.chip-unchecked .pdf-chip-checkbox { opacity: 0.4; }
+
+/* PDF chip drive link */
+.pdf-chip a { color: inherit; text-decoration: none; }
 .pdf-chip a:hover { text-decoration: underline; }
-.pdf-chip.no-link { opacity: 0.45; }
+
+/* File-status summary panel */
+.file-status-panel {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 7px; padding: 10px 12px; margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.file-status-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--muted2);
+}
+.file-status-icon { font-size: 12px; flex-shrink: 0; width: 18px; text-align: center; }
+.file-status-label { flex: 1; }
+.file-status-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+  padding: 1px 7px; border-radius: 4px; font-weight: 600;
+}
+.fsc-uploaded  { background: rgba(52,211,153,0.1);  color: var(--success);  border: 1px solid rgba(52,211,153,0.2); }
+.fsc-new       { background: rgba(91,127,255,0.1);  color: #8aabff;         border: 1px solid rgba(91,127,255,0.25); }
+.fsc-excluded  { background: var(--surface2);       color: var(--muted);    border: 1px solid var(--border); }
+
+/* Notebook link badge in thesis header */
+.badge-notebook {
+  font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 4px;
+  background: rgba(129,140,248,0.12); color: #a5b4fc;
+  border: 1px solid rgba(129,140,248,0.25);
+  text-decoration: none; transition: background 0.15s;
+  cursor: pointer;
+}
+.badge-notebook:hover { background: rgba(129,140,248,0.22); }
 
 .copy-links-row  { display: flex; gap: 8px; align-items: center; }
 .copy-links-note { font-size: 11px; color: var(--muted); }
+
+/* Notebook link in Card 02b index table */
+.nlm-notebook-link {
+  color: #8aabff; text-decoration: none; font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px; transition: color 0.15s;
+}
+.nlm-notebook-link:hover { color: #c4d0ff; text-decoration: underline; }
 
 .error-inline {
   font-size: 11.5px; color: var(--danger);

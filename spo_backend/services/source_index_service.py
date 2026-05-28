@@ -170,6 +170,7 @@ async def run_index_sequence(
     thesis_id: str = "",
     batch_id: Optional[str] = None,
     skip_if_done: bool = False,
+    included_files: Optional[list[str]] = None,
 ) -> None:
     """
     Full NLM source-card pipeline for one thesis folder.
@@ -234,6 +235,15 @@ async def run_index_sequence(
                         f"No PDF files found for '{thesis_name}' in scan entry."
                     )
 
+                # ── Step 3b: Filter to user-selected files only ────────────────
+                if included_files is not None:
+                    included_set = set(included_files)
+                    required_sources = [r for r in required_sources if r["file_name"] in included_set]
+                    if not required_sources:
+                        raise RuntimeError(
+                            "No files selected for upload. Select at least one PDF before running."
+                        )
+
                 resolved = await asyncio.to_thread(_resolve_absolute_paths, required_sources)
 
                 # ── Step 4: File size guard ────────────────────────────────────
@@ -252,7 +262,8 @@ async def run_index_sequence(
                 async with _nlm_client() as client:
 
                     # ── Step 6: Create / reuse notebook ───────────────────────
-                    notebook_id = scan_entry.get("index_notebook_id")
+                    # Fallback to state if scan_entry lost it due to old bug
+                    notebook_id = scan_entry.get("index_notebook_id") or state.get("index_notebook_id")
                     if notebook_id:
                         try:
                             await client.notebooks.get(notebook_id)
@@ -272,6 +283,13 @@ async def run_index_sequence(
 
                     state["index_notebook_id"] = notebook_id
                     _write_state(thesis_name, state)
+
+                    # Bug fix: persist notebook ID to scan entry immediately after create/reuse
+                    # so it survives import failures and is reused on the next run.
+                    _scan_for_nb = await asyncio.to_thread(_read_scan)
+                    if thesis_name in _scan_for_nb:
+                        _scan_for_nb[thesis_name]["index_notebook_id"] = notebook_id
+                        await asyncio.to_thread(_write_scan, _scan_for_nb)
 
                     # ── Step 7: Capacity check ─────────────────────────────────
                     try:
@@ -485,7 +503,7 @@ async def run_index_sequence(
                             "error": None,
                             "json_path": json_backup_path,  # Fix 3: link to backup
                         }
-                        scan[thesis_name]["index_notebook_id"] = notebook_id
+                        # index_notebook_id already written at Step 6 — no need to repeat here
                         await asyncio.to_thread(_write_scan, scan)
 
                     # ── Step 16: Final state ───────────────────────────────────
@@ -543,6 +561,7 @@ async def run_batch_index_sequence(
     batch_id: str,
     thesis_names: list[str],
     thesis_id: str = "",
+    included_files_map: Optional[dict[str, list[str]]] = None,
 ) -> None:
     """
     Splits thesis_names into two halves and runs them with asyncio.TaskGroup.
@@ -575,7 +594,11 @@ async def run_batch_index_sequence(
                 # the lock, we skip instead of re-running and overwriting the result.
                 sub_task = asyncio.create_task(
                     run_index_sequence(
-                        name, thesis_id=thesis_id, batch_id=batch_id, skip_if_done=True
+                        name,
+                        thesis_id=thesis_id,
+                        batch_id=batch_id,
+                        skip_if_done=True,
+                        included_files=included_files_map.get(name) if included_files_map else None,
                     )
                 )
                 await sub_task
@@ -649,6 +672,7 @@ def get_index_status(thesis_names: list[str]) -> list[dict]:
             "run_count": state.get("run_count", 0),
             "last_run_at": state.get("last_run_at"),
             "batch_id": state.get("batch_id"),
+            "index_notebook_id": state.get("index_notebook_id"),
         })
     return result
 

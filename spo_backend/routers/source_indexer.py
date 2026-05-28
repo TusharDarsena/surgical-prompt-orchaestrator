@@ -36,10 +36,12 @@ router = APIRouter(prefix="/source-index", tags=["Source Card Indexing"])
 
 class RunRequest(BaseModel):
     thesis_name: str
+    included_files: Optional[list[str]] = None
 
 
 class RunBatchRequest(BaseModel):
     thesis_names: list[str]
+    included_files_map: Optional[dict[str, list[str]]] = None
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -71,6 +73,7 @@ async def run_single(
         thesis_name=req.thesis_name,
         thesis_id=thesis_id,
         batch_id=None,
+        included_files=req.included_files,
     )
 
     return {
@@ -101,6 +104,7 @@ async def run_batch(
         batch_id=batch_id,
         thesis_names=req.thesis_names,
         thesis_id=thesis_id,
+        included_files_map=req.included_files_map,
     )
 
     return {
