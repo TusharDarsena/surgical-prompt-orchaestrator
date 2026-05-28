@@ -907,11 +907,13 @@ function init() {
   $("btnBatchConfirm").addEventListener("click", confirmBatch);
   $("btnBatchCancel").addEventListener("click", () => { $("batchConfirmModal").style.display = "none"; });
   $("btnRerunCancel").addEventListener("click", () => { $("rerunWarnModal").style.display = "none"; });
-  $("btnGoToCard03").addEventListener("click", () => {
+  $("btnGoToCard03").onclick = () => {
     $("rerunWarnModal").style.display = "none";
-    $("card03").classList.add("active");
-    $("card03").scrollIntoView({ behavior: "smooth" });
-  });
+    $("card02").classList.add("active");
+    setTimeout(() => {
+      $("card02").scrollIntoView({ behavior: "smooth" });
+    }, 100);
+  };
 
   // ── Card 03: register new work ────────────────────────────────────────────
   $("btnRegisterWork").addEventListener("click", registerNewWork);
@@ -1307,16 +1309,16 @@ function showRerunWarning(thesisName, groupId) {
 }
 
 function scrollToGroup(groupId) {
+  $("card02").classList.add("active");
   const el = $(`group-${groupId}`);
   if (!el) {
-    // Make sure Card 03 is expanded
-    $("card03").classList.add("active");
-    toast("Group not found in Card 03 — it may still be loading", "info");
+    toast(`Group not found in Card 02 — it may still be loading`, "info");
     return;
   }
-  $("card03").classList.add("active");
-  el.classList.add("open");
-  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  setTimeout(() => {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("open");
+  }, 100);
 }
 
 // ── Hook into existing loadThesisFolders ─────────────────────────────────────

@@ -39,130 +39,82 @@
     </div>
   </div>
 
-  <!-- WORKSPACE -->
+  <!-- THESIS STRIP — non-scrolling context bar, sits outside workspace -->
+  <div class="thesis-strip">
+    <div class="ts-left">
+      <span class="ts-label">Active Thesis</span>
+      <select id="libThesisSelect">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+    <span class="ts-hint">All cards below operate on this thesis</span>
+  </div>
+
+  <!-- WORKSPACE — scrollable canvas -->
   <main class="workspace">
 
-    <!-- ── THESIS SELECTOR STRIP ── -->
-    <div class="thesis-strip">
-      <span class="ts-label">Thesis</span>
-      <div class="ts-select-wrap">
-        <select id="libThesisSelect">
-          <option value="">Loading…</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- ══ CARD 01: IMPORT SOURCE JSON ══ -->
+    <!-- ══ CARD 01: DRIVE SETUP + INDEXING ══ -->
     <div class="card active" id="card01">
       <div class="card-header" data-card="card01">
         <span class="card-num">01</span>
-        <span class="card-title">Import Source JSON</span>
-        <span class="pill pill-idle">Drop files to import</span>
-        <span class="chevron">▾</span>
-      </div>
-      <div class="card-body">
-        <div class="card-divider"></div>
-
-        <!-- Target folder selector -->
-        <div class="import-target-row">
-          <label class="form-label" for="importTargetFolder">
-            Import into existing work
-            <span class="opt"> — leave blank to create a new work from the JSON</span>
-          </label>
-          <select id="importTargetFolder">
-            <option value="">— Create a new work from this JSON —</option>
-            {# Options populated dynamically by JS after library loads #}
-          </select>
-          <div class="import-target-hint">
-            Select an existing work to add or replace chapters inside it,
-            or leave blank to create a new top-level work.
-          </div>
-        </div>
-
-        <!-- Drop zone -->
-        <div class="drop-zone" id="dropZone">
-          <input type="file" id="fileInput" accept=".json" multiple/>
-          <div class="drop-icon">📂</div>
-          <div class="drop-label">Drag &amp; drop source JSON files here</div>
-          <div class="drop-sub">Each JSON = one source group + all chapters + index cards</div>
-          <span class="drop-browse">Browse files</span>
-        </div>
-
-        <!-- File queue — populated by JS -->
-        <div class="file-queue" id="fileQueue"></div>
-
-        <div class="import-action-row">
-          <button class="btn btn-primary" id="btnImportAll" disabled>
-            💾 Import All Queued
-          </button>
-          <span class="import-note">SPO stores metadata only — PDFs go to NotebookLM, not here.</span>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- ══ CARD 02: DRIVE SETUP ══ -->
-    <div class="card active" id="card02">
-      <div class="card-header" data-card="card02">
-        <span class="card-num">02</span>
-        <span class="card-title">Drive Setup</span>
+        <span class="card-title">Drive Setup &amp; Indexing</span>
         <span class="pill pill-idle" id="drivePill">Not scanned</span>
         <span class="chevron">▾</span>
       </div>
       <div class="card-body">
         <div class="card-divider"></div>
 
-        <!-- Scan row -->
-        <div class="drive-row">
-          <div class="form-group">
-            <label class="form-label">Local parent folder path</label>
-            <input type="text" id="scanPath"
-              placeholder="C:\Users\...\Shodhganga_Downloads"
-              value="C:\Users\TUSHAR\Downloads\Shodhganga_Downloads"/>
+        <!-- Drive inputs — two-column grid -->
+        <div class="drive-grid">
+          <div class="drive-row">
+            <div class="form-group">
+              <label class="form-label">Local Parent Folder Path</label>
+              <input type="text" id="scanPath"
+                placeholder="C:\Users\...\Shodhganga_Downloads"
+                value="C:\Users\TUSHAR\Downloads\Shodhganga_Downloads"/>
+            </div>
+            <button class="btn btn-primary" id="btnScan">🔍 Scan Folder</button>
           </div>
-          <button class="btn btn-primary" id="btnScan">🔍 Scan Folder</button>
-        </div>
-
-        <!-- Drive register row -->
-        <div class="drive-row">
-          <div class="form-group">
-            <label class="form-label">
-              Google Drive parent folder ID
-              <span class="opt"> — paste from Drive URL</span>
-            </label>
-            <input type="text" id="driveFolderId"
-              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74"
-              value="1EZu_o1tt_vxmQ6hNpguOFPfavMTJQ51P"/>
+          <div class="drive-row">
+            <div class="form-group">
+              <label class="form-label">
+                Google Drive Parent Folder ID
+                <span class="opt"> — paste from Drive URL</span>
+              </label>
+              <input type="text" id="driveFolderId"
+                placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74"
+                value="1EZu_o1tt_vxmQ6hNpguOFPfavMTJQ51P"/>
+            </div>
+            <button class="btn btn-secondary" id="btnRegisterLinks">🔗 Register Drive Links</button>
           </div>
-          <button class="btn btn-secondary" id="btnRegisterLinks">🔗 Register Drive Links</button>
         </div>
         <p class="drive-note" style="margin-bottom:14px;">
           ⚠ Register runs on all folders in the tree — not just new ones.
           Safe to re-run; existing links are overwritten with fresh ones.
         </p>
 
-        <!-- Thesis folder list — populated by JS -->
+        <!-- Thesis folder list — populated by renderThesisFolders() -->
         <div class="thesis-list" id="thesisList"></div>
 
-      </div>
-    </div>
+        <div class="section-sep"></div>
 
-    <!-- ══ CARD 02b: SOURCE CARD INDEXING ══ -->
-    <div class="card active" id="card02b">
-      <div class="card-header" data-card="card02b">
-        <span class="card-num">02b</span>
-        <span class="card-title">Source Card Indexing</span>
-        <span class="pill pill-idle" id="indexPill">—</span>
-        <span class="chevron">▾</span>
-      </div>
-      <div class="card-body">
-        <div class="card-divider"></div>
-
-        <div class="run-all-row">
+        <!-- Indexing section header -->
+        <div class="indexing-header-row">
+          <span class="form-label" style="flex:1;">Thesis Folders</span>
+          <span class="pill pill-idle" id="indexPill">—</span>
           <button class="btn btn-primary" id="btnRunAllUnindexed">▶ Run All Unindexed</button>
         </div>
 
-        <!-- Index run table — populated by JS -->
+        <!-- Static column headers for the index table (visual only) -->
+        <div class="index-table-header">
+          <span>Title</span>
+          <span>PDFs</span>
+          <span>Drive</span>
+          <span>Status</span>
+          <span>Action</span>
+        </div>
+
+        <!-- Index run table — populated by renderIndexTable() -->
         <div class="index-run-table" id="indexRunTable">
           <div class="index-loading">Scan a folder in Drive Setup first.</div>
         </div>
@@ -170,19 +122,18 @@
       </div>
     </div>
 
-    <!-- ══ CARD 03: SOURCE LIBRARY ══ -->
-
-    <div class="card active" id="card03">
-      <div class="card-header" data-card="card03">
-        <span class="card-num">03</span>
+    <!-- ══ CARD 02: SOURCE LIBRARY ══ -->
+    <div class="card active" id="card02">
+      <div class="card-header" data-card="card02">
+        <span class="card-num">02</span>
         <span class="card-title">Source Library</span>
         <span class="pill pill-idle" id="libraryPill">Loading…</span>
         <span class="chevron">▾</span>
       </div>
-      <div class="card-body">
-        <div class="card-divider"></div>
+      <div class="card-body card-body-flush">
+        <div class="card-divider" style="margin:0;"></div>
 
-        <!-- Group list — populated by JS -->
+        <!-- Group list — populated by renderLibrary() -->
         <div class="group-list" id="groupList">
           <div class="lib-loading">Loading library</div>
         </div>
@@ -231,9 +182,58 @@
               <button class="btn btn-ghost"   id="btnCancelAddGroup">Cancel</button>
             </div>
           </div>
-          <button class="btn btn-secondary" id="btnShowAddGroup" style="margin-top:8px;">
+          <button class="btn btn-secondary" id="btnShowAddGroup">
             + Register New Work
           </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ CARD 03: IMPORT SOURCE JSON ══ -->
+    <div class="card active" id="card03">
+      <div class="card-header" data-card="card03">
+        <span class="card-num">03</span>
+        <span class="card-title">Import Source JSON</span>
+        <span class="pill pill-idle">Drop files to import</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="card-body">
+        <div class="card-divider"></div>
+
+        <!-- Target folder selector -->
+        <div class="import-target-row">
+          <label class="form-label" for="importTargetFolder">
+            Import into existing work
+            <span class="opt"> — leave blank to create a new work from the JSON</span>
+          </label>
+          <select id="importTargetFolder">
+            <option value="">— Create a new work from this JSON —</option>
+            {# Options populated dynamically by JS after library loads #}
+          </select>
+          <div class="import-target-hint">
+            Select an existing work to add or replace chapters inside it,
+            or leave blank to create a new top-level work.
+          </div>
+        </div>
+
+        <!-- Drop zone -->
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept=".json" multiple/>
+          <div class="drop-icon">📂</div>
+          <div class="drop-label">Drag &amp; drop source JSON files here</div>
+          <div class="drop-sub">Each JSON = one source group + all chapters + index cards</div>
+          <span class="drop-browse">Browse files</span>
+        </div>
+
+        <!-- File queue — populated by renderFileQueue() -->
+        <div class="file-queue" id="fileQueue"></div>
+
+        <div class="import-action-row">
+          <button class="btn btn-primary" id="btnImportAll" disabled>
+            💾 Import All Queued
+          </button>
+          <span class="import-note">SPO stores metadata only — PDFs go to NotebookLM, not here.</span>
         </div>
 
       </div>
@@ -267,13 +267,13 @@
   <div class="modal-box">
     <div class="modal-title">⚠ Duplicate Entry Warning</div>
     <div class="modal-body">
-      This folder is already indexed and imported into Card 03 as
+      This folder is already indexed and imported into the Source Library as
       <code id="rerunGroupId"></code>.
       Running again will create a <strong>new duplicate entry</strong> in the
-      Source Library. Delete the old group from Card 03 first, then re-run.
+      Source Library. Delete the old group from Card 02 first, then re-run.
     </div>
     <div class="modal-actions">
-      <button class="btn btn-secondary" id="btnGoToCard03">Go to Card 03 →</button>
+      <button class="btn btn-secondary" id="btnGoToCard03">Go to Source Library →</button>
       <button class="btn btn-ghost"     id="btnRerunCancel">Cancel</button>
     </div>
   </div>
