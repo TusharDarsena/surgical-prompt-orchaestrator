@@ -93,30 +93,23 @@
           Safe to re-run; existing links are overwritten with fresh ones.
         </p>
 
-        <!-- Thesis folder list — populated by renderThesisFolders() -->
-        <div class="thesis-list" id="thesisList"></div>
 
-        <div class="section-sep"></div>
-
-        <!-- Indexing section header -->
-        <div class="indexing-header-row">
-          <span class="form-label" style="flex:1;">Thesis Folders</span>
-          <span class="pill pill-idle" id="indexPill">—</span>
-          <button class="btn btn-primary" id="btnRunAllUnindexed">▶ Run All Unindexed</button>
-        </div>
-
-        <!-- Static column headers for the index table (visual only) -->
-        <div class="index-table-header">
-          <span>Title</span>
-          <span>PDFs</span>
-          <span>Drive</span>
-          <span>Status</span>
-          <span>Action</span>
-        </div>
-
-        <!-- Index run table — populated by renderIndexTable() -->
-        <div class="index-run-table" id="indexRunTable">
-          <div class="index-loading">Scan a folder in Drive Setup first.</div>
+        <!-- Unified Accordion Table — thesis folders + indexing combined -->
+        <div class="unified-table-wrap">
+          <div class="unified-table-header">
+            <span class="uth-expand"></span>
+            <span class="uth-title">Title</span>
+            <span class="uth-pdfs">PDFs</span>
+            <span class="uth-drive">Drive</span>
+            <span class="uth-status">Status</span>
+            <span class="uth-action">
+              <span class="pill pill-idle" id="indexPill">—</span>
+              <button class="btn btn-primary" id="btnRunAllUnindexed">▶ Run All Unindexed</button>
+            </span>
+          </div>
+          <div class="unified-table-body" id="unifiedTableBody">
+            <div class="index-loading">Scan a folder in Drive Setup first.</div>
+          </div>
         </div>
 
       </div>

@@ -355,42 +355,41 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ─────────────────────────────────────────────────────────
-   CARD 02b — SOURCE CARD INDEXING
+   UNIFIED ACCORDION TABLE (replaces thesis-list + index-run-table)
    ───────────────────────────────────────────────────────── */
 
-.run-all-row { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-
-/* Indexing header row inside Card 01 */
-.indexing-header-row {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 8px;
+/* Grid columns: chevron | title | pdfs | drive | status | action */
+.unified-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 14px;
 }
 
-/* Static column headers for indexing table */
-.index-table-header {
+.unified-table-header {
   display: grid;
-  grid-template-columns: 1fr 52px 100px 160px 120px;
+  grid-template-columns: 28px 1fr 56px 90px 160px 250px;
+  align-items: center;
   gap: 10px;
   padding: 8px 14px;
   background: var(--surface2);
-  border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid var(--border);
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px; font-weight: 500;
   letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--muted2);
 }
-.index-table-header span:nth-child(2),
-.index-table-header span:nth-child(3) { text-align: center; }
-.index-table-header span:last-child { text-align: right; }
-
-/* Index run table */
-.index-run-table {
-  border: 1px solid var(--border);
-  border-radius: 0 0 8px 8px; /* Was 8px for all corners, now connects to header */
-  overflow: hidden;
+.uth-expand { /* empty chevron column spacer */ }
+.uth-pdfs  { text-align: right; }   /* right-align so numbers stack under counts */
+.uth-drive { text-align: center; }
+.uth-status { text-align: left; padding-left: 4px; }
+.uth-action {
+  display: flex; align-items: center; gap: 8px;
+  justify-content: flex-end; white-space: nowrap;
 }
+
+.unified-table-body { display: flex; flex-direction: column; }
+
 .index-loading {
   padding: 24px;
   text-align: center;
@@ -399,18 +398,174 @@
   font-style: italic;
 }
 
-/* Index row — 5-column grid: name | count | upload mode | status | actions */
-.index-row {
-  display: grid;
-  grid-template-columns: 1fr 52px 100px 160px 120px;
-  padding: 11px 14px;
+/* ── Unified row ── */
+.unified-row {
   border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+.unified-row:last-child { border-bottom: none; }
+
+/* Summary strip — always visible */
+.unified-row-summary {
+  display: grid;
+  grid-template-columns: 28px 1fr 56px 90px 160px 250px;
   align-items: center;
   gap: 10px;
-  transition: background 0.1s;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
 }
-.index-row:last-child  { border-bottom: none; }
-.index-row:hover       { background: rgba(255,255,255,0.018); }
+/* Right-align PDF count to match header */
+.unified-pdf-count { text-align: right; }
+/* Status cell: left-aligned, consistent with header */
+.unified-status-cell { text-align: left; padding-left: 4px; }
+.unified-row-summary:hover { background: rgba(255,255,255,0.018); }
+
+.unified-chevron {
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform 0.2s ease;
+  text-align: center;
+  flex-shrink: 0;
+}
+.unified-row.open .unified-chevron { transform: rotate(90deg); }
+
+.unified-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* Faint shimmer underline when running */
+.unified-row.state-running .unified-title {
+  position: relative;
+}
+.unified-row.state-running .unified-title::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: -2px;
+  width: 100%; height: 1.5px;
+  background: linear-gradient(90deg, transparent, #818cf8, transparent);
+  background-size: 200% 100%;
+  animation: stream 1.6s linear infinite;
+}
+
+.unified-pdf-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted2);
+  font-weight: 600;
+  text-align: right;
+}
+
+.unified-drive-cell { text-align: center; }
+.unified-status-note {
+  font-size: 10px;
+  color: var(--running, #818cf8);
+  font-family: 'Sora', sans-serif;
+  margin-top: 2px;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.unified-status-note.note-error  { color: #f87171; }
+.unified-status-note.note-warn   { color: #fbbf24; }
+
+.unified-action-cell {
+  display: flex; gap: 6px; align-items: center;
+  justify-content: flex-end; flex-shrink: 0;
+}
+
+/* ── Tray (expanded config area) ── */
+.unified-tray {
+  display: none;
+  /* Slightly darker than surface2 to create a "nested layer" effect */
+  background: rgba(0,0,0,0.18);
+  border-top: 1px solid var(--border);
+  /* Left accent line to visually anchor the active configuration zone */
+  border-left: 2px solid rgba(91,127,255,0.45);
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.15);
+}
+.unified-row.open .unified-tray { display: block; }
+
+.unified-tray-inner {
+  padding: 12px 14px 14px 40px; /* left indent to align with title column */
+}
+
+/* ── PDF checkbox grid (3-column) ── */
+.pdf-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+
+/* Polish #1: Remove individual box borders — grid whitespace is the boundary */
+.pdf-check-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent; /* keep for hover state only */
+  background: transparent;       /* no fill — grid structure is sufficient */
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.pdf-check-item:hover { background: rgba(255,255,255,0.04); border-color: var(--border); }
+
+/* States */
+.pdf-check-item.pci-checked {
+  color: #c4d0ff;
+  background: transparent;
+  border-color: transparent;
+}
+.pdf-check-item.pci-checked:hover {
+  background: rgba(91,127,255,0.08);
+  border-color: rgba(91,127,255,0.2);
+}
+.pdf-check-item.pci-unchecked {
+  color: var(--muted);
+  opacity: 0.5;
+  background: transparent;
+  border-color: transparent;
+}
+.pdf-check-item.pci-unchecked:hover { opacity: 0.8; }
+.pdf-check-item.pci-uploaded {
+  color: var(--success);
+  background: transparent;
+  border-color: transparent;
+}
+.pdf-check-item.pci-uploaded:hover {
+  background: rgba(52,211,153,0.06);
+  border-color: rgba(52,211,153,0.15);
+}
+
+.pci-box {
+  width: 12px; height: 12px; flex-shrink: 0;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px;
+  opacity: 0.85;
+}
+.pci-unchecked .pci-box { opacity: 0.35; }
+
+.pci-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pci-name a { color: inherit; text-decoration: none; }
+.pci-name a:hover { text-decoration: underline; }
+
+/* Tray bottom row */
+.tray-copy-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.tray-copy-note { font-size: 11px; color: var(--muted); }
 
 .index-folder-name {
   font-family: 'JetBrains Mono', monospace;
@@ -468,21 +623,62 @@
   white-space: nowrap;
 }
 
-/* Status chip */
+/* Polish #4: All statuses as structured pill badges — consistent semantic containers */
 .index-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10.5px;
   font-weight: 500;
   padding: 3px 10px;
   border-radius: 20px;
   white-space: nowrap;
+  letter-spacing: 0.01em;
 }
-.chip-idle     { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
-.chip-running  { background: rgba(129,140,248,0.12); color: #818cf8; border: 1px solid rgba(129,140,248,0.25); }
-.chip-done     { background: var(--success-dim); color: var(--success); border: 1px solid rgba(52,211,153,0.2); }
-.chip-warn     { background: rgba(251,191,36,0.1); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
-.chip-error    { background: rgba(239,68,68,0.08); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
-.chip-waiting  { background: rgba(251,191,36,0.08); color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
-.chip-cancelled { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+/* Idle — muted translucent deep blue/grey */
+.chip-idle {
+  background: rgba(71,85,105,0.2);
+  color: #94a3b8;
+  border: 1px solid rgba(71,85,105,0.3);
+}
+/* Running — indigo pulse */
+.chip-running {
+  background: rgba(129,140,248,0.12);
+  color: #818cf8;
+  border: 1px solid rgba(129,140,248,0.25);
+}
+/* Done / Indexed — crisp translucent green */
+.chip-done {
+  background: rgba(52,211,153,0.1);
+  color: #34d399;
+  border: 1px solid rgba(52,211,153,0.25);
+}
+/* Warn */
+.chip-warn {
+  background: rgba(251,191,36,0.1);
+  color: #fbbf24;
+  border: 1px solid rgba(251,191,36,0.25);
+}
+/* Error */
+.chip-error {
+  background: rgba(239,68,68,0.08);
+  color: #f87171;
+  border: 1px solid rgba(239,68,68,0.2);
+}
+/* Waiting */
+.chip-waiting {
+  background: rgba(251,191,36,0.08);
+  color: #fbbf24;
+  border: 1px solid rgba(251,191,36,0.2);
+}
+/* Cancelled — muted translucent red/grey */
+.chip-cancelled {
+  background: rgba(148,163,184,0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(148,163,184,0.2);
+  text-decoration: line-through;
+  text-decoration-color: rgba(148,163,184,0.4);
+}
 
 /* Running shimmer on folder name */
 .index-row.state-running .index-folder-name > span:first-child {

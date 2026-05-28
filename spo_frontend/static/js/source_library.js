@@ -283,80 +283,213 @@ async function loadThesisFolders() {
 }
 
 function renderThesisFolders() {
-  const list = $("thesisList");
-  list.innerHTML = "";
+  renderUnifiedTable();
+}
+
+// ── renderUnifiedTable: single master render for all thesis rows ───────────────
+// Replaces renderThesisFolders() + renderIndexTable().
+// Each thesis gets one accordion row:
+//   Summary: [chevron] [title] [PDF count] [drive badge] [status chip] [run btn]
+//   Tray:    [3-col PDF checkbox grid] [file-status panel] [copy button]
+
+function renderUnifiedTable() {
+  const body = $("unifiedTableBody");
+  if (!body) return;
+  body.innerHTML = "";
 
   if (!state.thesisFolders.length) {
-    list.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:12px 0;">No folders scanned yet. Enter the path above and click Scan Folder.</div>`;
+    body.innerHTML = `<div class="index-loading">Scan a folder in Drive Setup first.</div>`;
+    _updateIndexPill();
     return;
   }
 
   for (const folder of state.thesisFolders) {
-    const imported = folder.imported;
-    const importFailed = !imported && folder.import_error;
-    const linked = folder.drive_links_registered;
-    const notebookId = _getNotebookId(folder);
-
-    const cls = imported ? "state-imported" : importFailed ? "state-error" : "";
-    const tid = `thesis-${folder.thesis_name.replace(/\W/g, "_")}`;
-
-    const row = document.createElement("div");
-    row.className = `thesis-row ${cls}`;
-    row.id = tid;
-
-    row.innerHTML = `
-      <div class="thesis-header" onclick="document.getElementById('${tid}').classList.toggle('open')">
-        <span class="thesis-name">${esc(folder.thesis_name)}</span>
-        <div class="thesis-badges">
-          <span>${folder.pdfs?.length ?? 0} PDFs</span>
-          ${imported
-            ? `<span class="badge badge-ok">✓ Imported</span>`
-            : importFailed
-            ? `<span class="badge badge-error">❌ Import failed</span>`
-            : `<span class="badge badge-idle">⬜ Not imported</span>`}
-          ${linked
-            ? `<span class="badge badge-linked">🔗 Linked</span>`
-            : `<span class="badge badge-idle">☁ Not linked</span>`}
-        </div>
-        <span class="thesis-chevron">▾</span>
-      </div>
-      <div class="thesis-body" id="${tid}-body">
-        ${importFailed ? `<div class="error-inline">Import error: ${esc(folder.import_error)}</div>` : ""}
-        <div class="pdf-selection-header">
-          <span class="pdf-selection-label">PDFs to send to NotebookLM</span>
-          <span class="pdf-selection-count" id="${tid}-selcount"></span>
-        </div>
-        <div class="pdf-grid" id="${tid}-grid"></div>
-        <div class="file-status-panel" id="${tid}-statuspanel"></div>
-        <div class="copy-links-row">
-          <button class="btn btn-ghost" style="padding:4px 12px;font-size:11px;"
-            onclick="copyFolderLinks('${esc(folder.thesis_name)}')"
-            id="${tid}-copybtn">
-            📋 ${linked ? "Copy Selected Drive Links" : "Copy Selected Filenames"}
-          </button>
-          <span class="copy-links-note">${linked ? "Paste into NotebookLM Add Source" : "No Drive links — upload manually to NotebookLM"}</span>
-        </div>
-      </div>
-    `;
-
-    // ── Notebook badge: injected via DOM (safe URL construction) ──
-    if (notebookId) {
-      const badgesEl = row.querySelector(".thesis-badges");
-      const nbLink = _buildNotebookLink(notebookId, "🔗 Open Notebook");
-      nbLink.className = "badge badge-notebook";
-      nbLink.addEventListener("click", e => e.stopPropagation());
-      badgesEl.appendChild(nbLink);
-    }
-
-    list.appendChild(row);
-
-    // Render chips and status panel after row is in DOM
-    _renderPdfChips(folder);
+    body.appendChild(_buildUnifiedRow(folder));
   }
 
-  // Keep Card 02b in sync with the same folder list
-  if (typeof renderIndexTable === "function") renderIndexTable();
+  _updateIndexPill();
+  _startPoller();
 }
+
+function _buildUnifiedRow(folder) {
+  const thesisName = folder.thesis_name;
+  const rowId = `uf-${thesisName.replace(/\W/g, "_")}`;
+  const trayId = `${rowId}-tray`;
+
+  const s = (typeof indexState !== "undefined" ? indexState.statuses[thesisName] : null) || {};
+  const status   = s.status || "idle";
+  const imported = s.status === "done" || s.status === "warn" || folder.imported;
+  const hasDrive = folder.drive_links_registered;
+  const pdfCount = folder.pdfs?.length ?? 0;
+  const groupId  = s.group_id || folder.import_group_id;
+  const notebookId = _getNotebookId(folder);
+
+  // ── Row wrapper ──
+  const row = document.createElement("div");
+  row.className = `unified-row state-${status}`;
+  row.id = rowId;
+
+  // ── Summary strip ──
+  const summary = document.createElement("div");
+  summary.className = "unified-row-summary";
+
+  // Chevron
+  const chevron = document.createElement("span");
+  chevron.className = "unified-chevron";
+  chevron.textContent = "►";
+  summary.appendChild(chevron);
+
+  // Title (with optional notebook link)
+  const titleEl = document.createElement("span");
+  titleEl.className = "unified-title";
+  titleEl.title = thesisName; // full title on hover
+  if (notebookId) {
+    const link = _buildNotebookLink(notebookId, thesisName + " ↗");
+    titleEl.appendChild(link);
+  } else {
+    titleEl.textContent = thesisName;
+  }
+  summary.appendChild(titleEl);
+
+  // PDF count
+  const countEl = document.createElement("span");
+  countEl.className = "unified-pdf-count";
+  countEl.textContent = pdfCount;
+  summary.appendChild(countEl);
+
+  // Drive badge
+  const driveCell = document.createElement("span");
+  driveCell.className = "unified-drive-cell";
+  const driveBadge = document.createElement("span");
+  if (hasDrive) {
+    driveBadge.className = "badge-drive";
+    driveBadge.textContent = "🟢 Drive";
+  } else {
+    driveBadge.className = "badge-local";
+    driveBadge.title = "Drive links not registered — upload will use local paths";
+    driveBadge.textContent = "🟡 Local";
+  }
+  driveCell.appendChild(driveBadge);
+  summary.appendChild(driveCell);
+
+  // Status chip
+  const statusCell = document.createElement("div");
+  statusCell.className = "unified-status-cell";
+  const chip = document.createElement("span");
+  chip.className = `index-status-chip ${_chipClass(status, imported)}`;
+  chip.textContent = _chipLabel(status, imported);
+  statusCell.appendChild(chip);
+  // Progress note under chip for running/error/warn states
+  if (status === "running") {
+    const uploaded = s.sources_uploaded?.length ?? 0;
+    const total    = (s.sources_uploaded?.length ?? 0) + (s.sources_failed?.length ?? 0);
+    const note = document.createElement("span");
+    note.className = "unified-status-note";
+    note.textContent = uploaded > 0 || total > 0 ? `${uploaded}/${Math.max(uploaded, total)} files` : "Starting…";
+    statusCell.appendChild(note);
+  } else if (status === "error" && s.error) {
+    const note = document.createElement("span");
+    note.className = "unified-status-note note-error";
+    note.textContent = s.error.slice(0, 80);
+    statusCell.appendChild(note);
+  } else if (status === "warn" && s.warn_message) {
+    const note = document.createElement("span");
+    note.className = "unified-status-note note-warn";
+    note.textContent = s.warn_message.slice(0, 80);
+    statusCell.appendChild(note);
+  }
+  summary.appendChild(statusCell);
+
+  // Action buttons
+  const actionCell = document.createElement("div");
+  actionCell.className = "unified-action-cell";
+
+  if (status === "running") {
+    const stopBtn = document.createElement("button");
+    stopBtn.className = "btn btn-danger";
+    stopBtn.style.cssText = "padding:4px 10px;font-size:11px;";
+    stopBtn.textContent = "Stop";
+    stopBtn.addEventListener("click", (e) => { e.stopPropagation(); handleStop(thesisName); });
+    actionCell.appendChild(stopBtn);
+  } else {
+    const isRerun = imported || status === "done" || status === "warn";
+    const runBtn = document.createElement("button");
+    runBtn.className = "btn btn-run";
+    runBtn.textContent = isRerun ? "Re-run" : "▶ Run";
+    runBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isRerun && groupId) showRerunWarning(thesisName, groupId);
+      else handleRunSingle(thesisName);
+    });
+    actionCell.appendChild(runBtn);
+
+    if (isRerun && groupId) {
+      const openBtn = document.createElement("button");
+      openBtn.className = "idx-open-btn";
+      openBtn.title = "Go to group in Source Library →";
+      openBtn.textContent = "↗";
+      openBtn.addEventListener("click", (e) => { e.stopPropagation(); scrollToGroup(groupId); });
+      actionCell.appendChild(openBtn);
+    }
+  }
+  summary.appendChild(actionCell);
+
+  // ── Accordion toggle — auto-collapse siblings ──
+  summary.addEventListener("click", (e) => {
+    if (e.target.tagName === "A" || e.target.tagName === "BUTTON") return;
+    const isOpen = row.classList.contains("open");
+    // Collapse all other rows
+    $("unifiedTableBody").querySelectorAll(".unified-row.open").forEach(r => r.classList.remove("open"));
+    if (!isOpen) {
+      row.classList.add("open");
+      _renderPdfCheckboxGrid(folder);
+    }
+  });
+
+  // ── Tray ──
+  const tray = document.createElement("div");
+  tray.className = "unified-tray";
+  tray.id = trayId;
+
+  const trayInner = document.createElement("div");
+  trayInner.className = "unified-tray-inner";
+
+  // PDF checkbox grid placeholder
+  const gridEl = document.createElement("div");
+  gridEl.className = "pdf-checkbox-grid";
+  gridEl.id = `${rowId}-grid`;
+  trayInner.appendChild(gridEl);
+
+  // File-status panel placeholder
+  const statusPanel = document.createElement("div");
+  statusPanel.className = "file-status-panel";
+  statusPanel.id = `${rowId}-statuspanel`;
+  statusPanel.style.display = "none";
+  trayInner.appendChild(statusPanel);
+
+  // Copy row
+  const copyRow = document.createElement("div");
+  copyRow.className = "tray-copy-row";
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn btn-ghost";
+  copyBtn.style.cssText = "padding:4px 12px;font-size:11px;";
+  copyBtn.id = `${rowId}-copybtn`;
+  copyBtn.textContent = hasDrive ? "📋 Copy Selected Drive Links" : "📋 Copy Selected Filenames";
+  copyBtn.addEventListener("click", () => copyFolderLinks(thesisName));
+  const copyNote = document.createElement("span");
+  copyNote.className = "tray-copy-note";
+  copyNote.textContent = hasDrive ? "Paste into NotebookLM Add Source" : "No Drive links — upload manually to NotebookLM";
+  copyRow.appendChild(copyBtn);
+  copyRow.appendChild(copyNote);
+  trayInner.appendChild(copyRow);
+
+  tray.appendChild(trayInner);
+  row.appendChild(summary);
+  row.appendChild(tray);
+  return row;
+}
+
+
 
 window.copyFolderLinks = async function(thesisName) {
   const folder = state.thesisFolders.find(f => f.thesis_name === thesisName);
@@ -375,13 +508,12 @@ window.copyFolderLinks = async function(thesisName) {
   }
 };
 
-// ── PDF chip renderer (called after row is in DOM) ────────────────────────────
+// ── PDF checkbox grid renderer (3-column, replaces _renderPdfChips) ────────────
 
-function _renderPdfChips(folder) {
+function _renderPdfCheckboxGrid(folder) {
   const thesisName = folder.thesis_name;
-  const tid = `thesis-${thesisName.replace(/\W/g, "_")}`;
-  const grid = $(`${tid}-grid`);
-  const selCountEl = $(`${tid}-selcount`);
+  const rowId = `uf-${thesisName.replace(/\W/g, "_")}`;
+  const grid = $(`${rowId}-grid`);
   if (!grid) return;
 
   const allPdfs = folder.pdfs ?? [];
@@ -395,54 +527,48 @@ function _renderPdfChips(folder) {
     const isUploaded = alreadyUploaded.has(fname);
     const isSelected = sel.has(fname);
 
-    const chip = document.createElement("div");
-    // chips that are already-in-notebook: clicking them toggles their upcoming inclusion
-    // even though they're already uploaded, user can still choose to exclude them from next prompt
-    chip.className = `pdf-chip ${isUploaded ? "chip-in-notebook" : isSelected ? "chip-checked" : "chip-unchecked"}`;
-    chip.title = isUploaded ? "Already in notebook — will be skipped on re-upload" : isSelected ? "Selected — will be uploaded" : "Excluded — will NOT be uploaded";
+    const item = document.createElement("div");
+    item.className = `pdf-check-item ${isUploaded ? "pci-uploaded" : isSelected ? "pci-checked" : "pci-unchecked"}`;
+    item.title = isUploaded
+      ? "Already in notebook — will be skipped on re-upload"
+      : isSelected ? "Selected — will be uploaded" : "Excluded — will NOT be uploaded";
 
-    const checkEl = document.createElement("span");
-    checkEl.className = "pdf-chip-checkbox";
-    checkEl.textContent = (isSelected || isUploaded) ? "✓" : "";
+    const box = document.createElement("span");
+    box.className = "pci-box";
+    box.textContent = (isSelected || isUploaded) ? "✓" : "";
 
     const nameEl = document.createElement("span");
+    nameEl.className = "pci-name";
     if (pdf.drive_link) {
       nameEl.innerHTML = `<a href="${esc(pdf.drive_link)}" target="_blank" onclick="event.stopPropagation()">${esc(fname)}</a>`;
     } else {
       nameEl.textContent = fname;
     }
 
-    chip.appendChild(checkEl);
-    chip.appendChild(nameEl);
+    item.appendChild(box);
+    item.appendChild(nameEl);
 
-    // Toggle selection on click (even for already-uploaded, so user can re-include or further exclude)
-    chip.addEventListener("click", (e) => {
-      if (e.target.tagName === "A") return; // let link open
-      if (sel.has(fname)) {
-        sel.delete(fname);
-      } else {
-        sel.add(fname);
-      }
+    item.addEventListener("click", (e) => {
+      if (e.target.tagName === "A") return;
+      if (sel.has(fname)) sel.delete(fname);
+      else sel.add(fname);
       _savePdfSelection(thesisName);
-      _renderPdfChips(folder);
+      _renderPdfCheckboxGrid(folder);
     });
 
-    grid.appendChild(chip);
+    grid.appendChild(item);
   }
 
-  // Update selection count
-  if (selCountEl) {
-    const selectedCount = allPdfs.filter(p => sel.has(p.file_name ?? p)).length;
-    selCountEl.innerHTML = `<span class="count-selected">${selectedCount}</span> / ${allPdfs.length} selected`;
-  }
-
-  // Render file-status panel
+  // Update file-status panel
   _renderFileStatusPanel(folder, sel, alreadyUploaded);
 }
 
+// ── File-status panel (shared, referenced by _renderPdfCheckboxGrid) ──────────
+
+
 function _renderFileStatusPanel(folder, sel, alreadyUploaded) {
-  const tid = `thesis-${folder.thesis_name.replace(/\W/g, "_")}`;
-  const panel = $(`${tid}-statuspanel`);
+  const rowId = `uf-${folder.thesis_name.replace(/\W/g, "_")}`;
+  const panel = $(`${rowId}-statuspanel`);
   if (!panel) return;
 
   const allPdfs = (folder.pdfs ?? []).map(p => p.file_name ?? p);
@@ -1006,139 +1132,11 @@ const indexState = {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
+// renderIndexTable is now a shim — all rendering goes through renderUnifiedTable.
 function renderIndexTable() {
-  const container = $("indexRunTable");
-  if (!state.thesisFolders.length) {
-    container.innerHTML = `<div class="index-loading">Scan a folder in Drive Setup first.</div>`;
-    _updateIndexPill();
-    return;
-  }
-
-  container.innerHTML = "";
-
-  for (const folder of state.thesisFolders) {
-    const s = indexState.statuses[folder.thesis_name] || {};
-    const status = s.status || "idle";
-    const hasDrive = folder.drive_links_registered;
-    const pdfCount = folder.pdfs?.length ?? 0;
-    const groupId = s.group_id || folder.import_group_id;
-    const isIndexed = status === "done" || status === "warn" || folder.imported;
-
-    const rowEl = document.createElement("div");
-    rowEl.className = `index-row state-${status}`;
-    rowEl.id = `idx-row-${folder.thesis_name.replace(/\W/g, "_")}`;
-
-    // ── Name + sub-note ──
-    const nameCell = document.createElement("div");
-    nameCell.className = "index-folder-name";
-    const nameSpan = document.createElement("span");
-    const notebookId02b = _getNotebookId(folder);
-    if (notebookId02b) {
-      const link = _buildNotebookLink(notebookId02b, `${folder.thesis_name} ↗`);
-      nameSpan.appendChild(link);
-    } else {
-      nameSpan.textContent = folder.thesis_name;
-    }
-    nameCell.appendChild(nameSpan);
-
-    let noteEl = null;
-    if (status === "running") {
-      const uploaded = s.sources_uploaded?.length ?? 0;
-      const total    = (s.sources_uploaded?.length ?? 0) + (s.sources_failed?.length ?? 0);
-      noteEl = document.createElement("span");
-      noteEl.className = "index-progress-note";
-      noteEl.textContent = uploaded > 0 || total > 0
-        ? `Uploading: ${uploaded} / ${Math.max(uploaded, total)} files done`
-        : "Starting…";
-    } else if (status === "error" && s.error) {
-      noteEl = document.createElement("span");
-      noteEl.className = "index-error-note";
-      noteEl.textContent = s.error.slice(0, 100);
-    } else if (status === "warn" && s.warn_message) {
-      noteEl = document.createElement("span");
-      noteEl.className = "index-warn-note";
-      noteEl.textContent = s.warn_message.slice(0, 100);
-    } else if (status === "waiting_for_manual_upload") {
-      noteEl = document.createElement("span");
-      noteEl.className = "index-warn-note";
-      noteEl.textContent = "Upload incomplete — some files failed. Fix and re-run.";
-    }
-    if (noteEl) nameCell.appendChild(noteEl);
-
-    // ── PDF count ──
-    const countCell = document.createElement("div");
-    countCell.className = "index-pdf-count";
-    countCell.textContent = pdfCount;
-
-    // ── Upload mode badge ──
-    const modeCell = document.createElement("div");
-    const modeBadge = document.createElement("span");
-    if (hasDrive) {
-      modeBadge.className = "badge-drive";
-      modeBadge.textContent = "🟢 Drive";
-    } else {
-      modeBadge.className = "badge-local";
-      modeBadge.title = "Drive links not registered — upload will use local paths (slower)";
-      modeBadge.textContent = "🟡 Local only";
-    }
-    modeCell.appendChild(modeBadge);
-
-    // ── Status chip ──
-    const statusCell = document.createElement("div");
-    const chip = document.createElement("span");
-    chip.className = `index-status-chip ${_chipClass(status, isIndexed)}`;
-    chip.textContent = _chipLabel(status, isIndexed);
-    statusCell.appendChild(chip);
-
-    // ── Actions ──
-    const actionsCell = document.createElement("div");
-    actionsCell.className = "index-action-cell";
-
-    if (status === "running") {
-      const stopBtn = document.createElement("button");
-      stopBtn.className = "btn btn-danger";
-      stopBtn.style.cssText = "padding:4px 10px;font-size:11px;";
-      stopBtn.textContent = "Stop";
-      stopBtn.addEventListener("click", () => handleStop(folder.thesis_name));
-      actionsCell.appendChild(stopBtn);
-    } else {
-      const isAlreadyDone = status === "done" || status === "warn";
-      const isRerun = isAlreadyDone || folder.imported;
-
-      const runBtn = document.createElement("button");
-      runBtn.className = "btn btn-run";
-      runBtn.textContent = isRerun ? "Re-run" : "▶ Run";
-      runBtn.addEventListener("click", () => {
-        if (isRerun && groupId) {
-          showRerunWarning(folder.thesis_name, groupId);
-        } else {
-          handleRunSingle(folder.thesis_name);
-        }
-      });
-      actionsCell.appendChild(runBtn);
-
-      // ↗ scroll to Card 03 button (only when indexed)
-      if (isRerun && groupId) {
-        const openBtn = document.createElement("button");
-        openBtn.className = "idx-open-btn";
-        openBtn.title = "Go to group in Card 03 →";
-        openBtn.textContent = "↗";
-        openBtn.addEventListener("click", () => scrollToGroup(groupId));
-        actionsCell.appendChild(openBtn);
-      }
-    }
-
-    rowEl.appendChild(nameCell);
-    rowEl.appendChild(countCell);
-    rowEl.appendChild(modeCell);
-    rowEl.appendChild(statusCell);
-    rowEl.appendChild(actionsCell);
-    container.appendChild(rowEl);
-  }
-
-  _updateIndexPill();
-  _startPoller();
+  renderUnifiedTable();
 }
+
 
 function _chipClass(status, isIndexed) {
   if (isIndexed && status === "idle") return "chip-done";
