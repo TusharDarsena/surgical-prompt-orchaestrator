@@ -1,117 +1,12 @@
-**You**
-
-i gave this prompt to test the google docs service. but i belive teh tests are either bogus or very happy tests. i mean to say i have suspicion that they all are very very loose and will pass no matter what. tell me your review prompt i gave - is it possible to fully test teh \[google\_docs\_service.py\] pipeline without actually going through notebooklms prompt 1 and prompt2. i want the tests to be accurate. the test should cover scenarios to break it. however you can exclude the scenario where manual edits are made on teh doc.
-
----
-
-**Gemini**
-
-You have fantastic instincts. Your suspicion is entirely justified.
-
-To answer your first question directly: **Yes, it is 100% possible to fully test this Google Docs pipeline without any NotebookLM prompts.** The NotebookLM service is responsible for *generating* text. The `google_docs_service.py` is simply a transport and synchronization layer. As long as you provide string variables representing "drafts," you can test this service in total isolation.
-
-However, your tests are currently suffering from a classic case of **"Blind Mocking."** They are indeed very "happy path" and will pass even if the core logic is completely broken.
-
-Here is a detailed review of why these tests are loose, how they fail to break the code, and how to fix them.
-
-### The Good: What Actually Works
-
-The unit tests for the pure logic functions are actually quite solid.
-
-- The `_normalize` and `_get_utf16_length` tests cover excellent edge cases (like CJK surrogate pairs and Google Docs' weird vertical tabs).
-- The `_extract_text` boundary clipping tests are mathematically rigorous.
-- The OAuth state mismatch (CSRF) tests properly ensure errors are thrown.
-
-### The Bad: Why the Tests are "Bogus"
-
-**1\. The `export_subtopic` tests don't check the payload.** Look at `test_export_subtopic_first_time_appends_to_doc`. It calls `export_subtopic` and then asserts that `result["gdoc_id"] == "mock_gdoc_id"`. It **never checks** what was actually sent to Google Docs! If you accidentally changed the code to insert the text at index `0` instead of the end of the document, or if you deleted the heading style logic, **this test would still pass**. The mock absorbs the API call, but the test never inspects the mock to verify the `batchUpdate` request body contains the correct text, indices, and structure.
-
-**2\. Disconnected Helper Functions.** You have a test for `_build_insert_requests` (`test_build_insert_requests_structure`), which passes perfectly. However, if you look at the actual `export_subtopic` function in `google_docs_service.py`, **it doesn't even use `_build_insert_requests`**. It has duplicate, inline logic for building the requests. Your tests are validating a helper function that the main pipeline ignores.
-
-**3\. The Update/Re-export test is entirely synthetic.** In `test_export_subtopic_reexport_matching_text_succeeds`, the mock is set up to return the exact right text to pass the safe-sync guard. But once it passes the guard, it executes the complex "Step 1: Insert, Step 2: Delete" logic. Because there are no assertions on `mock_gdocs_client.documents().batchUpdate.call_args`, the test has no idea if your `old_start`, `old_end`, or `new_length` math is actually correct.
-
-### Breaking Scenarios You Need to Add
-
-To make these tests accurate and capable of breaking the code, you need to add tests for the following scenarios:
-
-**1\. The "Google Docs API 429 Rate Limit" Scenario** Your code handles generic exceptions (`Exception`), but you need a test that simulates Google throttling the API. If `batchUpdate` throws a `googleapiclient.errors.HttpError` with a 429 status code, does your lock release properly? Does the state corrupt?
-
-**2\. Payload Structure Validation (The most critical fix)** You must assert the exact shape of the JSON sent to Google. If your UTF-16 math is off by one, Google Docs will throw an error.
-
-- **Test:** Create a draft with emojis, mock the doc end index, execute the export, and explicitly assert that `batchUpdate` was called with `startIndex` and `endIndex` values that perfectly match the UTF-16 length logic.
-
-**3\. The "Orphaned Lock" Concurrency Test** Your concurrency test (`test_orphaned_lock_is_released_on_storage_failure`) mocks an IOError on storage. But what if the *Google API* hangs forever or fails during `documents().create()`?
-
-- **Test:** Patch the Google Docs API to raise a `TimeoutError`. Ensure that `_chapter_doc_locks[chapter_id]` is properly released and doesn't permanently deadlock future requests for that chapter.
-
-**4\. The Null/Missing Document ID Fallback** What happens if `storage.read_chapter` returns a chapter dictionary, but `gdoc_id` is an empty string `""` instead of `None`? `if existing_gdoc_id:` might evaluate to false, but does the rest of the flow handle it cleanly, or does it try to route an empty string to Google Docs?
-
-### How to Fix the Mocks (Example)
-
-You need to change your `export_subtopic` tests to inspect the arguments passed to the mock. Here is how a strict, non-bogus test for the "Fresh Append" path should look:
-
-```
-@pytest.mark.asyncio
-async def test_export_subtopic_first_time_sends_correct_payload(tmp_spo_data_dir, mock_gdocs_client):
-    # Setup
-    chapter_id, subtopic_id = "c1", "s1"
-    chapter_data = {"chapter_id": chapter_id, "subtopics": [{"subtopic_id": subtopic_id}], "gdoc_id": "doc_123"}
-    storage.write_chapter(chapter_id, chapter_data, thesis_id="")
-    
-    # Force the doc end index to be 100 for predictable math
-    mock_gdocs_client.documents.return_value.get.return_value.execute.return_value = {
-        "body": {"content": [{"endIndex": 100}]}
-    }
-
-    # Execute
-    await export_subtopic(
-        thesis_id="", chapter_id=chapter_id, chapter_title="T1",
-        subtopic_id=subtopic_id, subtopic_title="My Sub", draft_text="Body text"
-    )
-
-    # THE CRITICAL ASSERTION: Verify Google Docs was told to do the exact right thing
-    mock_batch = mock_gdocs_client.documents().batchUpdate
-    assert mock_batch.call_count == 2 # Once for text, once for named range
-    
-    # Inspect the first call (Text Insertion)
-    args, kwargs = mock_batch.call_args_list[0]
-    requests = kwargs["body"]["requests"]
-    
-    # Did it insert at the right index? (doc_end 100 - 1 = 99)
-    assert requests[0]["insertText"]["location"]["index"] == 99
-    # Did it apply the heading style correctly?
-    assert requests[1]["updateParagraphStyle"]["range"]["startIndex"] == 99
-    # UTF-16 length of "My Sub" is 6. End index should be 99 + 6 + 1 = 106.
-    assert requests[1]["updateParagraphStyle"]["range"]["endIndex"] == 106
-```
-
-By asserting the actual structure of the `requests` list, your tests will immediately fail if someone breaks the math or removes the heading styling logic in the future.
-
----
-
-**You**
-
-can you write test for me as i mentioned -. i want the tests to be accurate. the test should cover scenarios to break it. however you can exclude the scenario where manual edits are made on teh doc.
-
----
-
-**Gemini**
-
-Here are the robust, payload-verifying tests that will actually catch bugs in your pipeline.
-
-These tests move away from "blind mocking" and explicitly inspect the `batchUpdate` request bodies to ensure your index math, UTF-16 calculations, and API orchestration are correct. You can drop these directly into your `test_google_docs_service.py` file.
-
-### Robust Test Suite Additions
-
-```
 import asyncio
 import pytest
 from unittest.mock import patch, MagicMock
 
 from services import storage
 from services.google_docs_service import export_subtopic, get_or_create_chapter_doc, _normalize
+import services.google_docs_service as google_docs_service
 
-# ── Helpers (Assuming these exist from your previous file) ──────────
+# ── Helpers ──────────
 def _make_chapter(chapter_id: str, subtopic_id: str = None, **subtopic_kwargs) -> dict:
     chapter = {"chapter_id": chapter_id, "subtopics": []}
     if subtopic_id:
@@ -180,6 +75,7 @@ async def test_export_subtopic_fresh_append_payload_is_mathematically_correct(
     assert style_request["range"]["endIndex"] == 109
     assert style_request["paragraphStyle"]["namedStyleType"] == "HEADING_2"
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. PAYLOAD VALIDATION: RE-EXPORT (UPDATE)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -223,24 +119,28 @@ async def test_export_subtopic_update_payload_maintains_strict_ordering(
     args, kwargs = mock_batch.call_args_list[0]
     requests = kwargs["body"]["requests"]
 
-    # Verify strict 3-step sequence
-    assert len(requests) == 3
-    assert "insertText" in requests[0]
-    assert "updateParagraphStyle" in requests[1]
-    assert "deleteContentRange" in requests[2]
+    # Verify strict 6-step sequence
+    assert len(requests) == 6
+    assert "deleteNamedRange" in requests[0]
+    assert "insertText" in requests[1]
+    assert "updateParagraphStyle" in requests[2]  # HEADING_2
+    assert "updateParagraphStyle" in requests[3]  # NORMAL_TEXT
+    assert "deleteContentRange" in requests[4]
+    assert "createNamedRange" in requests[5]
 
     # Verify Insert
-    assert requests[0]["insertText"]["location"]["index"] == 50
+    assert requests[1]["insertText"]["location"]["index"] == 50
     expected_full_text = f"Header\n{new_draft}\n"
-    assert requests[0]["insertText"]["text"] == expected_full_text
+    assert requests[1]["insertText"]["text"] == expected_full_text
 
     # Verify Delete Content Math
     # Old range was [50, 80]. Old length = 30.
     # New text length: "Header\nNew text injected.\n" -> len is 26
     # Delete range should start at 50 + 26 = 76, and end at 76 + 30 = 106.
-    delete_range = requests[2]["deleteContentRange"]["range"]
+    delete_range = requests[4]["deleteContentRange"]["range"]
     assert delete_range["startIndex"] == 76
     assert delete_range["endIndex"] == 106
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 3. EDGE CASES & NETWORK FAILURES
@@ -249,7 +149,7 @@ async def test_export_subtopic_update_payload_maintains_strict_ordering(
 @pytest.mark.asyncio
 async def test_get_or_create_doc_handles_empty_string_id(tmp_spo_data_dir, mock_gdocs_client):
     """
-    BREAKING SCENARIO: If a bug writes \`""\` to gdoc_id instead of null/None, 
+    BREAKING SCENARIO: If a bug writes `""` to gdoc_id instead of null/None, 
     the system must still realize the doc doesn't exist and create it.
     """
     chapter_id = "chap_empty_string"
@@ -288,31 +188,8 @@ async def test_export_subtopic_api_hang_releases_lock(tmp_spo_data_dir, mock_gdo
 
     result = await get_or_create_chapter_doc("", chapter_id, "Title")
     assert result == "second_try_id"
-```
 
-### Why these are better
 
-1. **They test your math:** Instead of trusting that your function didn't crash, the payload tests physically calculate what the UTF-16 lengths and indices *should* be, and assert that your code produced exactly those numbers. If you accidentally add a `+ 1` somewhere it shouldn't be, these tests will fail.
-2. **They test sequence:** Google Docs API is extremely sensitive to the order of operations. The `test_export_subtopic_update_payload_maintains_strict_ordering` ensures `insert` happens before `delete`, which is critical for document integrity.
-3. **They test the lock lifecycle:** The `test_export_subtopic_api_hang_releases_lock` ensures that a bad network connection won't permanently brick a chapter's export capabilities.
-
----
-
-**You**
-
-hey this file seems small. did you not cover all teh scenarios. cover more uncovered scenarios and give teh code i need to append to teh previous code
-
----
-
-**Gemini**
-
-You are absolutely right. The previous set focused on the top three most critical "breaking" paths (payload math, ordering, and lock hangs), but to achieve true full coverage, we need to stress-test the edges of the Google Docs API's weird behavior, the OAuth state, and the boundary conditions of empty documents.
-
-Here are the remaining high-value, edge-case tests to append to your test suite. These cover malformed API responses, zero-index boundaries, and OAuth PKCE fallback paths.
-
-### Append this to test\_google\_docs\_service.py
-
-```
 # ══════════════════════════════════════════════════════════════════════════════
 # 17. ADVANCED EDGE CASES & API MALFORMATIONS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -353,12 +230,12 @@ async def test_export_subtopic_corrupted_named_range_falls_back_to_append(
     # Must warn and fallback
     assert result["warning"] == "named_range_missing"
     
-    # Verify the fallback triggered a Fresh Append payload (2 steps, not 3)
+    # Verify the fallback triggered a Fresh Append payload (3 steps, not 6)
     mock_batch = mock_gdocs_client.documents().batchUpdate
     args, kwargs = mock_batch.call_args_list[0]
     requests = kwargs["body"]["requests"]
     
-    assert len(requests) == 2
+    assert len(requests) == 3  # insertText + HEADING_2 + NORMAL_TEXT (fresh append)
     assert "insertText" in requests[0]
     # Verify it inserted at the bottom (200 - 1 = 199)
     assert requests[0]["insertText"]["location"]["index"] == 199
@@ -367,7 +244,7 @@ async def test_export_subtopic_corrupted_named_range_falls_back_to_append(
 async def test_export_subtopic_empty_document_boundary(tmp_spo_data_dir, mock_gdocs_client):
     """
     BREAKING SCENARIO: A completely empty Google Doc has an endIndex of 1. 
-    The math \`doc_end - 1\` would be 0, but Google Docs throws a 400 error if you 
+    The math `doc_end - 1` would be 0, but Google Docs throws a 400 error if you 
     insert at index 0. The code must clamp the minimum insert index to 1.
     """
     chapter_id, subtopic_id = "chap_bound", "sub_bound"
@@ -420,7 +297,7 @@ def test_get_auth_url_saves_csrf_and_pkce_state(tmp_spo_data_dir):
 def test_complete_auth_flow_handles_missing_pkce_gracefully(tmp_spo_data_dir):
     """
     BREAKING SCENARIO: If a user started the flow on an older version of the app 
-    that didn't save \`code_verifier\`, the callback shouldn't crash with a KeyError.
+    that didn't save `code_verifier`, the callback shouldn't crash with a KeyError.
     """
     # Simulate valid state, but no code_verifier saved
     storage.write_misc(
@@ -439,39 +316,8 @@ def test_complete_auth_flow_handles_missing_pkce_gracefully(tmp_spo_data_dir):
 
     # Ensure fetch_token was still called
     mock_flow.fetch_token.assert_called_once_with(code="auth_code")
-```
 
----
 
-**You**
-
-cover more lets do in parts, tell which scenarios remain which are not in thsi two blocks of code you have given till now
-
----
-
-**Gemini**
-
-We are getting into the deep cuts now. The previous tests covered the mathematical boundaries and network hangs, but your code has a few architectural vulnerabilities left that involve **race conditions, non-atomic API calls, and edge-case text formatting.**
-
-Here are the remaining critical scenarios that your current tests do not cover, followed by the code to test them.
-
-### The Remaining Vulnerabilities
-
-1. **The "Two-Step Fracture" (Non-Atomic API Calls)**
-	- *The Flaw:* In the "Fresh Append" path, you make two separate `batchUpdate` calls: one to insert the text, and a second to create the named range. If the first succeeds but the second fails (e.g., due to a sudden Google 503 error), the text is stranded in the document, but the database never gets the `named_range_id`. The next time the user exports, it will append a duplicate.
-		- *The Test:* Force the second API call to fail and verify how the system reacts.
-2. **The "Phantom Subtopic" Race Condition**
-	- *The Flaw:* At the end of `export_subtopic`, you read the chapter from storage *again* to update the metadata. If a user deleted that subtopic from the database while the Google API was processing (which can take seconds), your code loops through `chapter.get("subtopics")`, fails to find the ID, and silently skips saving the metadata without throwing an error.
-		- *The Test:* Alter the storage mid-flight during the Google API mock to simulate a concurrent deletion.
-3. **The Zero-Length Title Formatting Crash**
-	- *The Flaw:* If `subtopic_title` is passed as an empty string `""`, `heading_length` becomes `0`. The style request will apply `HEADING_2` to a range where `startIndex == endIndex - 1`. We need to verify exactly what index math is sent to Google to ensure it doesn't trigger a 400 Bad Request.
-4. **The "Silent Drop" of Complex Document Elements**
-	- *The Flaw:* Your `_extract_text` helper explicitly only looks for `paragraph -> elements -> textRun`. If a user manually added a Table or a Bulleted List inside the named range in Google Docs, your code silently ignores it when calculating the "Safe Sync Guard" conflict.
-		- *The Test:* Feed the mock a document containing a table structure and verify the extraction behavior.
-
-### Append this to test\_google\_docs\_service.py
-
-```
 # ══════════════════════════════════════════════════════════════════════════════
 # 19. NON-ATOMIC API FRACTURES & RACE CONDITIONS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -540,10 +386,11 @@ async def test_export_subtopic_phantom_subtopic_race_condition(
     )
 
     # The function itself succeeds, but if we check storage, no metadata was saved
-    # because the loop \`for sub in chapter.get("subtopics", [])\` found nothing.
+    # because the loop `for sub in chapter.get("subtopics", [])` found nothing.
     final_chapter = storage.read_chapter(chapter_id, "")
     assert len(final_chapter["subtopics"]) == 0
     assert result["named_range_id"] == "new_range"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 20. TEXT EXTRACTION & FORMATTING ANOMALIES
@@ -615,29 +462,10 @@ def test_extract_text_silently_ignores_tables():
     result = _extract_text(content, 1, 12)
     
     # It will only return the paragraph text, completely dropping the table "Data"
-    # because the loop does not recursively search inside \`table\` keys.
+    # because the loop does not recursively search inside `table` keys.
     assert result == "Text\n"
-```
 
----
 
-**You**
-
-what about the cases when i try is export happening or not, if after soem new run when i export do theyappend or mistakely overwrite etc cases. basically teh cases where i somehow loose my work because we overwrote. but yes no need to simulate manual edit cases
-
----
-
-**Gemini**
-
-You are hitting on the absolute most terrifying bug in any sync service: silent data loss.
-
-When you are shifting text around via an API—especially when you have to insert new text and delete old text in a single batch—an off-by-one error doesn't just crash the program; it quietly eats paragraphs of the user's hard work.
-
-To guarantee you never overwrite adjacent work or leave "ghost" fragments behind, we need to test the **index math boundaries** under stress. Here are the exact scenarios to append to your test file to ensure your updates are surgically precise.
-
-### Append this to test\_google\_docs\_service.py
-
-```
 # ══════════════════════════════════════════════════════════════════════════════
 # 21. DATA LOSS PREVENTION: OVERWRITES & LEAKS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -690,11 +518,12 @@ async def test_export_subtopic_update_prevents_spillover_overwrite(
     # Verify Delete Content Math
     # Insert happens at 10. New text shifts old text forward by 27 indices.
     # Therefore, the old text now lives exactly at [37, 57].
-    delete_range = requests[2]["deleteContentRange"]["range"]
+    delete_range = requests[4]["deleteContentRange"]["range"]
     
     # CRITICAL ASSERTION: If endIndex > 57, you just deleted another subtopic's data.
     assert delete_range["startIndex"] == 37
     assert delete_range["endIndex"] == 57
+
 
 @pytest.mark.asyncio
 async def test_export_subtopic_update_shrinking_text_cleans_up_ghosts(
@@ -742,7 +571,7 @@ async def test_export_subtopic_update_shrinking_text_cleans_up_ghosts(
     args, kwargs = mock_batch.call_args_list[0]
     requests = kwargs["body"]["requests"]
 
-    delete_range = requests[2]["deleteContentRange"]["range"]
+    delete_range = requests[4]["deleteContentRange"]["range"]
     
     # CRITICAL ASSERTION:
     # Inserted 7 chars at 100. Old text shifted to 107.
@@ -751,13 +580,14 @@ async def test_export_subtopic_update_shrinking_text_cleans_up_ghosts(
     assert delete_range["startIndex"] == 107
     assert delete_range["endIndex"] == 1107
 
+
 @pytest.mark.asyncio
 async def test_export_subtopic_update_expanding_text_does_not_eat_itself(
     tmp_spo_data_dir, mock_gdocs_client
 ):
     """
     DATA LOSS SCENARIO: The user expands a tiny draft into a massive draft. 
-    If the index math uses the wrong length variable, the \`deleteContentRange\` 
+    If the index math uses the wrong length variable, the `deleteContentRange` 
     will accidentally delete the brand new text it just inserted.
     """
     chapter_id, subtopic_id = "chap_expand", "sub_expand"
@@ -796,7 +626,7 @@ async def test_export_subtopic_update_expanding_text_does_not_eat_itself(
     args, kwargs = mock_batch.call_args_list[0]
     requests = kwargs["body"]["requests"]
 
-    delete_range = requests[2]["deleteContentRange"]["range"]
+    delete_range = requests[4]["deleteContentRange"]["range"]
     
     # CRITICAL ASSERTION:
     # Inserted 507 chars at 50. Old text shifted to 557.
@@ -804,11 +634,79 @@ async def test_export_subtopic_update_expanding_text_does_not_eat_itself(
     # If it starts deleting at 50 or deletes 507 characters, new data is lost.
     assert delete_range["startIndex"] == 557
     assert delete_range["endIndex"] == 567
-```
 
-By verifying these specific boundary conditions, you can be absolutely confident that when `Surgical Prompt Orchestrator` updates a document, it handles the text cleanly regardless of how drastically the user changes the draft size.
 
-Are you running these tests strictly locally while building the RAG pipeline, or do you have a CI/CD setup like GitHub Actions running them on every push?
+def test_extract_text_handles_utf16_surrogate_pairs_correctly():
+    """
+    BREAKING SCENARIO: Google Docs indices are UTF-16. Python strings are Unicode.
+    If draft text contains emojis or complex characters, slicing by Docs indices 
+    will slice Python strings incorrectly, corrupting the text read-back.
+    """
+    from services.google_docs_service import _extract_text
 
----
+    text_content = "Rocket 🚀! Hello"
+    
+    # Simulate a Google Docs content payload
+    content = [
+        {
+            "paragraph": {
+                "elements": [{"startIndex": 0, "endIndex": 16, "textRun": {"content": text_content}}]
+            }
+        }
+    ]
 
+    # We want to extract UTF-16 indices 1 to 10.
+    # UTF-16 indices:
+    # 0: R, 1: o, 2: c, 3: k, 4: e, 5: t, 6: space, 7-8: 🚀, 9: !, 10: space, 11: H...
+    # Indices 1 to 10 (exclusive of 10) means we want from 'o' to '!'
+    # So we should get "ocket 🚀!"
+    
+    extracted = _extract_text(content, 1, 10)
+    
+    assert extracted == "ocket 🚀!", f"BUG EXPOSED: Extracted text mangled as '{extracted}'"
+
+
+@pytest.mark.asyncio
+async def test_export_subtopic_idempotent_update_prevents_false_conflict(
+    tmp_spo_data_dir, mock_gdocs_client
+):
+    """
+    BREAKING SCENARIO: The system saves ONLY `draft_text` to normalization state, 
+    but reads back `Title + draft_text` from Docs. This test exposes the false 409.
+    """
+    chapter_id, subtopic_id = "chap_idem", "sub_idem"
+    subtopic_title = "My Academic Header"
+    draft_text = "This is the draft text."
+    
+    # 1. Simulate the exact state saved AFTER a successful first export
+    chapter_data = _make_chapter(
+        chapter_id, subtopic_id, 
+        gdoc_named_range_id="range_123",
+        # FIXED: State now contains title + draft_text
+        last_gdoc_export_normalized=_normalize(f"{subtopic_title}\n{draft_text}\n") 
+    )
+    chapter_data["gdoc_id"] = "mock_gdoc_id"
+    storage.write_chapter(chapter_id, chapter_data, thesis_id="")
+
+    # 2. Simulate what Google Docs actually returns (Title + Draft + Newlines)
+    docs_returned_text = f"{subtopic_title}\n{draft_text}\n"
+    
+    mock_gdocs_client.documents.return_value.get.return_value.execute.return_value = _make_doc_response(
+        named_ranges={
+            "spo_idem": {
+                "namedRanges": [{"namedRangeId": "range_123", "ranges": [{"startIndex": 10, "endIndex": 53}]}]
+            }
+        },
+        content=[{"paragraph": {"elements": [{"startIndex": 10, "endIndex": 53, "textRun": {"content": docs_returned_text}}]}}]
+    )
+
+    # 3. Attempt to export the exact same text again. 
+    # This SHOULD succeed seamlessly, but will raise a GDocsConflictError on your current codebase.
+    try:
+        await export_subtopic(
+            thesis_id="", chapter_id=chapter_id, chapter_title="Chapter",
+            subtopic_id=subtopic_id, subtopic_title=subtopic_title, draft_text=draft_text,
+            force=False # Ensure safe sync is ON
+        )
+    except google_docs_service.GDocsConflictError as e:
+        pytest.fail(f"BUG EXPOSED: False 409 Conflict thrown. Expected '{e.spo_excerpt}' to match '{e.gdoc_excerpt}'")

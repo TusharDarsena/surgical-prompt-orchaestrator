@@ -46,6 +46,9 @@ const state = {
 
   // pre-flight source ID check result
   preflight: null,  // { total_checked, resolved, mismatch_count, mismatches }
+  
+  // chosen resolutions for mismatches: oldId -> { chapterId, newId }
+  preflightResolutions: {},
 };
 
 function getActiveSubtopic() {
@@ -430,13 +433,13 @@ function renderPreflightCard() {
 
   const pf = state.preflight;
   if (!pf) {
-    container.innerHTML = '<span style="color:var(--muted);font-size:11.5px;">Click "Check Source IDs" to validate your chapterization files.</span>';
+    container.innerHTML = '<span style="color:var(--muted);font-size:12px;">Click "Check Source IDs" to validate your chapterization files.</span>';
     if (pill) { pill.textContent = "—"; pill.className = "pill pill-idle"; }
     return;
   }
 
   if (pf.mismatch_count === 0) {
-    container.innerHTML = `<span style="color:var(--success);font-size:12px;">✅ All ${pf.total_checked} source IDs resolved — ready to generate.</span>`;
+    container.innerHTML = `<span style="color:var(--success);font-size:13px;font-weight:500;">✅ All ${pf.total_checked} source IDs resolved — ready to generate.</span>`;
     if (pill) { pill.textContent = "✓ Ready"; pill.className = "pill pill-done"; }
     return;
   }
@@ -448,35 +451,51 @@ function renderPreflightCard() {
 
   container.innerHTML = "";
   const header = document.createElement("div");
-  header.style.cssText = "font-size:11.5px;color:#d97706;margin-bottom:8px;";
-  header.textContent = `⚠ ${pf.mismatch_count} of ${pf.total_checked} source ID(s) could not be matched to a thesis in the drive scan. Fix them before generating drafts.`;
+  header.style.cssText = "font-size:11.5px;color:#d97706;margin-bottom:12px;line-height:1.5;";
+  header.innerHTML = `⚠ ${pf.mismatch_count} of ${pf.total_checked} source ID(s) could not be matched to a thesis in the drive scan. Fix them before generating drafts. <br><span style="color:var(--muted);font-size:10.5px;">Active Thesis ID: <code style="background:var(--bg);padding:2px 6px;border-radius:4px;border:1px solid var(--border);">${_activeThesisId()}</code></span>`;
   container.appendChild(header);
+
+  // Title Case helper
+  const toTitleCase = (str) => {
+    if (!str) return str;
+    return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
 
   for (const m of pf.mismatches) {
     const row = document.createElement("div");
-    row.style.cssText = "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);";
+    row.style.cssText = "display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border); transition: opacity 0.2s;";
 
     // Left: source_id info
     const info = document.createElement("div");
+    
+    const titleContainer = document.createElement("div");
+    titleContainer.style.cssText = "display:flex;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px;";
 
     const badId = document.createElement("div");
-    badId.style.cssText = "font-size:11px;color:#f87171;font-family:var(--font-mono,monospace);word-break:break-all;margin-bottom:4px;";
-    badId.textContent = m.source_id;
-    info.appendChild(badId);
+    badId.style.cssText = "font-size:13px;color:var(--text);word-break:break-word;font-weight:500;";
+    badId.textContent = toTitleCase(m.source_id);
+    
+    const badge = document.createElement("span");
+    badge.style.cssText = "background:#d9770633;color:#d97706;padding:2px 6px;border-radius:4px;font-size:10px;white-space:nowrap;display:inline-flex;align-items:center;height:fit-content;";
+    badge.textContent = "⚠️ Mismatch";
+    
+    titleContainer.appendChild(badId);
+    titleContainer.appendChild(badge);
+    info.appendChild(titleContainer);
 
     if (m.used_in_subtopics?.length) {
       const where = document.createElement("div");
-      where.style.cssText = "font-size:10px;color:var(--muted);";
+      where.style.cssText = "font-size:10.5px;color:var(--muted);";
       where.textContent = `Used in subtopics: ${m.used_in_subtopics.join(", ")}`;
       info.appendChild(where);
     }
 
-    // Right: dropdown + fix button
+    // Right: dropdown (No fix button)
     const controls = document.createElement("div");
-    controls.style.cssText = "display:flex;gap:6px;align-items:center;flex-shrink:0;";
+    controls.style.cssText = "display:flex;gap:6px;align-items:center;flex-shrink:0;width:45%;max-width:400px;";
 
     const sel = document.createElement("select");
-    sel.style.cssText = "font-size:11px;padding:3px 6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;max-width:260px;";
+    sel.style.cssText = "width:100%;font-size:11.5px;padding:5px 8px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;";
     sel.innerHTML = '<option value="">— pick correct thesis —</option>';
     for (const cand of (m.scan_candidates ?? [])) {
       const opt = document.createElement("option");
@@ -484,26 +503,99 @@ function renderPreflightCard() {
       opt.textContent = cand;
       sel.appendChild(opt);
     }
+    
+    // Divider logic inside select isn't great, so just append special options
+    const optSkip = document.createElement("option");
+    optSkip.value = "__SKIP__";
+    optSkip.textContent = "⏭ Skip";
+    sel.appendChild(optSkip);
+
+    const optManual = document.createElement("option");
+    optManual.value = "__MANUAL__";
+    optManual.textContent = "✍️ Enter manually...";
+    sel.appendChild(optManual);
+
     controls.appendChild(sel);
 
-    const fixBtn = document.createElement("button");
-    fixBtn.className = "btn btn-run";
-    fixBtn.style.cssText = "padding:4px 10px;font-size:11px;flex-shrink:0;";
-    fixBtn.textContent = "Fix";
-    fixBtn.addEventListener("click", () => {
-      const chosen = sel.value;
-      if (!chosen) { toast("Select a thesis to map this source ID to.", "info"); return; }
-      const chapterId = m.chapters?.[0] ?? "";
-      fixBtn.disabled = true;
-      fixBtn.textContent = "Fixing…";
-      actions.fixSourceId(chapterId, m.source_id, chosen)
-        .finally(() => { fixBtn.disabled = false; fixBtn.textContent = "Fix"; });
+    sel.addEventListener("change", (e) => {
+      let chosen = e.target.value;
+      
+      if (chosen === "__MANUAL__") {
+        chosen = prompt("Enter exact scan key:");
+        if (chosen) {
+          const opt = document.createElement("option");
+          opt.value = chosen;
+          opt.textContent = chosen;
+          sel.insertBefore(opt, optSkip);
+          sel.value = chosen;
+        } else {
+          sel.value = "";
+          chosen = "";
+        }
+      }
+
+      if (chosen === "__SKIP__") {
+        delete state.preflightResolutions[m.source_id];
+        badge.textContent = "⏭ Skipped";
+        badge.style.background = "var(--surface2)";
+        badge.style.color = "var(--muted)";
+        row.style.opacity = "0.7";
+      } else if (chosen) {
+        state.preflightResolutions[m.source_id] = { chapterId: m.chapters?.[0] ?? "", newId: chosen };
+        badge.textContent = "✅ Resolved";
+        badge.style.background = "var(--success-bg, #05966933)";
+        badge.style.color = "var(--success, #059669)";
+        row.style.opacity = "0.7";
+      } else {
+        delete state.preflightResolutions[m.source_id];
+        badge.textContent = "⚠️ Mismatch";
+        badge.style.background = "#d9770633";
+        badge.style.color = "#d97706";
+        row.style.opacity = "1";
+      }
+      _updateApplyAllButton();
     });
-    controls.appendChild(fixBtn);
+
+    if (state.preflightResolutions[m.source_id]) {
+      sel.value = state.preflightResolutions[m.source_id].newId;
+      badge.textContent = "✅ Resolved";
+      badge.style.background = "var(--success-bg, #05966933)";
+      badge.style.color = "var(--success, #059669)";
+      row.style.opacity = "0.7";
+    }
 
     row.appendChild(info);
     row.appendChild(controls);
     container.appendChild(row);
+  }
+  
+  const bottomBar = document.createElement("div");
+  bottomBar.style.cssText = "margin-top:16px;display:flex;justify-content:flex-end;";
+  const applyBtn = document.createElement("button");
+  applyBtn.id = "btnApplyPreflightResolutions";
+  applyBtn.className = "btn btn-run";
+  applyBtn.style.cssText = "padding:8px 16px;font-size:13px;font-weight:500;";
+  applyBtn.textContent = "Apply All Resolutions";
+  applyBtn.disabled = true;
+  applyBtn.addEventListener("click", () => {
+    actions.applyAllSourceIdFixes();
+  });
+  bottomBar.appendChild(applyBtn);
+  container.appendChild(bottomBar);
+  
+  _updateApplyAllButton();
+}
+
+function _updateApplyAllButton() {
+  const btn = $("btnApplyPreflightResolutions");
+  if (!btn) return;
+  const count = Object.keys(state.preflightResolutions).length;
+  if (count > 0) {
+    btn.disabled = false;
+    btn.textContent = `Apply ${count} Resolution${count !== 1 ? 's' : ''}`;
+  } else {
+    btn.disabled = true;
+    btn.textContent = "Apply All Resolutions";
   }
 }
 
@@ -893,11 +985,45 @@ const actions = {
     try {
       const res = await API.checkSourceIds(thesisId);
       state.preflight = res;
+      state.preflightResolutions = {}; // Reset on check
       renderPreflightCard();
     } catch (err) {
       toast(`Source ID check failed: ${err.message}`, "error");
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = "🔍 Check Source IDs"; }
+    }
+  },
+
+  async applyAllSourceIdFixes() {
+    const resolutions = Object.entries(state.preflightResolutions);
+    if (resolutions.length === 0) return;
+    
+    const thesisId = _activeThesisId();
+    const btn = $("btnApplyPreflightResolutions");
+    if (btn) { btn.disabled = true; btn.textContent = "Applying..."; }
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const [oldId, { chapterId, newId }] of resolutions) {
+      try {
+        await API.fixSourceId(thesisId, chapterId, oldId, newId);
+        successCount++;
+      } catch (err) {
+        if (err.message?.includes("409")) {
+          toast("A run is in progress — wait before fixing source IDs.", "error", 6000);
+        } else {
+          toast(`Fix failed: ${err.message}`, "error");
+        }
+        failCount++;
+      }
+    }
+    
+    if (successCount > 0) {
+      toast(`✓ Applied ${successCount} resolution(s)`, "success");
+      await actions.checkSourceIds();
+    } else if (failCount > 0) {
+      if (btn) { btn.disabled = false; btn.textContent = "Apply All Resolutions"; }
     }
   },
 

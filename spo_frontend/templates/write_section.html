@@ -138,15 +138,21 @@
             <div class="card-divider"></div>
 
             <!-- Section A: Source ID Pre-flight Check -->
-            <div style="margin-bottom:16px;">
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-                <span style="font-size:12px;font-weight:600;color:var(--text);">Source ID Check</span>
-                <button id="btnCheckSourceIds" class="btn btn-ghost" type="button" style="font-size:11px;padding:4px 10px;">
+            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+                <div>
+                  <h3 style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px;">Source ID Validation</h3>
+                  <p style="font-size: 12px; color: var(--muted); margin: 0; line-height: 1.4;">Verify that all source IDs in your chapters exist in the drive scan before generating drafts.</p>
+                </div>
+                <button id="btnCheckSourceIds" class="btn btn-run" type="button" style="font-size: 13px; padding: 8px 18px; flex-shrink: 0; box-shadow: 0 4px 12px rgba(91,127,255,0.15);">
                   🔍 Check Source IDs
                 </button>
               </div>
-              <div id="preflightResult" style="font-size:11.5px;color:var(--muted);">
-                Click "Check Source IDs" to validate your chapterization files.
+              <div id="preflightResultWrap">
+                <div class="card-divider" style="margin: 16px 0; background: var(--border2);"></div>
+                <div id="preflightResult" style="font-size:12px; color:var(--muted);">
+                  Ready to validate.
+                </div>
               </div>
             </div>
 
