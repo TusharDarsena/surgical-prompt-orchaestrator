@@ -511,6 +511,20 @@ async def export_subtopic(
                 range_segments = _get_named_range_segments(doc, named_range_id)
 
                 if range_segments:
+                    # Fetch tab IDs to satisfy Google Docs API requirement for multi-tab documents
+                    try:
+                        doc_tabs = await asyncio.to_thread(
+                            lambda: docs.documents().get(documentId=gdoc_id, includeTabsContent=True).execute()
+                        )
+                        tab_ids = [t.get("tabProperties", {}).get("tabId") for t in doc_tabs.get("tabs", []) if "tabProperties" in t]
+                    except Exception as e:
+                        logger.warning("Could not fetch tab IDs for doc %s: %s", gdoc_id, e)
+                        tab_ids = []
+
+                    delete_req = {"deleteNamedRange": {"namedRangeId": named_range_id}}
+                    if tab_ids:
+                        delete_req["deleteNamedRange"]["tabsCriteria"] = {"tabIds": tab_ids}
+
                     old_start = range_segments[0]["startIndex"]
                     old_end = range_segments[-1]["endIndex"]
                     old_length = old_end - old_start
@@ -522,7 +536,7 @@ async def export_subtopic(
                         # Step 0: Explicitly delete the old named range before insertion
                         # evaporates it. Inserting at old_start pushes the range boundary
                         # forward; the subsequent deleteContentRange would then destroy it.
-                        {"deleteNamedRange": {"namedRangeId": named_range_id}},
+                        delete_req,
                         # Step 1: Insert new text at old_start
                         {"insertText": {"location": {"index": old_start}, "text": new_full_text}},
                         # Step 2: Apply Heading 2 to the heading line (now at old_start)

@@ -592,42 +592,29 @@ async def _run_sequence(
 
                 # ── Step 7: Stage 2 — Scholarly Expansion ──────────────────
                 draft_source_id: Optional[str] = None
-                try:
-                    # Add Draft 1 as a text source so the RAG engine can
-                    # retrieve it alongside the uploaded PDFs.
-                    async with _upload_semaphore:
-                        draft_src = await asyncio.wait_for(
-                            client.sources.add_text(
-                                notebook_id,
-                                title=draft_source_title,
-                                content=draft_1,
-                                wait=True,  # polls status==READY (code 2) — safe to query immediately
-                            ),
-                            timeout=60.0
-                        )
-                    draft_source_id = draft_src.id
+                # Add Draft 1 as a persistent text source so the RAG engine can
+                # retrieve it alongside the uploaded PDFs. Both Draft 1 and Draft 2
+                # are kept in the notebook as sources — nothing is deleted.
+                async with _upload_semaphore:
+                    draft_src = await asyncio.wait_for(
+                        client.sources.add_text(
+                            notebook_id,
+                            title=draft_source_title,
+                            content=draft_1,
+                            wait=True,  # polls status==READY (code 2) — safe to query immediately
+                        ),
+                        timeout=60.0
+                    )
+                draft_source_id = draft_src.id
 
-                    # Persist the source ID immediately — before any other logic —
-                    # so force-unlock can clean it up even if the server crashes
-                    # between here and the final state write.
-                    state["draft_source_id"] = draft_source_id
-                    storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
+                # Persist the source ID so the state reflects what is in the notebook.
+                state["draft_source_id"] = draft_source_id
+                storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
 
-                    logger.info(f"Draft 1 text source '{draft_source_id}' added. Sending prompt_2.")
-                    draft_2 = await _ask_with_retry(client, notebook_id, prompt_2)
+                logger.info(f"Draft 1 text source '{draft_source_id}' added. Sending prompt_2.")
+                draft_2 = await _ask_with_retry(client, notebook_id, prompt_2)
 
-                finally:
-                    # Always clean up the temporary text source, whether
-                    # Stage 2 succeeded, timed out, or errored.
-                    if draft_source_id:
-                        try:
-                            await client.sources.delete(notebook_id, draft_source_id)
-                            logger.info(f"Deleted temporary text source '{draft_source_id}'")
-                        except Exception as del_err:
-                            # 404 or any other error — source may already be gone.
-                            logger.warning(f"Could not delete text source '{draft_source_id}': {del_err}")
-
-                # ── Step 8: save Draft 2 & mark done ───────────────────────
+                # ── Step 8: save Draft 2 to disk ────────────────────────────
                 await asyncio.to_thread(
                     storage.write_section_draft,
                     chapter_id,
@@ -642,12 +629,29 @@ async def _run_sequence(
                     thesis_id=thesis_id
                 )
 
+                # ── Step 9: add Draft 2 as a persistent notebook source ─────
+                # Mirrors the Draft 1 upload above — both drafts remain in the
+                # notebook as text sources alongside the uploaded PDFs.
+                draft2_source_title = f"SPO Draft 2 — {subtopic_id}"
+                async with _upload_semaphore:
+                    draft2_src = await asyncio.wait_for(
+                        client.sources.add_text(
+                            notebook_id,
+                            title=draft2_source_title,
+                            content=draft_2,
+                            wait=True,
+                        ),
+                        timeout=60.0
+                    )
+                draft2_source_id = draft2_src.id
+                logger.info(f"Draft 2 text source '{draft2_source_id}' added to notebook '{notebook_id}'")
+
                 state.update({
                     "status": "done",
                     "prompt_2": prompt_2,
                     "draft_preview": draft_2[:300] + ("..." if len(draft_2) > 300 else ""),
-                    "draft_source_id": None,
-                    "draft_source_title": None,
+                    "draft2_source_id": draft2_source_id,
+                    "draft2_source_title": draft2_source_title,
                     "error": None,
                     "updated_at": datetime.utcnow().isoformat(),
                 })
