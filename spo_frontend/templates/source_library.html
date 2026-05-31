@@ -1,44 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Source Library · SPO</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="/static/css/spo_global.css"/>
+{% extends "base.html" %}
+
+{% block title %}Source Library · SPO{% endblock %}
+
+{% block logo_suffix %}.lib{% endblock %}
+
+{% block extra_css %}
   <link rel="stylesheet" href="/static/css/source_library.css"/>
-  <script>
-    window.SPO_API_BASE = "{{ api_base }}";
-  </script>
-</head>
-<body>
+{% endblock %}
 
-<!-- ── SIDEBAR ── -->
-<aside class="sidebar">
-  <div class="sidebar-logo">
-    <span class="accent">SPO</span><span class="dim">.lib</span>
-  </div>
-  <div class="nav-group-label">Workspace</div>
-  <a href="/app"            class="nav-item"><span class="nav-icon">◈</span>App</a>
-  <a href="/thesis-setup"   class="nav-item"><span class="nav-icon">⬡</span>Thesis Setup</a>
-  <a href="/source-library" class="nav-item active"><span class="nav-icon">◫</span>Source Library</a>
-  <a href="/write-section"  class="nav-item"><span class="nav-icon">✦</span>Write Section</a>
-  <a href="/consistency"    class="nav-item"><span class="nav-icon">⇄</span>Consistency Chain</a>
-</aside>
+{% block breadcrumb %}
+  <span>SPO</span>
+  <span class="sep">/</span>
+  <span class="crumb-active">Source Library</span>
+{% endblock %}
 
-<!-- ── SHELL ── -->
-<div class="shell">
-
-  <!-- TOPBAR -->
-  <div class="topbar">
-    <div class="breadcrumb">
-      <span>SPO</span>
-      <span class="sep">/</span>
-      <span class="crumb-active">Source Library</span>
-    </div>
-  </div>
-
+{% block shell_content %}
   <!-- AUTH BANNER (Hidden by default) -->
   <div id="nlmAuthBanner" class="auth-banner" style="display:none; background: #fff3cd; color: #856404; padding: 12px 20px; border-bottom: 1px solid #ffeeba; align-items: center; justify-content: space-between; font-family: var(--font-ui);">
     <div style="display:flex; align-items:center; gap:8px;">
@@ -107,7 +83,6 @@
           ⚠ Register runs on all folders in the tree — not just new ones.
           Safe to re-run; existing links are overwritten with fresh ones.
         </p>
-
 
         <!-- Unified Accordion Table — thesis folders + indexing combined -->
         <div class="unified-table-wrap">
@@ -248,45 +223,44 @@
     </div>
 
   </main>
-</div><!-- /shell -->
+{% endblock %}
 
-<!-- TOAST CONTAINER -->
-<div class="toast-container" id="toastContainer"></div>
-
-<!-- BATCH CONFIRM MODAL -->
-<div class="modal-overlay" id="batchConfirmModal" style="display:none;">
-  <div class="modal-box">
-    <div class="modal-title">Confirm Batch Indexing</div>
-    <div class="modal-body" id="batchConfirmBody">
-      You are about to index <strong id="batchFolderCount">N</strong> folders
-      (<strong id="batchPdfCount">X</strong> PDFs total).
-      Each folder will be uploaded to NotebookLM and a source card JSON will be
-      generated automatically. This may take several minutes.
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-primary"  id="btnBatchConfirm">▶ Proceed</button>
-      <button class="btn btn-ghost"    id="btnBatchCancel">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<!-- RE-RUN DUPLICATE WARNING MODAL -->
-<div class="modal-overlay" id="rerunWarnModal" style="display:none;">
-  <div class="modal-box">
-    <div class="modal-title">⚠ Duplicate Entry Warning</div>
-    <div class="modal-body">
-      This folder is already indexed and imported into the Source Library as
-      <code id="rerunGroupId"></code>.
-      Running again will create a <strong>new duplicate entry</strong> in the
-      Source Library. Delete the old group from Card 02 first, then re-run.
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" id="btnGoToCard03">Go to Source Library →</button>
-      <button class="btn btn-ghost"     id="btnRerunCancel">Cancel</button>
+{% block modals %}
+  <!-- BATCH CONFIRM MODAL -->
+  <div class="modal-overlay" id="batchConfirmModal" style="display:none;">
+    <div class="modal-box">
+      <div class="modal-title">Confirm Batch Indexing</div>
+      <div class="modal-body" id="batchConfirmBody">
+        You are about to index <strong id="batchFolderCount">N</strong> folders
+        (<strong id="batchPdfCount">X</strong> PDFs total).
+        Each folder will be uploaded to NotebookLM and a source card JSON will be
+        generated automatically. This may take several minutes.
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary"  id="btnBatchConfirm">▶ Proceed</button>
+        <button class="btn btn-ghost"    id="btnBatchCancel">Cancel</button>
+      </div>
     </div>
   </div>
-</div>
 
-<script type="module" src="/static/js/source_library.js"></script>
-</body>
-</html>
+  <!-- RE-RUN DUPLICATE WARNING MODAL -->
+  <div class="modal-overlay" id="rerunWarnModal" style="display:none;">
+    <div class="modal-box">
+      <div class="modal-title">⚠ Duplicate Entry Warning</div>
+      <div class="modal-body">
+        This folder is already indexed and imported into the Source Library as
+        <code id="rerunGroupId"></code>.
+        Running again will create a <strong>new duplicate entry</strong> in the
+        Source Library. Delete the old group from Card 02 first, then re-run.
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btnGoToCard03">Go to Source Library →</button>
+        <button class="btn btn-ghost"     id="btnRerunCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block page_script %}
+  <script type="module" src="/static/js/source_library.js"></script>
+{% endblock %}

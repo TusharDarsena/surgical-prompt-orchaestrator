@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}SPO{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/spo_global.css" />
+  {% block extra_css %}{% endblock %}
+  <script>
+    window.SPO_API_BASE = "{{ api_base }}";
+    {% block head_scripts %} {% endblock %}
+  </script>
+</head>
+
+<body>
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span class="accent">SPO</span><span class="dim">{% block logo_suffix %}.ai{% endblock %}</span>
+    </div>
+    <div class="nav-group-label">Workspace</div>
+    <a href="/app" class="nav-item {% if active_page == 'app' %}active{% endif %}"><span
+        class="nav-icon">◈</span>App</a>
+    <a href="/thesis-setup" class="nav-item {% if active_page == 'thesis-setup' %}active{% endif %}"><span
+        class="nav-icon">⬡</span>Thesis Setup</a>
+    <a href="/source-library" class="nav-item {% if active_page == 'source-library' %}active{% endif %}"><span
+        class="nav-icon">◫</span>Source Library</a>
+    <a href="/write-section" class="nav-item {% if active_page == 'write-section' %}active{% endif %}"><span
+        class="nav-icon">✦</span>Write Section</a>
+    <a href="/consistency" class="nav-item {% if active_page == 'consistency' %}active{% endif %}"><span
+        class="nav-icon">⇄</span>Consistency Chain</a>
+  </aside>
+
+  <!-- ── SHELL ── -->
+  <div class="shell">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="breadcrumb">{% block breadcrumb %}{% endblock %}</div>
+      {% block topbar_right %}{% endblock %}
+    </div>
+
+    {#
+    shell_content is intentionally broad — the base template does NOT hardcode
+    <main class="workspace"> here. Each child owns its full content structure:
+      - app_home, thesis_setup, source_library → <main class="workspace">
+        - write_section → <div class="body-layout">
+          <main>…</main>
+          <aside>…</aside>
+        </div>
+        #}
+        {% block shell_content %}{% endblock %}
+
+  </div><!-- /shell -->
+
+  <!-- TOAST CONTAINER -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  {% block modals %}{% endblock %}
+
+  {% block page_script %}{% endblock %}
+</body>
+
+</html>

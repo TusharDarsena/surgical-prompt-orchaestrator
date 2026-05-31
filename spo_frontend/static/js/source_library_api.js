@@ -97,3 +97,6 @@ export const nlmAuthConfirm = () =>
 
 export const nlmAuthStatus = () =>
   _get("/notebooklm/auth/status");
+
+// ── Thesis list (backend source of truth) ─────────────────────────────────────
+export const listTheses = () => _get("/thesis/list");

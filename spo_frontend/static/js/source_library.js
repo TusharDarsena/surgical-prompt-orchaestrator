@@ -267,7 +267,30 @@ async function handleRegisterLinks() {
 async function loadThesisFolders() {
   try {
     const data = await API.getLocalFiles();
-    state.thesisFolders = (data.thesis_folders ?? []).map(folder => {
+
+    // Filter to the active thesis only — the scan file is global by design
+    // (it supports bulk discovery across all thesis folders at once), but the
+    // UI must show only the folder that belongs to the currently-active thesis.
+    const activeId = _activeThesisId();
+    const theses = _loadThesesIndex();
+    const activeThesis = theses.find(t => t.id === activeId);
+    const activeTitle = activeThesis?.title;
+
+    let folders = data.thesis_folders ?? [];
+    if (activeTitle) {
+      folders = folders.filter(f => {
+        // In the backend, f.thesis_name is the immediate parent folder of the PDFs (the source group).
+        // If PDFs are inside a subfolder (e.g., .../new/SourceGroupA/), parts[-2] is "new" (the active thesis).
+        // If PDFs are directly inside the active thesis folder, parts[-1] is "new".
+        const p = f.folder_path || f.level2_path || "";
+        const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
+        if (parts.length >= 1 && parts[parts.length - 1] === activeTitle) return true;
+        if (parts.length >= 2 && parts[parts.length - 2] === activeTitle) return true;
+        return false;
+      });
+    }
+
+    state.thesisFolders = folders.map(folder => {
         // Hydrate pdfs array for UI rendering
         folder.pdfs = (folder.files ?? []).map(fileName => ({
             file_name: fileName,
@@ -988,35 +1011,55 @@ function _loadThesesIndex() {
   try { return JSON.parse(localStorage.getItem("spo_theses") || "[]"); } catch { return []; }
 }
 
-function loadLibThesisSelector() {
+async function loadLibThesisSelector() {
   const sel = $("libThesisSelect");
   if (!sel) return;
-  const theses = _loadThesesIndex();
+  try {
+    const list = await API.listTheses();
+    const mapped = list.map(t => ({
+      id: t.thesis_id,
+      title: t.title || "Untitled",
+      author: t.author || "",
+    }));
+    localStorage.setItem("spo_theses", JSON.stringify(mapped));
+    const activeId = _activeThesisId();
+    if (activeId && !mapped.find(t => t.id === activeId)) {
+      localStorage.setItem("spo_active_thesis", "");
+    }
+    _renderThesisSelect(mapped);
+  } catch (_) {
+    _renderThesisSelect(_loadThesesIndex());
+  }
+}
+
+function _renderThesisSelect(theses) {
+  const sel = $("libThesisSelect");
   const activeId = _activeThesisId();
   sel.innerHTML = "";
   if (!theses.length) {
     sel.innerHTML = `<option value="">— No theses —</option>`;
-  } else {
-    for (const t of theses) {
-      const opt = document.createElement("option");
-      opt.value = t.id;
-      opt.textContent = `${t.title} — ${t.author}`;
-      if (t.id === activeId) opt.selected = true;
-      sel.appendChild(opt);
-    }
+    return;
+  }
+  for (const t of theses) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = `${t.title} — ${t.author}`;
+    if (t.id === activeId) opt.selected = true;
+    sel.appendChild(opt);
   }
 }
 
 function onLibThesisChange(id) {
   localStorage.setItem("spo_active_thesis", id);
   actions.loadLibrary();
+  loadThesisFolders(); // refresh Card 01 to show only the newly-active thesis
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function init() {
+async function init() {
   // ── Card 01: drag-drop + file select ──────────────────────────────────────
   const dropZone = $("dropZone");
   dropZone.addEventListener("dragover",  e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
@@ -1066,7 +1109,7 @@ function init() {
   });
 
   // ── Thesis selector ───────────────────────────────────────────────────────
-  loadLibThesisSelector();
+  await loadLibThesisSelector();
   const libSel = $("libThesisSelect");
   if (libSel) {
     libSel.addEventListener("change", e => {
@@ -1103,6 +1146,12 @@ function init() {
   loadGlobalCardDir();
   loadThesisFolders().then(_prefetchIndexStatuses);
 }
+
+window.addEventListener("storage", (e) => {
+  if (e.key === "spo_active_thesis") {
+    loadLibThesisSelector().then(() => actions.loadLibrary());
+  }
+});
 
 document.addEventListener("DOMContentLoaded", init);
 

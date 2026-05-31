@@ -31,5 +31,5 @@ async def write_section_page(request: Request):
     """
     return templates.TemplateResponse(
         "write_section.html",
-        {"request": request, "chapters": [], "api_base": _BACKEND},
+        {"request": request, "chapters": [], "api_base": _BACKEND, "active_page": "write-section"},
     )

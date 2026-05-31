@@ -46,5 +46,5 @@ async def thesis_setup_page(request: Request):
     """
     return templates.TemplateResponse(
         "thesis_setup.html",
-        {"request": request, "api_base": _BACKEND},
+        {"request": request, "api_base": _BACKEND, "active_page": "thesis-setup"},
     )

@@ -1,316 +1,285 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Write Section · SPO</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-    rel="stylesheet" />
+{% block title %}Write Section · SPO{% endblock %}
 
-  <link rel="stylesheet" href="/static/css/spo_global.css" />
+{% block logo_suffix %}.write{% endblock %}
 
-  <link rel="stylesheet" href="/static/css/write_section.css" />
+{% block extra_css %}
+  <link rel="stylesheet" href="/static/css/write_section.css"/>
+{% endblock %}
 
-  {# Pass backend URL and chapter data to JS — avoids an extra round-trip #}
-  <script>
-    window.SPO_API_BASE = "{{ api_base }}";
+{% block head_scripts %}
     window.SPO_CHAPTERS = [];
-  </script>
-</head>
+{% endblock %}
 
-<body>
+{% block breadcrumb %}
+  <span>SPO</span>
+  <span class="sep">/</span>
+  <span class="crumb-active">Write Section</span>
+{% endblock %}
 
-  <!-- ── SIDEBAR ── -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">
-      <span class="accent">SPO</span><span class="dim">.write</span>
+{% block shell_content %}
+  <!-- AUTH BANNER (Hidden by default) -->
+  <div id="nlmAuthBanner" class="auth-banner" style="display:none; background: #fff3cd; color: #856404; padding: 12px 20px; border-bottom: 1px solid #ffeeba; align-items: center; justify-content: space-between; font-family: var(--font-ui);">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="font-size:16px;">⚠</span>
+      <span id="authBannerText">NotebookLM auth missing or expired.</span>
     </div>
-    <div class="nav-group-label">Workspace</div>
-    <a href="/app" class="nav-item"><span class="nav-icon">◈</span>App</a>
-    <a href="/thesis-setup" class="nav-item"><span class="nav-icon">⬡</span>Thesis Setup</a>
-    <a href="/source-library" class="nav-item"><span class="nav-icon">◫</span>Source Library</a>
-    <a href="/write-section" class="nav-item active"><span class="nav-icon">✦</span>Write Section</a>
-    <a href="/consistency" class="nav-item"><span class="nav-icon">⇄</span>Consistency Chain</a>
-  </aside>
+    <button id="btnAuthAction" class="btn btn-primary" style="padding: 4px 12px; font-size: 13px;" data-action="start">Start Login</button>
+  </div>
 
-  <!-- ── SHELL ── -->
-  <div class="shell">
+  <!-- BODY LAYOUT — workspace + sources panel side by side -->
+  <div class="body-layout">
 
-    <!-- TOPBAR -->
-    <div class="topbar">
-      <div class="breadcrumb">
-        <span>SPO</span>
-        <span class="sep">/</span>
-        <span class="crumb-active">Write Section</span>
+    <!-- WORKSPACE -->
+    <main class="workspace">
+
+      <!-- ── THESIS SELECTOR STRIP ── -->
+      <div class="thesis-strip">
+        <span class="ts-label">Thesis</span>
+        <div class="ts-select-wrap">
+          <select id="writeThesisSelect">
+            <option value="">Loading…</option>
+          </select>
+        </div>
       </div>
-    </div>
 
-    <!-- AUTH BANNER (Hidden by default) -->
-    <div id="nlmAuthBanner" class="auth-banner" style="display:none; background: #fff3cd; color: #856404; padding: 12px 20px; border-bottom: 1px solid #ffeeba; align-items: center; justify-content: space-between; font-family: var(--font-ui);">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:16px;">⚠</span>
-        <span id="authBannerText">NotebookLM auth missing or expired.</span>
-      </div>
-      <button id="btnAuthAction" class="btn btn-primary" style="padding: 4px 12px; font-size: 13px;" data-action="start">Start Login</button>
-    </div>
+      <!-- ── CONTEXT STRIP ── -->
+      <div class="context-strip">
+        <div class="ctx-selects">
 
-    <!-- BODY -->
-    <div class="body-layout">
-
-      <!-- WORKSPACE -->
-      <main class="workspace">
-
-        <!-- ── THESIS SELECTOR STRIP ── -->
-        <div class="thesis-strip">
-          <span class="ts-label">Thesis</span>
-          <div class="ts-select-wrap">
-            <select id="writeThesisSelect">
-              <option value="">Loading…</option>
+          <!-- Chapter — options server-rendered by Jinja2 -->
+          <div class="ctx-select-wrap">
+            <div class="ctx-label">Chapter</div>
+            <select id="chapterSelect">
+              {% if chapters %}
+              {% for ch in chapters %}
+              <option value="{{ ch.chapter_id }}">
+                Ch.{{ ch.number }} — {{ ch.title }}
+              </option>
+              {% endfor %}
+              {% else %}
+              <option value="">— No chapters —</option>
+              {% endif %}
             </select>
           </div>
-        </div>
 
-        <!-- ── CONTEXT STRIP ── -->
-        <div class="context-strip">
-          <div class="ctx-selects">
-
-            <!-- Chapter — options server-rendered by Jinja2 -->
-            <div class="ctx-select-wrap">
-              <div class="ctx-label">Chapter</div>
-              <select id="chapterSelect">
-                {% if chapters %}
-                {% for ch in chapters %}
-                <option value="{{ ch.chapter_id }}">
-                  Ch.{{ ch.number }} — {{ ch.title }}
-                </option>
-                {% endfor %}
-                {% else %}
-                <option value="">— No chapters —</option>
-                {% endif %}
+          <!-- Active subtopic — populated by JS on chapter select -->
+          <div class="ctx-select-wrap">
+            <div class="ctx-label">Active Subtopic</div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select id="subtopicSelect" style="flex: 1; min-width: 0; max-width: 300px;">
+                <option value="">— select chapter —</option>
               </select>
+              <div style="display:flex; gap:4px; flex-shrink: 0;">
+                <button id="btnRefreshChapters" class="btn btn-ghost" title="Refresh chapter list"
+                  style="padding:4px 8px;font-size:11px; min-width:28px;">⟳</button>
+                <button id="btnSyncResume" class="btn btn-ghost" title="Sync &amp; Resume Paused Runs"
+                  style="padding:4px 8px;font-size:11px;">🔗 Sync &amp; Resume</button>
+              </div>
             </div>
+          </div>
 
-            <!-- Active subtopic — populated by JS on chapter select -->
-            <div class="ctx-select-wrap">
-              <div class="ctx-label">Active Subtopic</div>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <select id="subtopicSelect" style="flex: 1; min-width: 0; max-width: 300px;">
-                  <option value="">— select chapter —</option>
+        </div>
+
+        <!-- Stats pills -->
+        <div class="ctx-pills">
+          <div class="ctx-pill">
+            <div class="ctx-pill-val" id="pillSources">—</div>
+            <div class="ctx-pill-key">Sources</div>
+          </div>
+          <div class="ctx-pill">
+            <div class="ctx-pill-val" id="pillPages">—</div>
+            <div class="ctx-pill-key">Est. Pages</div>
+          </div>
+          <div class="ctx-pill">
+            <div class="ctx-pill-val" id="pillDone">—</div>
+            <div class="ctx-pill-key">Done</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chapter Google Doc link (shown once a doc is created) -->
+      <div id="chapterDocLinkWrap" style="display:none; padding:4px 0 8px; font-size:11.5px;">
+        <a id="chapterDocLink" href="#" target="_blank" rel="noopener"
+          style="color:var(--accent);text-decoration:none;">&#8599; View Chapter Doc</a>
+        <span id="chapterDocStatus" style="color:var(--muted); margin-left:8px;"></span>
+      </div>
+
+      <!-- ══ CARD 01: PRE-FLIGHT & CONFIGURE ══ -->
+      <div class="card done" id="card01">
+        <div class="card-header" data-card="card01">
+          <span class="card-num">01</span>
+          <span class="card-title">Pre-flight &amp; Configure</span>
+          <span class="pill pill-idle" id="preflightPill">—</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+
+          <!-- Section A: Source ID Pre-flight Check -->
+          <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+              <div>
+                <h3 style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px;">Source ID Validation</h3>
+                <p style="font-size: 12px; color: var(--muted); margin: 0; line-height: 1.4;">Verify that all source IDs in your chapters exist in the drive scan before generating drafts.</p>
+              </div>
+              <button id="btnCheckSourceIds" class="btn btn-run" type="button" style="font-size: 13px; padding: 8px 18px; flex-shrink: 0; box-shadow: 0 4px 12px rgba(91,127,255,0.15);">
+                🔍 Check Source IDs
+              </button>
+            </div>
+            <div id="preflightResultWrap">
+              <div class="card-divider" style="margin: 16px 0; background: var(--border2);"></div>
+              <div id="preflightResult" style="font-size:12px; color:var(--muted);">
+                Ready to validate.
+              </div>
+            </div>
+          </div>
+
+          <div class="card-divider"></div>
+
+          <!-- Section B: Configure -->
+          <div class="form-row" style="margin-top:12px;">
+            <div class="form-group" style="max-width:180px;">
+              <label class="form-label">Word count target</label>
+              <div class="num-input">
+                <button id="btnWcMinus" type="button">−</button>
+                <span class="num-val" id="wcValue">750</span>
+                <button id="btnWcPlus" type="button">+</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                Style notes
+                <span class="opt">&nbsp;(optional)</span>
+              </label>
+              <input type="text" id="styleNotesInput" placeholder="e.g. More analytical, less descriptive" />
+            </div>
+            <div class="form-group" style="max-width:180px;">
+              <label class="form-label">Upload Method</label>
+              <div class="ts-select-wrap">
+                <select id="uploadMethodSelect" style="width:100%; font-size:13px; height: 32px;">
+                  <option value="drive">Google Drive (Fast)</option>
+                  <option value="local">Local Files (Fallback)</option>
                 </select>
-                <div style="display:flex; gap:4px; flex-shrink: 0;">
-                  <button id="btnRefreshChapters" class="btn btn-ghost" title="Refresh chapter list"
-                    style="padding:4px 8px;font-size:11px; min-width:28px;">⟳</button>
-                  <button id="btnSyncResume" class="btn btn-ghost" title="Sync & Resume Paused Runs"
-                    style="padding:4px 8px;font-size:11px;">🔗 Sync & Resume</button>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Stats pills -->
-          <div class="ctx-pills">
-            <div class="ctx-pill">
-              <div class="ctx-pill-val" id="pillSources">—</div>
-              <div class="ctx-pill-key">Sources</div>
-            </div>
-            <div class="ctx-pill">
-              <div class="ctx-pill-val" id="pillPages">—</div>
-              <div class="ctx-pill-key">Est. Pages</div>
-            </div>
-            <div class="ctx-pill">
-              <div class="ctx-pill-val" id="pillDone">—</div>
-              <div class="ctx-pill-key">Done</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Chapter Google Doc link (shown once a doc is created) -->
-        <div id="chapterDocLinkWrap" style="display:none; padding:4px 0 8px; font-size:11.5px;">
-          <a id="chapterDocLink" href="#" target="_blank" rel="noopener"
-            style="color:var(--accent);text-decoration:none;">&#8599; View Chapter Doc</a>
-          <span id="chapterDocStatus" style="color:var(--muted); margin-left:8px;"></span>
-        </div>
-
-        <!-- ══ CARD 01: PRE-FLIGHT & CONFIGURE ══ -->
-        <div class="card done" id="card01">
-          <div class="card-header" data-card="card01">
-            <span class="card-num">01</span>
-            <span class="card-title">Pre-flight &amp; Configure</span>
-            <span class="pill pill-idle" id="preflightPill">—</span>
-            <span class="chevron">▾</span>
-          </div>
-          <div class="card-body">
-            <div class="card-divider"></div>
-
-            <!-- Section A: Source ID Pre-flight Check -->
-            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 20px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
-                <div>
-                  <h3 style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px;">Source ID Validation</h3>
-                  <p style="font-size: 12px; color: var(--muted); margin: 0; line-height: 1.4;">Verify that all source IDs in your chapters exist in the drive scan before generating drafts.</p>
-                </div>
-                <button id="btnCheckSourceIds" class="btn btn-run" type="button" style="font-size: 13px; padding: 8px 18px; flex-shrink: 0; box-shadow: 0 4px 12px rgba(91,127,255,0.15);">
-                  🔍 Check Source IDs
-                </button>
-              </div>
-              <div id="preflightResultWrap">
-                <div class="card-divider" style="margin: 16px 0; background: var(--border2);"></div>
-                <div id="preflightResult" style="font-size:12px; color:var(--muted);">
-                  Ready to validate.
-                </div>
-              </div>
-            </div>
-
-            <div class="card-divider"></div>
-
-            <!-- Section B: Configure (unchanged) -->
-            <div class="form-row" style="margin-top:12px;">
-              <div class="form-group" style="max-width:180px;">
-                <label class="form-label">Word count target</label>
-                <div class="num-input">
-                  <button id="btnWcMinus" type="button">−</button>
-                  <span class="num-val" id="wcValue">750</span>
-                  <button id="btnWcPlus" type="button">+</button>
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">
-                  Style notes
-                  <span class="opt">&nbsp;(optional)</span>
-                </label>
-                <input type="text" id="styleNotesInput" placeholder="e.g. More analytical, less descriptive" />
-              </div>
-              <div class="form-group" style="max-width:180px;">
-                <label class="form-label">Upload Method</label>
-                <div class="ts-select-wrap">
-                  <select id="uploadMethodSelect" style="width:100%; font-size:13px; height: 32px;">
-                    <option value="drive">Google Drive (Fast)</option>
-                    <option value="local">Local Files (Fallback)</option>
-                  </select>
-                </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- ══ CARD 02: GENERATE DRAFTS ══ -->
-        <div class="card active" id="card02">
-          <div class="card-header" data-card="card02">
-            <span class="card-num">02</span>
-            <span class="card-title">Generate Drafts</span>
-            <span class="pill pill-idle" id="generatePill">—</span>
-            <span class="chevron">▾</span>
+      <!-- ══ CARD 02: GENERATE DRAFTS ══ -->
+      <div class="card active" id="card02">
+        <div class="card-header" data-card="card02">
+          <span class="card-num">02</span>
+          <span class="card-title">Generate Drafts</span>
+          <span class="pill pill-idle" id="generatePill">—</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+
+          <div class="run-all-row" style="justify-content: space-between; align-items: center;">
+            <button class="btn btn-ghost" id="btnCheckCreds" type="button">
+              🔍 Check NLM Credentials
+            </button>
+            <span id="credStatus" style="font-size:11.5px;color:var(--muted);"></span>
+            <button class="btn btn-run" id="btnRunAll" type="button">
+              ⚡ Run All Idle
+            </button>
           </div>
-          <div class="card-body">
-            <div class="card-divider"></div>
 
-            <div class="run-all-row" style="justify-content: space-between; align-items: center;">
-              <button class="btn btn-ghost" id="btnCheckCreds" type="button">
-                🔍 Check NLM Credentials
-              </button>
-              <span id="credStatus" style="font-size:11.5px;color:var(--muted);"></span>
-              <button class="btn btn-run" id="btnRunAll" type="button">
-                ⚡ Run All Idle
-              </button>
+          <!-- Run table — rows injected by JS -->
+          <div class="run-table">
+            <div id="runTableBody"></div>
+          </div>
+
+          <!-- Google Docs export row -->
+          <div class="run-all-row" style="justify-content: flex-end; align-items: center; margin-top: 8px; gap: 10px;">
+            <span id="gdocsConnectStatus" style="font-size:11.5px; color:var(--muted);"></span>
+            <button class="btn btn-ghost" id="btnConnectGDocs" type="button" style="font-size:11.5px;" title="Connect your Google account to enable Docs export">
+              🔗 Connect Google
+            </button>
+            <button class="btn btn-ghost" id="btnExportToGDocs" type="button" style="font-size:11.5px;" disabled title="Export the selected subtopic's saved draft to Google Docs">
+              📄 Export to Google Docs
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ══ CARD 03: EDIT DRAFT ══ -->
+      <div class="card" id="card03">
+        <div class="card-header" data-card="card03">
+          <span class="card-num">03</span>
+          <span class="card-title">Edit Draft</span>
+          <span class="pill pill-idle" id="draftSubtopicPill">—</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+          <div class="draft-toolbar">
+            <span class="word-count" id="wordCount">~0 words</span>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-ghost" id="btnClearDraft" type="button">Clear</button>
+              <button class="btn btn-success" id="btnSaveDraft" type="button">💾 Save</button>
             </div>
+          </div>
+          <textarea class="draft-textarea" id="draftTextarea"
+            placeholder="Paste draft here, or open via ↗ in the generate table above…"></textarea>
+        </div>
+      </div>
 
-            <!-- Run table — rows injected by JS -->
-            <div class="run-table">
-              <div id="runTableBody"></div>
-            </div>
-
-            <!-- Google Docs export row -->
-            <div class="run-all-row" style="justify-content: flex-end; align-items: center; margin-top: 8px; gap: 10px;">
-              <span id="gdocsConnectStatus" style="font-size:11.5px; color:var(--muted);"></span>
-              <button class="btn btn-ghost" id="btnConnectGDocs" type="button" style="font-size:11.5px;" title="Connect your Google account to enable Docs export">
-                🔗 Connect Google
-              </button>
-              <button class="btn btn-ghost" id="btnExportToGDocs" type="button" style="font-size:11.5px;" disabled title="Export the selected subtopic's saved draft to Google Docs">
-                📄 Export to Google Docs
-              </button>
-            </div>
-
+      <!-- ══ CARD 04: CONSISTENCY SUMMARY ══ -->
+      <div class="card" id="card04">
+        <div class="card-header" data-card="card04">
+          <span class="card-num">04</span>
+          <span class="card-title">Consistency Summary</span>
+          <span class="pill pill-idle">Pending</span>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="card-body">
+          <div class="card-divider"></div>
+          <p style="font-size:11.5px;color:var(--muted);margin-bottom:16px;">
+            Run via NotebookLM — generates a consistency summary and saves it to your summary doc.
+          </p>
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <button class="btn btn-primary btn-full" id="btnGenerateConsistency" type="button">
+              ⚡ Generate Summary via NotebookLM
+            </button>
+          </div>
+          <div class="summary-saved-box" id="consistencySavedBox">
+            <div class="summary-saved-text">No summary saved yet for this subtopic.</div>
           </div>
         </div>
+      </div>
 
-        <!-- ══ CARD 03: EDIT DRAFT ══ -->
-        <div class="card" id="card03">
-          <div class="card-header" data-card="card03">
-            <span class="card-num">03</span>
-            <span class="card-title">Edit Draft</span>
-            <span class="pill pill-idle" id="draftSubtopicPill">—</span>
-            <span class="chevron">▾</span>
-          </div>
-          <div class="card-body">
-            <div class="card-divider"></div>
-            <div class="draft-toolbar">
-              <span class="word-count" id="wordCount">~0 words</span>
-              <div style="display:flex;gap:8px;">
-                <button class="btn btn-ghost" id="btnClearDraft" type="button">Clear</button>
-                <button class="btn btn-success" id="btnSaveDraft" type="button">💾 Save</button>
-              </div>
-            </div>
-            <textarea class="draft-textarea" id="draftTextarea"
-              placeholder="Paste draft here, or open via ↗ in the generate table above…"></textarea>
-          </div>
+    </main>
+
+    <!-- ── SOURCES PANEL ── -->
+    <aside class="sources-panel">
+      <div class="sp-head">
+        <div class="sp-title">Sources</div>
+        <div class="sp-count">
+          <span id="sourcesCount">—</span>
+          <span id="sourcesCountSub"></span>
         </div>
+        <button id="btnCopyAllLinks" class="btn btn-ghost" title="Copy all source links"
+          style="font-size:11px;padding:3px 8px;margin-top:6px;">📋 Copy All Links</button>
+      </div>
+      <div class="sp-list" id="sourcesList">
+        <p class="sp-empty">Compile a prompt to resolve sources.</p>
+      </div>
+    </aside>
 
-        <!-- ══ CARD 04: CONSISTENCY SUMMARY ══ -->
-        <div class="card" id="card04">
-          <div class="card-header" data-card="card04">
-            <span class="card-num">04</span>
-            <span class="card-title">Consistency Summary</span>
-            <span class="pill pill-idle">Pending</span>
-            <span class="chevron">▾</span>
-          </div>
-          <div class="card-body">
-            <div class="card-divider"></div>
-            <p style="font-size:11.5px;color:var(--muted);margin-bottom:16px;">
-              Run via NotebookLM — generates a consistency summary and saves it to your summary doc.
-            </p>
-            <div style="display:flex;gap:10px;margin-bottom:14px;">
-              <button class="btn btn-primary btn-full" id="btnGenerateConsistency" type="button">
-                ⚡ Generate Summary via NotebookLM
-              </button>
-            </div>
-            <div class="summary-saved-box" id="consistencySavedBox">
-              <div class="summary-saved-text">No summary saved yet for this subtopic.</div>
-            </div>
-          </div>
-        </div>
+  </div><!-- /body-layout -->
+{% endblock %}
 
-      </main>
-
-      <!-- ── SOURCES PANEL ── -->
-      <aside class="sources-panel">
-        <div class="sp-head">
-          <div class="sp-title">Sources</div>
-          <div class="sp-count">
-            <span id="sourcesCount">—</span>
-            <span id="sourcesCountSub"></span>
-          </div>
-          <button id="btnCopyAllLinks" class="btn btn-ghost" title="Copy all source links"
-            style="font-size:11px;padding:3px 8px;margin-top:6px;">📋 Copy All Links</button>
-        </div>
-        <div class="sp-list" id="sourcesList">
-          <p class="sp-empty">Compile a prompt to resolve sources.</p>
-        </div>
-      </aside>
-
-    </div><!-- /body-layout -->
-  </div><!-- /shell -->
-
-  <!-- TOAST CONTAINER -->
-  <div class="toast-container" id="toastContainer"></div>
-
+{% block modals %}
   <!-- GOOGLE DOCS CONFLICT MODAL -->
   <div id="gdocsConflictModal" style="
       display:none; position:fixed; inset:0; z-index:9999;
-      background:rgba(0,0,0,0.65); display:none;
+      background:rgba(0,0,0,0.65);
       align-items:center; justify-content:center;">
     <div style="
         background:var(--surface); border:1px solid var(--border); border-radius:12px;
@@ -340,8 +309,8 @@
       </div>
     </div>
   </div>
+{% endblock %}
 
+{% block page_script %}
   <script type="module" src="/static/js/write_section.js"></script>
-</body>
-
-</html>
+{% endblock %}

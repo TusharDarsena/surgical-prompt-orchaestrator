@@ -36,5 +36,5 @@ async def source_library_page(request: Request):
     """
     return templates.TemplateResponse(
         "source_library.html",
-        {"request": request, "api_base": _BACKEND},
+        {"request": request, "api_base": _BACKEND, "active_page": "source-library"},
     )

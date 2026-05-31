@@ -29,7 +29,7 @@ _BACKEND = os.environ.get("SPO_API_URL", "http://localhost:8000")
 async def app_home(request: Request):
     return templates.TemplateResponse(
         "app_home.html",
-        {"request": request, "api_base": _BACKEND},
+        {"request": request, "api_base": _BACKEND, "active_page": "app"},
     )
 
 
