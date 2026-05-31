@@ -362,8 +362,6 @@ async def run_index_sequence(
                             failed.append({"file": fname, "reason": str(e)})
                             logger.warning(f"Upload failed '{fname}': {e}")
 
-                        await asyncio.sleep(3)
-
                     state["sources_uploaded"] = uploaded
                     state["sources_failed"] = failed
                     _write_state(thesis_name, state)
@@ -423,26 +421,50 @@ async def run_index_sequence(
                             f"Raw response (first 500 chars): {raw_answer[:500]}"
                         )
 
-                    # ── Step 12b: Save raw JSON to disk (Fix 3) ───────────────
+                    # ── Step 12b: Save full JSON to disk and misc storage ──────
                     # Written BEFORE do_auto_import so data survives a validation
                     # crash. If import fails, user can manually inspect the file.
-                    folder_path = scan_entry.get("folder_path", "")
+                    #
+                    # Output path priority:
+                    #   1. card_output_dir (user-chosen, per-thesis, set via UI)
+                    #   2. folder_path/index_cards (legacy local fallback)
+                    # Always also writes to spo_data/misc so Drive-mode runs
+                    # (no local folder_path) are covered too.
+                    full_card_key = f"source_index_full_{_safe_name(thesis_name)}"
                     json_backup_path: Optional[str] = None
-                    if folder_path:
+
+                    card_output_dir = scan_entry.get("card_output_dir")
+                    folder_path = scan_entry.get("folder_path", "")
+
+                    if card_output_dir:
+                        disk_dir = card_output_dir
+                    elif folder_path:
+                        disk_dir = os.path.join(folder_path, "index_cards")
+                    else:
+                        disk_dir = None
+
+                    if disk_dir:
                         try:
-                            cards_dir = os.path.join(folder_path, "index_cards")
-                            os.makedirs(cards_dir, exist_ok=True)
+                            os.makedirs(disk_dir, exist_ok=True)
                             json_backup_path = os.path.join(
-                                cards_dir, f"{_safe_name(thesis_name)}.json"
+                                disk_dir, f"{_safe_name(thesis_name)}.json"
                             )
                             with open(json_backup_path, "w", encoding="utf-8") as fh:
                                 json.dump(parsed, fh, indent=2, ensure_ascii=False)
                             logger.info(f"Raw JSON saved to: {json_backup_path}")
                         except Exception as backup_err:
                             logger.warning(
-                                f"Could not save JSON backup for '{thesis_name}': {backup_err}"
+                                f"Could not save JSON to disk for '{thesis_name}': {backup_err}"
                             )
                             json_backup_path = None
+
+                    # Always write misc copy (Drive-mode safe, queryable via API)
+                    try:
+                        storage.write_misc(full_card_key, parsed, thesis_id="")
+                        logger.info(f"Full card JSON written to misc key '{full_card_key}'")
+                    except Exception as misc_err:
+                        logger.warning(f"Could not write misc copy for '{thesis_name}': {misc_err}")
+
 
                     # ── Step 13: Auto-import ───────────────────────────────────
                     import_result, import_error = do_auto_import(
@@ -511,6 +533,7 @@ async def run_index_sequence(
                         "status": final_status,
                         "group_id": group_id,
                         "sources_created": sources_created,
+                        "full_card_key": full_card_key,
                         "warn_message": warn_message,
                         "error": None,
                     })

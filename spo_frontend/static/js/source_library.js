@@ -454,6 +454,44 @@ function _buildUnifiedRow(folder) {
   const trayInner = document.createElement("div");
   trayInner.className = "unified-tray-inner";
 
+  // Card Output Dir Row
+  const dirRow = document.createElement("div");
+  dirRow.className = "tray-card-dir-row";
+  
+  const dirLabel = document.createElement("span");
+  dirLabel.className = "tray-card-dir-label";
+  const currentDir = folder.card_output_dir || "Not set (will use local fallback)";
+  dirLabel.innerHTML = `Card output path: <strong>${esc(currentDir)}</strong>`;
+  
+  const editDirBtn = document.createElement("button");
+  editDirBtn.className = "btn btn-ghost";
+  editDirBtn.style.cssText = "padding:2px 8px;font-size:11px;margin-left:12px;";
+  editDirBtn.textContent = "✏️ Set Path";
+  editDirBtn.addEventListener("click", async () => {
+    const defaultPath = folder.card_output_dir || "C:/Users/TUSHAR/Desktop/surgical prompt orchaestrator/a_synopsis/index_cards";
+    editDirBtn.disabled = true;
+    editDirBtn.textContent = "Browsing...";
+    try {
+      const result = await API.chooseFolder(defaultPath);
+      const newPath = result.path;
+      if (newPath && newPath.trim()) {
+        await API.setCardOutputDir(thesisName, newPath.trim());
+        toast("Card output directory set", "success");
+        await loadThesisFolders(); // Refresh scan entries
+      }
+    } catch (err) {
+      toast(`Failed to set directory: ${err.message}`, "error");
+    } finally {
+      editDirBtn.disabled = false;
+      editDirBtn.textContent = "✏️ Set Path";
+    }
+  });
+  
+  dirRow.appendChild(dirLabel);
+  dirRow.appendChild(editDirBtn);
+  trayInner.appendChild(dirRow);
+
+
   // PDF checkbox grid placeholder
   const gridEl = document.createElement("div");
   gridEl.className = "pdf-checkbox-grid";
@@ -1041,6 +1079,11 @@ function init() {
     }, 100);
   };
 
+  // ── Auth Banner ───────────────────────────────────────────────────────────
+  const btnAuthAction = $("btnAuthAction");
+  if (btnAuthAction) btnAuthAction.addEventListener("click", handleAuthAction);
+  checkAuthOnLoad();
+
   // ── Card 03: register new work ────────────────────────────────────────────
   $("btnRegisterWork").addEventListener("click", registerNewWork);
   $("btnShowAddGroup").addEventListener("click", () => {
@@ -1226,6 +1269,29 @@ function _stopPoller() {
 
 async function handleRunSingle(thesisName) {
   const thesisId = _activeThesisId();
+  
+  // Prompt for card output dir if missing
+  const folder = state.thesisFolders.find(f => f.thesis_name === thesisName);
+  if (folder && !folder.card_output_dir) {
+    const defaultPath = "C:/Users/TUSHAR/Desktop/surgical prompt orchaestrator/a_synopsis/index_cards";
+    toast("Please select output directory for full card JSONs...", "info", 2000);
+    try {
+      const result = await API.chooseFolder(defaultPath);
+      const newPath = result.path;
+      if (!newPath || !newPath.trim()) {
+        toast("Run cancelled: output directory is required.", "error");
+        return;
+      }
+      await API.setCardOutputDir(thesisName, newPath.trim());
+      toast("Output path set.", "success");
+      // update local state so we don't prompt again
+      folder.card_output_dir = newPath.trim(); 
+    } catch (err) {
+      toast(`Failed to set path: ${err.message}`, "error");
+      return;
+    }
+  }
+
   const included = [..._getPdfSelection(thesisName)];
   if (included.length === 0) {
     toast(`${thesisName}: no PDFs selected — check at least one PDF before running`, "error");
@@ -1240,6 +1306,9 @@ async function handleRunSingle(thesisName) {
       toast(`Already running: ${thesisName}`, "error");
     } else {
       toast(`Run failed: ${err.message}`, "error");
+      if (err.message.includes("NLMAuthError") || err.message.includes("credentials") || err.message.includes("initialize")) {
+        checkAuthOnLoad();
+      }
     }
   }
 }
@@ -1285,6 +1354,13 @@ async function confirmBatch() {
   const included_files_map = {};
   for (const name of names) {
     included_files_map[name] = [..._getPdfSelection(name)];
+    
+    // Quick check for card dir
+    const folder = state.thesisFolders.find(f => f.thesis_name === name);
+    if (folder && !folder.card_output_dir) {
+      toast(`Run cancelled: Please set Card Output Path for ${name} first using the 'Set Path' button in its row.`, "error");
+      return;
+    }
   }
 
   try {
@@ -1296,6 +1372,9 @@ async function confirmBatch() {
     toast(`Batch started — ${names.length} folders queued`, "success");
   } catch (err) {
     toast(`Batch failed: ${err.message}`, "error");
+    if (err.message.includes("NLMAuthError") || err.message.includes("credentials") || err.message.includes("initialize")) {
+      checkAuthOnLoad();
+    }
   }
 }
 
@@ -1329,4 +1408,102 @@ window._refreshIndexTable = function() {
   // state.thesisFolders is already updated when called — just re-render
   renderIndexTable();
 };
+
+// ── Auth Banner Logic ────────────────────────────────────────────────────────
+
+let authPollTimer = null;
+
+async function checkAuthOnLoad() {
+  try {
+    const res = await API.nlmStatus();
+    if (!res.ok) {
+      showAuthBanner("login");
+    } else {
+      hideAuthBanner();
+    }
+  } catch (err) {
+    showAuthBanner("error", err.message);
+  }
+}
+
+function showAuthBanner(phase, msg = "") {
+  const banner = $("nlmAuthBanner");
+  if (!banner) return;
+  const text = $("authBannerText");
+  const btn = $("btnAuthAction");
+  
+  banner.style.display = "flex";
+  
+  if (phase === "login") {
+    text.textContent = "NotebookLM auth missing or expired. You must log in before running indexing.";
+    btn.textContent = "Start Login";
+    btn.dataset.action = "start";
+    btn.disabled = false;
+  } else if (phase === "confirm") {
+    text.textContent = "A browser window has opened. Complete login there, then click Confirm.";
+    btn.textContent = "Confirm Login";
+    btn.dataset.action = "confirm";
+    btn.disabled = false;
+  } else if (phase === "polling") {
+    text.textContent = "Waiting for login process to finish and save state...";
+    btn.textContent = "Waiting...";
+    btn.disabled = true;
+  } else if (phase === "error") {
+    text.textContent = `Auth error: ${msg}`;
+    btn.textContent = "Retry Login";
+    btn.dataset.action = "start";
+    btn.disabled = false;
+  }
+}
+
+function hideAuthBanner() {
+  const banner = $("nlmAuthBanner");
+  if (banner) banner.style.display = "none";
+  if (authPollTimer) clearInterval(authPollTimer);
+}
+
+async function handleAuthAction() {
+  const btn = $("btnAuthAction");
+  const action = btn.dataset.action;
+  
+  try {
+    if (action === "start") {
+      btn.disabled = true;
+      btn.textContent = "Starting...";
+      
+      const res = await API.nlmAuthStart();
+      if (!res.ok) throw new Error(res.error || "Failed to start auth process");
+      
+      showAuthBanner("confirm");
+      startAuthPoller();
+    } else if (action === "confirm") {
+      showAuthBanner("polling");
+      
+      const res = await API.nlmAuthConfirm();
+      if (!res.ok) throw new Error(res.error || "Failed to confirm login");
+      
+      if (authPollTimer) clearInterval(authPollTimer);
+      await checkAuthOnLoad();
+      toast("Login complete", "success");
+    }
+  } catch (err) {
+    showAuthBanner("error", err.message);
+  }
+}
+
+function startAuthPoller() {
+  if (authPollTimer) clearInterval(authPollTimer);
+  authPollTimer = setInterval(async () => {
+    try {
+      const status = await API.nlmAuthStatus();
+      if (status.phase === "error") {
+        clearInterval(authPollTimer);
+        showAuthBanner("error", status.message || "Subprocess crashed.");
+      }
+    } catch (e) {
+      // ignore transient
+    }
+  }, 2000);
+}
+
 

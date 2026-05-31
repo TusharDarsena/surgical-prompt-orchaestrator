@@ -74,3 +74,23 @@ export const registerDriveLinks = (driveFolderId) =>
 
 export const copyDriveLinks = (thesisName) =>
   _get(`/drive/links/${thesisName}`);
+
+export const setCardOutputDir = (thesisName, cardOutputDir) =>
+  _post("/source-index/set-card-dir", { thesis_name: thesisName, card_output_dir: cardOutputDir });
+
+export const chooseFolder = (initialDir) =>
+  _post("/drive/choose-folder", { initial_dir: initialDir });
+
+// ── NotebookLM Automation ─────────────────────────────────────────────────────
+
+export const nlmStatus = () =>
+  _get("/notebooklm/status");
+
+export const nlmAuthStart = () =>
+  _post("/notebooklm/auth/start");
+
+export const nlmAuthConfirm = () =>
+  _post("/notebooklm/auth/confirm");
+
+export const nlmAuthStatus = () =>
+  _get("/notebooklm/auth/status");

@@ -52,6 +52,71 @@ class BatchAuthExpiredError(Exception):
 _upload_semaphore = asyncio.Semaphore(3)
 _chat_semaphore = asyncio.Semaphore(5)
 
+# ── Authentication Subprocess ──────────────────────────────────────────────────
+import subprocess
+from subprocess import PIPE
+
+# Global state
+_auth_process: Optional[subprocess.Popen] = None
+
+async def start_login_process() -> dict:
+    global _auth_process
+    
+    # If one is already running, kill it safely
+    if _auth_process and _auth_process.poll() is None:
+        try:
+            _auth_process.kill()
+        except OSError:
+            pass
+
+    # Use standard subprocess to bypass NotImplementedError on SelectorEventLoop
+    _auth_process = subprocess.Popen(
+        ["python", "-m", "notebooklm", "login"],
+        stdin=PIPE,
+    )
+    
+    # Rule 9: Offload synchronous disk I/O to a thread
+    await asyncio.to_thread(
+        storage.write_misc, "nlm_auth_status", {"phase": "logging_in"}, thesis_id=""
+    )
+    return {"ok": True, "message": "Login subprocess started. Check browser."}
+
+async def confirm_login_process() -> dict:
+    global _auth_process
+    
+    if not _auth_process or _auth_process.poll() is not None:
+        raise ValueError("No login process running.") # Domain exception
+
+    try:
+        if _auth_process.stdin:
+            _auth_process.stdin.write(b"\n")
+            try:
+                _auth_process.stdin.flush()
+            except OSError:
+                pass
+            _auth_process.stdin.close()
+        
+        # PROPER WAIT: Wait up to 10 seconds for the script to save cookies and exit
+        def _wait():
+            _auth_process.wait(timeout=10.0)
+            
+        await asyncio.to_thread(_wait)
+        
+        await asyncio.to_thread(
+            storage.write_misc, "nlm_auth_status", {"phase": "done"}, thesis_id=""
+        )
+        return {"ok": True, "message": "Login confirmed."}
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Login process timed out waiting for confirmation.")
+    finally:
+        # Guarantee cleanup even if wait times out
+        _auth_process = None
+
+
+async def get_auth_status() -> dict:
+    status = await asyncio.to_thread(storage.read_misc, "nlm_auth_status", thesis_id="")
+    return status or {"phase": "idle"}
+
 
 # ── Client context manager ─────────────────────────────────────────────────────
 

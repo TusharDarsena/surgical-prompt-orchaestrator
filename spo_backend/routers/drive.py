@@ -61,6 +61,9 @@ from typing import Optional
 from services import storage
 from services.source_importer import do_auto_import  # top-level — no circular dep
 
+class ChooseFolderRequest(BaseModel):
+    initial_dir: Optional[str] = None
+
 
 router = APIRouter(prefix="/drive", tags=["Drive & Local Scanner"])
 
@@ -304,6 +307,29 @@ def save_index_card(req: SaveIndexCardRequest, thesis_id: str = Query("")):
         "message": f"Saved and imported. {import_result['sources_created']} sources created.",
     }
 
+
+@router.post("/choose-folder", summary="Open a native folder picker dialog")
+async def choose_folder(req: ChooseFolderRequest):
+    import asyncio
+    
+    def _open_dialog():
+        import tkinter as tk
+        from tkinter import filedialog
+        
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        
+        kwargs = {}
+        if req.initial_dir and os.path.isdir(req.initial_dir):
+            kwargs["initialdir"] = req.initial_dir
+            
+        folder_path = filedialog.askdirectory(**kwargs)
+        root.destroy()
+        return folder_path
+        
+    folder_path = await asyncio.to_thread(_open_dialog)
+    return {"path": folder_path}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GOOGLE DRIVE LINK REGISTRATION

@@ -96,6 +96,45 @@ async def get_nlm_status():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# AUTHENTICATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+import asyncio
+from services import notebooklm_service
+
+@router.post("/auth/start", summary="Start NotebookLM login subprocess")
+async def auth_start():
+    try:
+        return await notebooklm_service.start_login_process()
+    except Exception as e:
+        error_msg = repr(e)
+        import traceback
+        traceback.print_exc()
+        await asyncio.to_thread(
+            storage.write_misc, "nlm_auth_status", {"phase": "error", "message": error_msg}, thesis_id=""
+        )
+        # Rule 10: Standardized error envelope
+        return {"success": False, "error": error_msg}
+
+@router.post("/auth/confirm", summary="Confirm NotebookLM login")
+async def auth_confirm():
+    try:
+        return await notebooklm_service.confirm_login_process()
+    except ValueError as ve:
+        # Return 400 for domain validation errors (e.g., no process running)
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        await asyncio.to_thread(
+            storage.write_misc, "nlm_auth_status", {"phase": "error", "message": str(e)}, thesis_id=""
+        )
+        return {"success": False, "error": str(e)}
+
+@router.get("/auth/status", summary="Check login subprocess status")
+async def auth_status():
+    return await notebooklm_service.get_auth_status()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # RUN
 # ══════════════════════════════════════════════════════════════════════════════
 

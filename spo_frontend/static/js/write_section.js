@@ -810,68 +810,54 @@ const actions = {
   },
 
   async runSubtopic(subtopicId) {
+    const rs = getRunState(subtopicId);
+    if (rs.status === "running") return; // active
+
+    const params = _getRunParams();
+
     try {
-      await API.nlmRun(
-        state.chapterId,
-        subtopicId,
-        state.wordCount || null,
-        state.styleNotes || null,
-        state.uploadMethod,
-      );
-      state.runStates[subtopicId] = { status: "running" };
+      await API.nlmRun(state.chapterId, subtopicId, params.wordCount, params.styleNotes, params.uploadMethod);
+      state.runStates[subtopicId] = { ...rs, status: "running", error: null };
       renderRunTable();
-      renderGeneratePill();
-      poller.start();
-      toast("Run started", "info");
+      poller.sync();
     } catch (err) {
       toast(`Run failed: ${err.message}`, "error");
+      if (err.message.includes("NLMAuthError") || err.message.includes("credentials") || err.message.includes("initialize")) {
+        checkAuthOnLoad();
+      }
     }
   },
 
   async runAllIdle() {
-    const idle = state.subtopics.filter(
-      s => {
-        const st = getRunState(s.subtopic_id).status;
-        return st === "idle" || st === "error" || st === "stage2_error";
-      }
-    );
-    if (!idle.length) { toast("No idle or failed subtopics", "info"); return; }
+    const idleSubtopics = state.subtopics.filter(s => {
+      const st = getRunState(s.subtopic_id).status;
+      return st === "idle" || st === "error" || st === "stage2_error";
+    });
 
-    // A3: warn before overwriting stage2_error subtopics that already have Draft 1
-    const partialDraft = idle.filter(s => getRunState(s.subtopic_id).status === "stage2_error");
-    if (partialDraft.length > 0) {
-      const names = partialDraft.map(s => `${s.number} ${s.title}`).join("\n• ");
-      const confirmed = confirm(
-        `${partialDraft.length} subtopic(s) already have a saved Draft 1 from a previous run:\n\n• ${names}\n\nRe-running will overwrite Draft 1 with a fresh generation. Continue?`
-      );
-      if (!confirmed) return;
+    if (!idleSubtopics.length) {
+      toast("All subtopics are already running or done.", "info");
+      return;
     }
 
-    const idleIds = idle.map(s => s.subtopic_id);
+    const params = _getRunParams();
+    const ids = idleSubtopics.map(s => s.subtopic_id);
 
     try {
-      const res = await API.nlmRunBatch(
-        state.chapterId,
-        idleIds,
-        state.wordCount || null,
-        state.styleNotes || null,
-        state.uploadMethod,
-      );
-
-      // Store batch_id so the poller knows to use the batch endpoint
+      const res = await API.nlmRunBatch(state.chapterId, ids, params.wordCount, params.styleNotes, params.uploadMethod);
       state.batchId = res.batch_id;
 
-      // Mark all idle subtopics as running optimistically
-      for (const id of idleIds) {
-        state.runStates[id] = { status: "running", batch_id: res.batch_id };
+      // Optimistically update states
+      for (const id of ids) {
+        state.runStates[id] = { status: "running", error: null };
       }
-
       renderRunTable();
-      renderGeneratePill();
-      poller.start();
-      toast(`Batch started — ${idleIds.length} subtopics`, "info");
+      poller.sync();
+      toast(`Batch started for ${ids.length} subtopics.`, "success");
     } catch (err) {
-      toast(`Batch failed: ${err.message}`, "error");
+      toast(`Batch start failed: ${err.message}`, "error");
+      if (err.message.includes("NLMAuthError") || err.message.includes("credentials") || err.message.includes("initialize")) {
+        checkAuthOnLoad();
+      }
     }
   },
 
@@ -1296,9 +1282,14 @@ async function init() {
   });
 
   $("btnRefreshChapters")?.addEventListener("click", () => {
-    loadChaptersFromServer();
+    $("batchConfirmModal").style.display = "none";
     toast("Chapter list refreshed.", "success");
   });
+
+  // ── Auth Banner ───────────────────────────────────────────────────────────
+  const btnAuthAction = $("btnAuthAction");
+  if (btnAuthAction) btnAuthAction.addEventListener("click", handleAuthAction);
+  checkAuthOnLoad();
 
   // ── Google Docs ───────────────────────────────────────────────────────────
   await _gdocsInit();
@@ -1429,5 +1420,102 @@ actions.exportToGDocs = async function exportToGDocs(force = false) {
     if (exportBtn) { exportBtn.disabled = false; exportBtn.textContent = originalLabel; }
   }
 };
+
+// ── Auth Banner Logic ────────────────────────────────────────────────────────
+
+let authPollTimer = null;
+
+async function checkAuthOnLoad() {
+  try {
+    const res = await API.nlmStatus();
+    if (!res.ok) {
+      showAuthBanner("login");
+    } else {
+      hideAuthBanner();
+    }
+  } catch (err) {
+    showAuthBanner("error", err.message);
+  }
+}
+
+function showAuthBanner(phase, msg = "") {
+  const banner = $("nlmAuthBanner");
+  if (!banner) return;
+  const text = $("authBannerText");
+  const btn = $("btnAuthAction");
+  
+  banner.style.display = "flex";
+  
+  if (phase === "login") {
+    text.textContent = "NotebookLM auth missing or expired. You must log in before running generating drafts.";
+    btn.textContent = "Start Login";
+    btn.dataset.action = "start";
+    btn.disabled = false;
+  } else if (phase === "confirm") {
+    text.textContent = "A browser window has opened. Complete login there, then click Confirm.";
+    btn.textContent = "Confirm Login";
+    btn.dataset.action = "confirm";
+    btn.disabled = false;
+  } else if (phase === "polling") {
+    text.textContent = "Waiting for login process to finish and save state...";
+    btn.textContent = "Waiting...";
+    btn.disabled = true;
+  } else if (phase === "error") {
+    text.textContent = `Auth error: ${msg}`;
+    btn.textContent = "Retry Login";
+    btn.dataset.action = "start";
+    btn.disabled = false;
+  }
+}
+
+function hideAuthBanner() {
+  const banner = $("nlmAuthBanner");
+  if (banner) banner.style.display = "none";
+  if (authPollTimer) clearInterval(authPollTimer);
+}
+
+async function handleAuthAction() {
+  const btn = $("btnAuthAction");
+  const action = btn.dataset.action;
+  
+  try {
+    if (action === "start") {
+      btn.disabled = true;
+      btn.textContent = "Starting...";
+      
+      const res = await API.nlmAuthStart();
+      if (!res.ok) throw new Error(res.error || "Failed to start auth process");
+      
+      showAuthBanner("confirm");
+      startAuthPoller();
+    } else if (action === "confirm") {
+      showAuthBanner("polling");
+      
+      const res = await API.nlmAuthConfirm();
+      if (!res.ok) throw new Error(res.error || "Failed to confirm login");
+      
+      if (authPollTimer) clearInterval(authPollTimer);
+      await checkAuthOnLoad();
+      toast("Login complete", "success");
+    }
+  } catch (err) {
+    showAuthBanner("error", err.message);
+  }
+}
+
+function startAuthPoller() {
+  if (authPollTimer) clearInterval(authPollTimer);
+  authPollTimer = setInterval(async () => {
+    try {
+      const status = await API.nlmAuthStatus();
+      if (status.phase === "error") {
+        clearInterval(authPollTimer);
+        showAuthBanner("error", status.message || "Subprocess crashed.");
+      }
+    } catch (e) {
+      // ignore transient
+    }
+  }, 2000);
+}
 
 document.addEventListener("DOMContentLoaded", init);

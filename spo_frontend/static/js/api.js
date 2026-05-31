@@ -70,6 +70,15 @@ export const deleteDraft = (chapterId, subtopicId) =>
 export const nlmStatus = () =>
   _get("/notebooklm/status");
 
+export const nlmAuthStart = () =>
+  _post("/notebooklm/auth/start");
+
+export const nlmAuthConfirm = () =>
+  _post("/notebooklm/auth/confirm");
+
+export const nlmAuthStatus = () =>
+  _get("/notebooklm/auth/status");
+
 export const getPreviousSummary = (chapterId, subtopicId) =>
   _get(_p(`/consistency/${chapterId}/previous-for/${subtopicId}`));
 

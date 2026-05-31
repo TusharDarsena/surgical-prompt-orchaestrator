@@ -48,6 +48,15 @@
       </div>
     </div>
 
+    <!-- AUTH BANNER (Hidden by default) -->
+    <div id="nlmAuthBanner" class="auth-banner" style="display:none; background: #fff3cd; color: #856404; padding: 12px 20px; border-bottom: 1px solid #ffeeba; align-items: center; justify-content: space-between; font-family: var(--font-ui);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:16px;">⚠</span>
+        <span id="authBannerText">NotebookLM auth missing or expired.</span>
+      </div>
+      <button id="btnAuthAction" class="btn btn-primary" style="padding: 4px 12px; font-size: 13px;" data-action="start">Start Login</button>
+    </div>
+
     <!-- BODY -->
     <div class="body-layout">
 

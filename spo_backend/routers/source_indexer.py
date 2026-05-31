@@ -44,7 +44,69 @@ class RunBatchRequest(BaseModel):
     included_files_map: Optional[dict[str, list[str]]] = None
 
 
+class SetCardDirRequest(BaseModel):
+    thesis_name: str
+    card_output_dir: str
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
+
+@router.post("/set-card-dir", summary="Set the full-card JSON output directory for a thesis folder")
+def set_card_dir(req: SetCardDirRequest):
+    """
+    Validates the directory (or creates it) and saves the path in the drive scan entry.
+    All future source index cards for this thesis will be written here.
+    """
+    from services.storage import read_misc, write_misc
+    import os
+    from pathlib import Path
+
+    # 1. Validate / create dir
+    target_dir = Path(req.card_output_dir).resolve()
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not create or access directory '{target_dir}': {e}"
+        )
+
+    # 2. Update scan entry
+    scan = read_misc("drive_scan_result", thesis_id="") or {}
+    if req.thesis_name not in scan:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Thesis '{req.thesis_name}' not found in scan."
+        )
+
+    scan[req.thesis_name]["card_output_dir"] = str(target_dir)
+    write_misc("drive_scan_result", scan, thesis_id="")
+
+    return {
+        "ok": True,
+        "thesis_name": req.thesis_name,
+        "card_output_dir": str(target_dir)
+    }
+
+
+@router.get("/full-card/{thesis_name}", summary="Get the complete unsplit NLM JSON for a thesis")
+def get_full_card(thesis_name: str):
+    """
+    Returns the raw parsed JSON returned by NotebookLM (before SPO splits it into source records).
+    """
+    from services.source_index_service import _safe_name
+    from services.storage import read_misc
+    
+    key = f"source_index_full_{_safe_name(thesis_name)}"
+    data = read_misc(key, thesis_id="")
+    
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Full card JSON not found for '{thesis_name}'. Has it been indexed yet?"
+        )
+        
+    return data
 
 @router.post("/run", summary="Queue source card indexing for a single thesis folder")
 async def run_single(
