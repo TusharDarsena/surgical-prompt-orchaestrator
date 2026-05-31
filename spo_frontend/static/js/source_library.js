@@ -20,6 +20,7 @@ const state = {
   thesisFolders: [], // drive scan result: [{thesis_name, files[], pdfs[], imported, imported_at, import_group_id, import_error, drive_links_registered, drive_links}]
   fileQueue:     [],   // [{file, status:"queued"|"importing"|"done"|"error", message}]
   pdfSelections: {},   // { thesis_name → Set<string> } of filenames user wants to include
+  globalCardOutputDir: "",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -454,42 +455,8 @@ function _buildUnifiedRow(folder) {
   const trayInner = document.createElement("div");
   trayInner.className = "unified-tray-inner";
 
-  // Card Output Dir Row
-  const dirRow = document.createElement("div");
-  dirRow.className = "tray-card-dir-row";
-  
-  const dirLabel = document.createElement("span");
-  dirLabel.className = "tray-card-dir-label";
-  const currentDir = folder.card_output_dir || "Not set (will use local fallback)";
-  dirLabel.innerHTML = `Card output path: <strong>${esc(currentDir)}</strong>`;
-  
-  const editDirBtn = document.createElement("button");
-  editDirBtn.className = "btn btn-ghost";
-  editDirBtn.style.cssText = "padding:2px 8px;font-size:11px;margin-left:12px;";
-  editDirBtn.textContent = "✏️ Set Path";
-  editDirBtn.addEventListener("click", async () => {
-    const defaultPath = folder.card_output_dir || "C:/Users/TUSHAR/Desktop/surgical prompt orchaestrator/a_synopsis/index_cards";
-    editDirBtn.disabled = true;
-    editDirBtn.textContent = "Browsing...";
-    try {
-      const result = await API.chooseFolder(defaultPath);
-      const newPath = result.path;
-      if (newPath && newPath.trim()) {
-        await API.setCardOutputDir(thesisName, newPath.trim());
-        toast("Card output directory set", "success");
-        await loadThesisFolders(); // Refresh scan entries
-      }
-    } catch (err) {
-      toast(`Failed to set directory: ${err.message}`, "error");
-    } finally {
-      editDirBtn.disabled = false;
-      editDirBtn.textContent = "✏️ Set Path";
-    }
-  });
-  
-  dirRow.appendChild(dirLabel);
-  dirRow.appendChild(editDirBtn);
-  trayInner.appendChild(dirRow);
+  // Card Output Dir Row is now global (in thesis-strip). Removed from tray.
+
 
 
   // PDF checkbox grid placeholder
@@ -1101,14 +1068,54 @@ function init() {
   // ── Thesis selector ───────────────────────────────────────────────────────
   loadLibThesisSelector();
   const libSel = $("libThesisSelect");
-  if (libSel) libSel.addEventListener("change", e => onLibThesisChange(e.target.value));
+  if (libSel) {
+    libSel.addEventListener("change", e => {
+      if (typeof onLibThesisChange === 'function') onLibThesisChange(e.target.value);
+      loadGlobalCardDir();
+    });
+  }
+
+  const btnSetDir = $("btnSetGlobalCardDir");
+  if (btnSetDir) {
+    btnSetDir.addEventListener("click", async () => {
+      const defaultPath = state.globalCardOutputDir || "C:/Users/TUSHAR/Desktop/surgical prompt orchaestrator/a_synopsis/index_cards";
+      btnSetDir.disabled = true;
+      btnSetDir.textContent = "Browsing...";
+      try {
+        const result = await API.chooseFolder(defaultPath);
+        const newPath = result.path;
+        if (newPath && newPath.trim()) {
+          await API.setCardOutputDir(newPath.trim());
+          toast("Card output directory set", "success");
+          await loadGlobalCardDir();
+        }
+      } catch (err) {
+        toast(`Failed to set directory: ${err.message}`, "error");
+      } finally {
+        btnSetDir.disabled = false;
+        btnSetDir.textContent = "✏️ Set Path";
+      }
+    });
+  }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   actions.loadLibrary();
+  loadGlobalCardDir();
   loadThesisFolders().then(_prefetchIndexStatuses);
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+async function loadGlobalCardDir() {
+  try {
+    const res = await API.getCardOutputDir();
+    state.globalCardOutputDir = res.card_output_dir || "";
+    const el = $("globalCardOutputDir");
+    if (el) el.value = state.globalCardOutputDir;
+  } catch (err) {
+    console.error("Failed to load global card dir", err);
+  }
+}
 
 // =============================================================================
 // CARD 02b — SOURCE CARD INDEXING
@@ -1271,25 +1278,9 @@ async function handleRunSingle(thesisName) {
   const thesisId = _activeThesisId();
   
   // Prompt for card output dir if missing
-  const folder = state.thesisFolders.find(f => f.thesis_name === thesisName);
-  if (folder && !folder.card_output_dir) {
-    const defaultPath = "C:/Users/TUSHAR/Desktop/surgical prompt orchaestrator/a_synopsis/index_cards";
-    toast("Please select output directory for full card JSONs...", "info", 2000);
-    try {
-      const result = await API.chooseFolder(defaultPath);
-      const newPath = result.path;
-      if (!newPath || !newPath.trim()) {
-        toast("Run cancelled: output directory is required.", "error");
-        return;
-      }
-      await API.setCardOutputDir(thesisName, newPath.trim());
-      toast("Output path set.", "success");
-      // update local state so we don't prompt again
-      folder.card_output_dir = newPath.trim(); 
-    } catch (err) {
-      toast(`Failed to set path: ${err.message}`, "error");
-      return;
-    }
+  if (!state.globalCardOutputDir) {
+    toast("Please set the Card Output Path for the active thesis first.", "error");
+    return;
   }
 
   const included = [..._getPdfSelection(thesisName)];
@@ -1350,17 +1341,16 @@ async function confirmBatch() {
   const names = indexState.pendingBatchNames;
   if (!names.length) return;
 
+  // Check if global card dir is set
+  if (!state.globalCardOutputDir) {
+    toast(`Run cancelled: Please set Card Output Path for the active thesis first.`, "error");
+    return;
+  }
+
   // Build per-folder selection map
   const included_files_map = {};
   for (const name of names) {
     included_files_map[name] = [..._getPdfSelection(name)];
-    
-    // Quick check for card dir
-    const folder = state.thesisFolders.find(f => f.thesis_name === name);
-    if (folder && !folder.card_output_dir) {
-      toast(`Run cancelled: Please set Card Output Path for ${name} first using the 'Set Path' button in its row.`, "error");
-      return;
-    }
   }
 
   try {

@@ -75,8 +75,11 @@ export const registerDriveLinks = (driveFolderId) =>
 export const copyDriveLinks = (thesisName) =>
   _get(`/drive/links/${thesisName}`);
 
-export const setCardOutputDir = (thesisName, cardOutputDir) =>
-  _post("/source-index/set-card-dir", { thesis_name: thesisName, card_output_dir: cardOutputDir });
+export const setCardOutputDir = (cardOutputDir) =>
+  _post("/source-index/set-card-dir", { card_output_dir: cardOutputDir });
+
+export const getCardOutputDir = () =>
+  _get("/source-index/get-card-dir");
 
 export const chooseFolder = (initialDir) =>
   _post("/drive/choose-folder", { initial_dir: initialDir });

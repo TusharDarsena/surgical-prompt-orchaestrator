@@ -45,16 +45,15 @@ class RunBatchRequest(BaseModel):
 
 
 class SetCardDirRequest(BaseModel):
-    thesis_name: str
     card_output_dir: str
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
-@router.post("/set-card-dir", summary="Set the full-card JSON output directory for a thesis folder")
-def set_card_dir(req: SetCardDirRequest):
+@router.post("/set-card-dir", summary="Set the full-card JSON output directory for an active thesis")
+def set_card_dir(req: SetCardDirRequest, thesis_id: str = Query("")):
     """
-    Validates the directory (or creates it) and saves the path in the drive scan entry.
+    Validates the directory (or creates it) and saves the path in thesis_config.
     All future source index cards for this thesis will be written here.
     """
     from services.storage import read_misc, write_misc
@@ -71,22 +70,21 @@ def set_card_dir(req: SetCardDirRequest):
             detail=f"Could not create or access directory '{target_dir}': {e}"
         )
 
-    # 2. Update scan entry
-    scan = read_misc("drive_scan_result", thesis_id="") or {}
-    if req.thesis_name not in scan:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Thesis '{req.thesis_name}' not found in scan."
-        )
-
-    scan[req.thesis_name]["card_output_dir"] = str(target_dir)
-    write_misc("drive_scan_result", scan, thesis_id="")
+    # 2. Update thesis config
+    config = read_misc("thesis_config", thesis_id=thesis_id) or {}
+    config["card_output_dir"] = str(target_dir)
+    write_misc("thesis_config", config, thesis_id=thesis_id)
 
     return {
         "ok": True,
-        "thesis_name": req.thesis_name,
         "card_output_dir": str(target_dir)
     }
+
+@router.get("/get-card-dir", summary="Get the full-card JSON output directory for an active thesis")
+def get_card_dir(thesis_id: str = Query("")):
+    from services.storage import read_misc
+    config = read_misc("thesis_config", thesis_id=thesis_id) or {}
+    return {"card_output_dir": config.get("card_output_dir", "")}
 
 
 @router.get("/full-card/{thesis_name}", summary="Get the complete unsplit NLM JSON for a thesis")

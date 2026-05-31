@@ -433,7 +433,8 @@ async def run_index_sequence(
                     full_card_key = f"source_index_full_{_safe_name(thesis_name)}"
                     json_backup_path: Optional[str] = None
 
-                    card_output_dir = scan_entry.get("card_output_dir")
+                    config = storage.read_misc("thesis_config", thesis_id=thesis_id) or {}
+                    card_output_dir = config.get("card_output_dir")
                     folder_path = scan_entry.get("folder_path", "")
 
                     if card_output_dir:

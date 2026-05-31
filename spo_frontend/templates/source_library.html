@@ -48,15 +48,21 @@
     <button id="btnAuthAction" class="btn btn-primary" style="padding: 4px 12px; font-size: 13px;" data-action="start">Start Login</button>
   </div>
 
-  <!-- THESIS STRIP — non-scrolling context bar, sits outside workspace -->
   <div class="thesis-strip">
-    <div class="ts-left">
-      <span class="ts-label">Active Thesis</span>
-      <select id="libThesisSelect">
-        <option value="">Loading…</option>
-      </select>
+    <div style="display:flex; justify-content:space-between; width:100%; align-items:center; flex-wrap:wrap; gap:12px;">
+      <div class="ts-left" style="display:flex; align-items:center; gap:12px;">
+        <span class="ts-label">Active Thesis</span>
+        <select id="libThesisSelect">
+          <option value="">Loading…</option>
+        </select>
+        <span class="ts-hint">All cards below operate on this thesis</span>
+      </div>
+      <div class="ts-right" style="display:flex; align-items:center; gap:8px;">
+        <span class="ts-label">Card Output Path:</span>
+        <input type="text" id="globalCardOutputDir" readonly placeholder="Not set" style="width: 300px; background:var(--surface); color:var(--text); border:1px solid var(--border-light); border-radius:4px; padding:4px 8px; font-size:12px; font-family:var(--font-mono);"/>
+        <button id="btnSetGlobalCardDir" class="btn btn-secondary" style="padding:4px 8px; font-size:12px; height:26px;">✏️ Set Path</button>
+      </div>
     </div>
-    <span class="ts-hint">All cards below operate on this thesis</span>
   </div>
 
   <!-- WORKSPACE — scrollable canvas -->
