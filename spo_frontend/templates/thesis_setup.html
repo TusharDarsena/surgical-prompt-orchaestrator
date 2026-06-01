@@ -5,7 +5,7 @@
 {% block logo_suffix %}.setup{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="/static/css/thesis_setup.css"/>
+  <link rel="stylesheet" href="/static/css/thesis_setup.css?v=8"/>
 {% endblock %}
 
 {% block breadcrumb %}
@@ -53,18 +53,12 @@
         <div class="card-divider"></div>
 
         <!-- Synopsis display — view and edit share the same DOM nodes -->
-        <div class="synopsis-block" id="synopsisBlock">
-          <div style="color:var(--muted);font-size:12px;font-style:italic;padding:12px 0;">
-            Loading…
-          </div>
-        </div>
-
-        <div class="section-sep"></div>
+        <div class="synopsis-block" id="synopsisBlock" style="display:none;"></div>
 
         <!-- Re-import -->
-        <div
+        <div id="synDropZoneLabel"
           style="font-size:10px;text-transform:uppercase;letter-spacing:0.09em;color:var(--muted);font-weight:600;margin-bottom:8px;">
-          Import / Re-import synopsis_context.json
+          Import synopsis_context.json
         </div>
         <div class="drop-zone" id="synDropZone">
           <input type="file" id="synFileInput" accept=".json" />
@@ -96,10 +90,11 @@
     </div>
 
     <!-- ══ CARD 02: CHAPTERS & SUBTOPICS ══ -->
-    <div class="card active" id="card02">
+    <div class="card active" id="card02" style="display:none;">
       <div class="card-header" data-card="card02">
         <span class="card-num">02</span>
         <span class="card-title">Chapters &amp; Subtopics</span>
+        <div style="flex:1;"></div>
         <span class="pill pill-idle" id="chaptersPill">Loading…</span>
         <span class="chevron">▾</span>
       </div>
@@ -107,7 +102,7 @@
         <div class="card-divider"></div>
 
         <!-- Import chapterization.json -->
-        <div
+        <div id="chDropZoneLabel"
           style="font-size:10px;text-transform:uppercase;letter-spacing:0.09em;color:var(--muted);font-weight:600;margin-bottom:8px;">
           Import chapterization.json
         </div>
@@ -134,37 +129,9 @@
           <div class="chapters-loading">Loading chapters</div>
         </div>
 
-        <!-- Add chapter manually -->
-        <div style="margin-top:10px;">
-          <button class="btn btn-secondary" id="btnShowAddChapter">+ Add Chapter Manually</button>
-          <div class="add-chapter-form" id="addChapterForm" style="display:none; margin-top:10px;">
-            <div class="add-chapter-label">Add Chapter</div>
-            <div class="add-ch-grid">
-              <div class="form-group">
-                <label class="form-label">Number ★</label>
-                <input type="text" id="newChNum" placeholder="4" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Title ★</label>
-                <input type="text" id="newChTitle" placeholder="Chapter title…" />
-              </div>
-            </div>
-            <div class="form-group" style="margin-bottom:8px;">
-              <label class="form-label">Goal ★</label>
-              <textarea id="newChGoal" style="min-height:60px;"
-                placeholder="What must this chapter prove?"></textarea>
-            </div>
-            <div class="form-group" style="margin-bottom:12px;">
-              <label class="form-label">Chapter Arc <span style="font-weight:400;text-transform:none;">(optional —
-                  best added via JSON import)</span></label>
-              <textarea id="newChArc" style="min-height:72px;"
-                placeholder="150–200 words. How all subtopics connect argumentatively…"></textarea>
-            </div>
-            <div style="display:flex;gap:8px;">
-              <button class="btn btn-primary" id="btnAddChapter">Add Chapter</button>
-              <button class="btn btn-ghost" id="btnCancelAddChapter">Cancel</button>
-            </div>
-          </div>
+        <!-- Bulk upload button -->
+        <div style="margin-top:16px; margin-bottom:10px;">
+          <button class="btn btn-secondary" id="chReimportBtn" style="display:none;" onclick="document.getElementById('chFileInput').click()">+ Add chapterization jsons</button>
         </div>
 
       </div>
@@ -174,5 +141,5 @@
 {% endblock %}
 
 {% block page_script %}
-  <script type="module" src="/static/js/thesis_setup.js"></script>
+  <script type="module" src="/static/js/thesis_setup.js?v=7"></script>
 {% endblock %}

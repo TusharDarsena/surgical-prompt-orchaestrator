@@ -147,7 +147,9 @@ function renderThesisSelector() {
     for (const t of theses) {
       const opt = document.createElement("option");
       opt.value = t.id;
-      opt.textContent = `${t.title} — ${t.author}`;
+      let titleDisplay = t.title;
+      if (titleDisplay.length > 55) titleDisplay = titleDisplay.substring(0, 55) + '…';
+      opt.textContent = titleDisplay;
       if (t.id === activeId) opt.selected = true;
       sel.appendChild(opt);
     }
@@ -164,6 +166,8 @@ function renderThesisSelector() {
   if (delBtn) {
     delBtn.style.display = activeId ? "inline-flex" : "none";
   }
+
+
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -301,116 +305,84 @@ function renderSynopsis() {
   const block = $("synopsisBlock");
   const syn = state.synopsis;
 
+  const dropZone = $("synDropZone");
+  const dropZoneLabel = $("synDropZoneLabel");
+
   if (!syn) {
-    block.innerHTML = `<div class="synopsis-empty">No synopsis yet. Import synopsis_context.json below.</div>`;
+    block.style.display = "none";
+    if (dropZone) dropZone.style.display = "flex";
+    if (dropZoneLabel) dropZoneLabel.style.display = "block";
+    const card02 = $("card02");
+    if (card02) card02.style.display = "none";
     return;
   }
+
+  // If we have synopsis
+  block.style.display = "block";
+  if (dropZone) dropZone.style.display = "none";
+  if (dropZoneLabel) dropZoneLabel.style.display = "none";
+  const card02 = $("card02");
+  if (card02) card02.style.display = "block";
 
   const title = syn.title || "";
   const author = syn.researcher || syn.author || "";
   const field = syn.field || "";
   const scope = syn.temporal_scope || syn.scope_and_limits || "";
-  const frameworks = Array.isArray(syn.methodology?.theoretical_frameworks)
-    ? syn.methodology.theoretical_frameworks.join(", ")
-    : (syn.theoretical_frameworks || "");
-  const themes = Array.isArray(syn.central_themes)
-    ? syn.central_themes.join(", ")
-    : (syn.themes || "");
+  
+  const frameworksArray = Array.isArray(syn.methodology?.theoretical_frameworks)
+    ? syn.methodology.theoretical_frameworks
+    : (syn.theoretical_frameworks ? (typeof syn.theoretical_frameworks === "string" ? syn.theoretical_frameworks.split(",") : syn.theoretical_frameworks) : []);
+
+  const frameworksHtml = frameworksArray.filter(Boolean).map(f => {
+    const clean = String(f).trim().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return `<span class="theme-chip framework-chip">${esc(clean)}</span>`;
+  }).join("");
+
+  let themesArray = [];
+  if (Array.isArray(syn.central_themes)) {
+    themesArray = syn.central_themes;
+  } else if (syn.themes) {
+    themesArray = typeof syn.themes === "string" ? syn.themes.split(",").map(s => s.trim()) : syn.themes;
+  }
+  
+  const themesHtml = themesArray.filter(Boolean).map(t => {
+    const clean = String(t).trim().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return `<span class="theme-chip">${esc(clean)}</span>`;
+  }).join("");
+
+  const rawThemes = themesArray.join(", ");
+  const rawFrameworks = frameworksArray.join(", ");
   const argument = syn.core_argument || syn.central_argument || "";
 
   block.innerHTML = `
-    <div class="synopsis-block-header">
-      <span class="synopsis-block-label">Current Synopsis</span>
-      <div class="synopsis-block-actions">
-        <button class="icon-btn" id="synEditBtn" title="Edit inline" onclick="toggleSynEdit()">✏</button>
-        <button class="icon-btn del-btn" title="Delete synopsis" onclick="deleteSynopsis()">✕</button>
+    <!-- VIEW MODE -->
+    <div class="syn-view-mode">
+      <div class="syn-editorial-header">
+        <h1 class="syn-title-hero">${esc(title) || "Untitled Thesis"}</h1>
+        <div class="syn-subtitle">
+          By <strong>${esc(author) || "Unknown Author"}</strong>
+          ${scope ? `<span class="bullet-sep">•</span> ${esc(scope)}` : ""}
+          ${field ? `<span class="bullet-sep">•</span> <span class="syn-field-tag">${esc(field)}</span>` : ""}
+        </div>
+        <div class="synopsis-block-actions hero-actions">
+          <button class="btn btn-ghost" onclick="document.getElementById('synFileInput').click()" title="Re-import JSON">↻ Re-import</button>
+        </div>
       </div>
-    </div>
-    <div class="syn-grid">
-      <div class="syn-field">
-        <span class="syn-field-label">Title</span>
-        <span class="syn-val">${esc(title)}</span>
-        <input class="syn-input" type="text" data-field="title" value="${esc(title)}"/>
+
+      <div class="syn-tag-cloud">
+        ${frameworksHtml ? `<div class="syn-tag-group"><span class="syn-tag-label">FRAMEWORKS</span> <div class="syn-tags">${frameworksHtml}</div></div>` : ""}
+        ${themesHtml ? `<div class="syn-tag-group"><span class="syn-tag-label">THEMES</span> <div class="syn-tags">${themesHtml}</div></div>` : ""}
       </div>
-      <div class="syn-field">
-        <span class="syn-field-label">Author</span>
-        <span class="syn-val">${esc(author)}</span>
-        <input class="syn-input" type="text" data-field="author" value="${esc(author)}"/>
+
+      <div class="syn-argument-section">
+        <span class="syn-tag-label" style="display:block; margin-bottom:8px;">ARGUMENT</span>
+        <blockquote class="syn-argument-quote">
+          ${esc(argument)}
+        </blockquote>
       </div>
-      <div class="syn-field">
-        <span class="syn-field-label">Field</span>
-        <span class="syn-val">${esc(field)}</span>
-        <input class="syn-input" type="text" data-field="field" value="${esc(field)}"/>
-      </div>
-      <div class="syn-field">
-        <span class="syn-field-label">Temporal Scope</span>
-        <span class="syn-val">${esc(scope)}</span>
-        <input class="syn-input" type="text" data-field="temporal_scope" value="${esc(scope)}"/>
-      </div>
-      <div class="syn-field">
-        <span class="syn-field-label">Theoretical Frameworks</span>
-        <span class="syn-val">${esc(frameworks)}</span>
-        <input class="syn-input" type="text" data-field="frameworks" value="${esc(frameworks)}"/>
-      </div>
-      <div class="syn-field">
-        <span class="syn-field-label">Central Themes</span>
-        <span class="syn-val">${esc(themes)}</span>
-        <input class="syn-input" type="text" data-field="themes" value="${esc(themes)}"/>
-      </div>
-    </div>
-    <div class="syn-argument-row">
-      <span class="syn-field-label">Central Argument</span>
-      <div class="syn-argument-val">${esc(argument)}</div>
-      <textarea class="syn-argument-input" data-field="core_argument">${esc(argument)}</textarea>
-    </div>
-    <div class="syn-edit-actions">
-      <button class="btn btn-primary" style="padding:6px 14px;" onclick="saveSynEdit()">Save</button>
-      <button class="btn btn-ghost"   style="padding:6px 14px;" onclick="cancelSynEdit()">Cancel</button>
     </div>
   `;
 }
-
-window.toggleSynEdit = function () {
-  $("synopsisBlock").classList.toggle("editing");
-  const btn = $("synEditBtn");
-  if (btn) btn.classList.toggle("active");
-};
-
-window.saveSynEdit = async function () {
-  const block = $("synopsisBlock");
-  const patch = {};
-  block.querySelectorAll(".syn-input[data-field]").forEach(inp => {
-    patch[inp.dataset.field] = inp.value;
-  });
-  const argTa = block.querySelector(".syn-argument-input[data-field]");
-  if (argTa) patch[argTa.dataset.field] = argTa.value;
-
-  const backendPatch = {
-    title: patch.title,
-    temporal_scope: patch.temporal_scope,
-    field: patch.field,
-    core_argument: patch.core_argument,
-    central_themes: patch.themes
-      ? patch.themes.split(",").map(s => s.trim()).filter(Boolean)
-      : undefined,
-  };
-  if (patch.author) backendPatch.researcher = patch.author;
-
-  try {
-    await API.patchSynopsis(backendPatch);
-    toast("Synopsis saved", "success");
-    block.classList.remove("editing");
-    await loadSynopsis();
-  } catch (err) {
-    toast(`Save failed: ${err.message}`, "error");
-  }
-};
-
-window.cancelSynEdit = function () {
-  $("synopsisBlock").classList.remove("editing");
-  const btn = $("synEditBtn");
-  if (btn) btn.classList.remove("active");
-};
 
 window.deleteSynopsis = async function () {
   if (!confirm("Delete the synopsis for this thesis? This cannot be undone.")) return;
@@ -474,12 +446,24 @@ window.confirmSynImport = async function () {
 
 function renderChapters() {
   const list = $("chapterList");
+  const dropZone = $("chDropZone");
+  const dropZoneLabel = $("chDropZoneLabel");
+  const reimportBtn = $("chReimportBtn");
+
   list.innerHTML = "";
   if (!state.chapters.length) {
+    if (dropZone) dropZone.style.display = "flex";
+    if (dropZoneLabel) dropZoneLabel.style.display = "block";
+    if (reimportBtn) reimportBtn.style.display = "none";
     list.innerHTML = `<div class="chapters-empty">No chapters yet. Import chapterization.json above.</div>`;
     updateChaptersPill();
     return;
   }
+  
+  if (dropZone) dropZone.style.display = "none";
+  if (dropZoneLabel) dropZoneLabel.style.display = "none";
+  if (reimportBtn) reimportBtn.style.display = "inline-flex";
+
   for (const ch of state.chapters) {
     list.appendChild(_buildChapterRow(ch));
   }
@@ -500,77 +484,47 @@ function _buildChapterRow(ch) {
       <span class="sub-num">${esc(sub.number)}</span>
       <span class="sub-title">${esc(sub.title)}</span>
       <span class="sub-goal">${esc(sub.goal)}</span>
-      <button class="icon-btn del-btn" title="Delete subtopic"
-        onclick="deleteSubtopic('${esc(cid)}','${esc(sub.subtopic_id)}')">✕</button>
     </div>
   `).join("");
 
   row.innerHTML = `
-    <div class="chapter-header">
+    <div class="chapter-header" onclick="toggleChapterAccordion('${esc(cid)}')">
       <span class="ch-num">Ch.${esc(String(ch.number))}</span>
       <span class="ch-title ch-val">${esc(ch.title)}</span>
-      <input class="ch-input" type="text" data-field="title" value="${esc(ch.title)}"/>
       <span class="arc-badge ${hasArc ? "ok" : "warn"}">${hasArc ? "Arc ✓" : "⚠ Arc missing"}</span>
-      <div class="ch-actions">
-        <button class="icon-btn" title="Edit" onclick="toggleChEdit('${esc(cid)}')">✏</button>
-        <button class="icon-btn del-btn" title="Delete chapter"
-          onclick="deleteChapter('${esc(cid)}')">✕</button>
+      <div class="chapter-actions">
+        <span class="chapter-chevron">▾</span>
       </div>
     </div>
-    <div class="ch-goal-row">
-      <span class="ch-goal ch-val">${esc(ch.goal)}</span>
-      <textarea class="ch-input ch-goal-input" data-field="goal">${esc(ch.goal)}</textarea>
+    <div class="chapter-body">
+      <div class="ch-goal-row">
+        <span class="ch-goal ch-val">${esc(ch.goal)}</span>
+      </div>
+      <div class="subtopic-list">
+        <span class="sub-list-label">SUBTOPICS</span>
+        ${subsHtml}
+      </div>
     </div>
-    <div class="ch-edit-actions">
-      <button class="btn btn-primary" style="padding:5px 12px;"
-        onclick="saveChEdit('${esc(cid)}')">Save</button>
-      <button class="btn btn-ghost" style="padding:5px 12px;"
-        onclick="toggleChEdit('${esc(cid)}')">Cancel</button>
-    </div>
-    <div class="subtopic-list">${subsHtml}</div>
   `;
   return row;
 }
 
-window.toggleChEdit = function (cid) {
-  document.getElementById(`ch-${cid}`)?.classList.toggle("editing");
-};
-
-window.saveChEdit = async function (cid) {
+window.toggleChapterAccordion = function (cid) {
   const row = document.getElementById(`ch-${cid}`);
   if (!row) return;
-  const updates = {};
-  row.querySelectorAll(".ch-input[data-field]").forEach(inp => {
-    updates[inp.dataset.field] = inp.value;
-  });
-  try {
-    await API.patchChapter(cid, updates);
-    toast("Chapter saved", "success");
-    await loadChapters();
-  } catch (err) {
-    toast(`Save failed: ${err.message}`, "error");
-  }
-};
-
-window.deleteChapter = async function (cid) {
-  if (!confirm(`Delete chapter ${cid} and all its subtopics?`)) return;
-  try {
-    await API.deleteChapter(cid);
-    toast("Chapter deleted", "success");
-    await loadChapters();
-  } catch (err) {
-    toast(`Delete failed: ${err.message}`, "error");
-  }
-};
-
-window.deleteSubtopic = async function (cid, sid) {
-  if (!confirm(`Delete subtopic ${sid}?`)) return;
-  try {
-    await API.deleteSubtopic(cid, sid);
-    toast("Subtopic deleted", "success");
-    await loadChapters();
-  } catch (err) {
-    toast(`Delete failed: ${err.message}`, "error");
+  // If we are editing, do not toggle accordion
+  if (row.classList.contains("editing")) return;
+  
+  const isOpening = !row.classList.contains("open");
+  
+  // Close all other open chapters
+  if (isOpening) {
+    document.querySelectorAll(".chapter-row.open").forEach(r => {
+      r.classList.remove("open");
+    });
+    row.classList.add("open");
+  } else {
+    row.classList.remove("open");
   }
 };
 
@@ -635,31 +589,7 @@ window.confirmChapterImport = async function () {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ADD CHAPTER MANUALLY
-// ─────────────────────────────────────────────────────────────────────────────
 
-async function addChapterManually() {
-  const num = $("newChNum")?.value.trim();
-  const title = $("newChTitle")?.value.trim();
-  const goal = $("newChGoal")?.value.trim();
-  const arc = $("newChArc")?.value.trim();
-  if (!num || !title || !goal) { toast("Number, Title and Goal are required", "error"); return; }
-  try {
-    await _req("POST", _p("/thesis/chapters"), {
-      number: parseInt(num), title, goal,
-      chapter_arc: arc || undefined,
-    });
-    toast(`Chapter ${num} added`, "success");
-    $("addChapterForm").style.display = "none";
-    ["newChNum", "newChTitle", "newChGoal", "newChArc"].forEach(id => {
-      const el = $(id); if (el) el.value = "";
-    });
-    await loadChapters();
-  } catch (err) {
-    toast(`Add failed: ${err.message}`, "error");
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PILLS
@@ -747,10 +677,6 @@ function init() {
     e.preventDefault(); chDrop.classList.remove("drag-over");
     onChapterFile(Array.from(e.dataTransfer.files));
   });
-
-  $("btnShowAddChapter").addEventListener("click", () => _toggleEl("addChapterForm"));
-  $("btnCancelAddChapter").addEventListener("click", () => _toggleEl("addChapterForm"));
-  $("btnAddChapter").addEventListener("click", addChapterManually);
 
   renderThesisSelector();
   loadAll();
