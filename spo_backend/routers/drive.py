@@ -356,10 +356,15 @@ def register_drive_links(req: RegisterLinksRequest):
     registered = []
     skipped = []
 
+    # Get the root folder name (the only time we need _get_folder_metadata)
+    root_meta = _get_folder_metadata(service, req.drive_parent_folder_id)
+    root_name = root_meta["name"] if root_meta else "Root"
+
     # Recursively find all leaf folders (folders that contain files)
     _walk_drive_folder(
         service=service,
         folder_id=req.drive_parent_folder_id,
+        folder_name=root_name,
         scan=scan,
         registered=registered,
         skipped=skipped,
@@ -378,6 +383,7 @@ def register_drive_links(req: RegisterLinksRequest):
 def _walk_drive_folder(
     service,
     folder_id: str,
+    folder_name: str,
     scan: dict,
     registered: list,
     skipped: list,
@@ -390,91 +396,86 @@ def _walk_drive_folder(
 
     This makes the function depth-agnostic — any structure works.
     """
-    # List subfolders
-    subfolders = _list_drive_folders(service, folder_id)
-    if subfolders is None:
+    # 1. ONE API call to get all contents
+    contents = _list_drive_contents(service, folder_id)
+    if contents is None:
         # Can't list this folder — skip silently (already logged at call site)
         return
 
-    # Recurse into subfolders first
+    # 2. Separate in memory (Zero API calls)
+    FOLDER_MIME = 'application/vnd.google-apps.folder'
+    subfolders = [c for c in contents if c['mimeType'] == FOLDER_MIME]
+    files = [c for c in contents if c['mimeType'] != FOLDER_MIME]
+
+    # 3. Process files (Zero API calls for metadata!)
+    if files:
+        thesis_name = folder_name
+        
+        # Match to scan — exact first, then case-insensitive
+        if thesis_name not in scan:
+            matched = next(
+                (k for k in scan if k.lower() == thesis_name.lower()),
+                None
+            )
+            if not matched:
+                skipped.append({
+                    "folder": thesis_name,
+                    "reason": "not in local scan — run scan-local first or check folder name"
+                })
+            else:
+                thesis_name = matched  # use the scan key casing
+
+        # Only process if we found a match
+        if thesis_name in scan:
+            # Build filename → shareable link (existing scan dict format)
+            links = {
+                f["name"]: f"https://drive.google.com/file/d/{f['id']}/view"
+                for f in files
+            }
+            # Build filename → raw Drive file ID (for source records)
+            drive_file_ids = {f["name"]: f["id"] for f in files}
+
+            scan[thesis_name]["drive_links"] = links
+            scan[thesis_name]["drive_links_registered_at"] = datetime.utcnow().isoformat()
+            scan[thesis_name]["drive_folder_id"] = folder_id
+
+            # ── Write drive_file_id directly to source records ────────────────────────
+            # This decouples Drive resolution from local folder names: source_resolver.py
+            # can look up drive_file_id from source records without consulting the scan dict.
+            group = storage.find_group_by_scan_key(thesis_name, thesis_id="")
+            sources_linked = 0
+            if group:
+                group_sources = group.get("sources", [])  # capture before any cache eviction
+                for source in group_sources:
+                    fname = source.get("file_name")
+                    if fname and fname in drive_file_ids:
+                        source_data = dict(source)
+                        source_data["drive_file_id"] = drive_file_ids[fname]
+                        storage.write_source(
+                            group["group_id"],
+                            source_data["source_id"],
+                            source_data,
+                            thesis_id="",
+                        )
+                        sources_linked += 1
+
+            registered.append({
+                "thesis_name": thesis_name,
+                "drive_folder_id": folder_id,
+                "files_registered": len(links),
+                "source_records_linked": sources_linked,
+            })
+
+    # 4. Recurse into subfolders
     for subfolder in subfolders:
         _walk_drive_folder(
             service=service,
             folder_id=subfolder["id"],
+            folder_name=subfolder["name"],
             scan=scan,
             registered=registered,
             skipped=skipped,
         )
-
-    # Check if this folder directly contains files
-    files = _list_drive_files(service, folder_id)
-    if not files:
-        return  # no files here — not a thesis folder
-
-    # Need the folder's own name to match against scan keys.
-    # We get it from the Drive API metadata.
-    folder_meta = _get_folder_metadata(service, folder_id)
-    if not folder_meta:
-        skipped.append({
-            "folder_id": folder_id,
-            "reason": "could not fetch folder metadata"
-        })
-        return
-
-    thesis_name = folder_meta["name"]
-
-    # Match to scan — exact first, then case-insensitive
-    if thesis_name not in scan:
-        matched = next(
-            (k for k in scan if k.lower() == thesis_name.lower()),
-            None
-        )
-        if not matched:
-            skipped.append({
-                "folder": thesis_name,
-                "reason": "not in local scan — run scan-local first or check folder name"
-            })
-            return
-        thesis_name = matched  # use the scan key casing
-
-    # Build filename → shareable link (existing scan dict format)
-    links = {
-        f["name"]: f"https://drive.google.com/file/d/{f['id']}/view"
-        for f in files
-    }
-    # Build filename → raw Drive file ID (for source records)
-    drive_file_ids = {f["name"]: f["id"] for f in files}
-
-    scan[thesis_name]["drive_links"] = links
-    scan[thesis_name]["drive_links_registered_at"] = datetime.utcnow().isoformat()
-    scan[thesis_name]["drive_folder_id"] = folder_id
-
-    # ── Write drive_file_id directly to source records ────────────────────────
-    # This decouples Drive resolution from local folder names: source_resolver.py
-    # can look up drive_file_id from source records without consulting the scan dict.
-    group = storage.find_group_by_scan_key(thesis_name, thesis_id="")
-    sources_linked = 0
-    if group:
-        group_sources = group.get("sources", [])  # capture before any cache eviction
-        for source in group_sources:
-            fname = source.get("file_name")
-            if fname and fname in drive_file_ids:
-                source_data = dict(source)
-                source_data["drive_file_id"] = drive_file_ids[fname]
-                storage.write_source(
-                    group["group_id"],
-                    source_data["source_id"],
-                    source_data,
-                    thesis_id="",
-                )
-                sources_linked += 1
-
-    registered.append({
-        "thesis_name": thesis_name,
-        "drive_folder_id": folder_id,
-        "files_registered": len(links),
-        "source_records_linked": sources_linked,
-    })
 
 
 
@@ -743,26 +744,13 @@ def _get_folder_metadata(service, folder_id: str) -> dict | None:
         return None
 
 
-def _list_drive_folders(service, folder_id: str) -> list | None:
-    """Returns list of {id, name} for subfolders of folder_id. None on error."""
+def _list_drive_contents(service, folder_id: str) -> list | None:
+    """Returns list of {id, name, mimeType} for ALL contents of folder_id in one call."""
     try:
         results = service.files().list(
-            q=f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'",
-            fields="files(id, name)",
-            pageSize=100,
-        ).execute()
-        return results.get("files", [])
-    except Exception:
-        return None
-
-
-def _list_drive_files(service, folder_id: str) -> list | None:
-    """Returns list of {id, name} for files (non-folders) in folder_id. None on error."""
-    try:
-        results = service.files().list(
-            q=f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'",
-            fields="files(id, name)",
-            pageSize=100,
+            q=f"'{folder_id}' in parents and trashed=false",
+            fields="files(id, name, mimeType)",
+            pageSize=1000,
         ).execute()
         return results.get("files", [])
     except Exception:
