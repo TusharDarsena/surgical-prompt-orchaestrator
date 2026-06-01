@@ -18,7 +18,6 @@ import * as API from "./source_library_api.js";
 const state = {
   groups:        [],   // full library: [{group_id, title, author, year, sources:[...], ...}]
   thesisFolders: [], // drive scan result: [{thesis_name, files[], pdfs[], imported, imported_at, import_group_id, import_error, drive_links_registered, drive_links}]
-  fileQueue:     [],   // [{file, status:"queued"|"importing"|"done"|"error", message}]
   pdfSelections: {},   // { thesis_name → Set<string> } of filenames user wants to include
   globalCardOutputDir: "",
 };
@@ -118,104 +117,6 @@ function toggleCard(id) {
   card.classList.toggle("active");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CARD 01 — IMPORT SOURCE JSON
-// ─────────────────────────────────────────────────────────────────────────────
-
-function renderFileQueue() {
-  const container = $("fileQueue");
-  container.innerHTML = "";
-  if (!state.fileQueue.length) return;
-
-  for (const item of state.fileQueue) {
-    const row = document.createElement("div");
-    row.className = `file-queue-row${item.status === "done" ? " state-done" : item.status === "error" ? " state-error" : ""}`;
-    row.id = `fqr-${item.id}`;
-
-    const name = document.createElement("span");
-    name.className = "fq-name";
-    name.textContent = item.file.name;
-
-    const status = document.createElement("span");
-    status.className = `fq-status ${item.status === "done" ? "done" : item.status === "error" ? "error" : "pending"}`;
-    status.textContent = item.status === "done"
-      ? `✓ ${item.message}`
-      : item.status === "error"
-      ? `✕ ${item.message}`
-      : "Queued";
-
-    row.appendChild(name);
-    row.appendChild(status);
-
-    if (item.status === "queued" || item.status === "error") {
-      const remove = document.createElement("button");
-      remove.className = "fq-remove";
-      remove.title = "Remove";
-      remove.textContent = "✕";
-      remove.addEventListener("click", () => {
-        state.fileQueue = state.fileQueue.filter(f => f.id !== item.id);
-        renderFileQueue();
-      });
-      row.appendChild(remove);
-    }
-
-    container.appendChild(row);
-  }
-}
-
-function onFileSelect(files) {
-  for (const file of files) {
-    if (!file.name.endsWith(".json")) {
-      toast(`${file.name} — only .json files are accepted`, "error");
-      continue;
-    }
-    // Avoid duplicates
-    if (state.fileQueue.find(f => f.file.name === file.name)) continue;
-    state.fileQueue.push({ id: uid(), file, status: "queued", message: "" });
-  }
-  renderFileQueue();
-  // Update import-all button
-  $("btnImportAll").disabled = !state.fileQueue.some(f => f.status === "queued");
-}
-
-async function importAllQueued() {
-  const targetGroupId = $("importTargetFolder").value;
-  const queued = state.fileQueue.filter(f => f.status === "queued");
-  if (!queued.length) { toast("No files queued", "error"); return; }
-
-  $("btnImportAll").disabled = true;
-  $("btnImportAll").textContent = "Importing…";
-
-  for (const item of queued) {
-    item.status = "importing";
-    renderFileQueue();
-
-    try {
-      const text = await item.file.text();
-      const parsed = JSON.parse(text);
-
-      // If a target group is selected, attach the group_id so the backend
-      // knows to add sources into an existing group rather than creating new.
-      if (targetGroupId) parsed._target_group_id = targetGroupId;
-
-      const result = await API.importSourceJson(parsed);
-      item.status = "done";
-      item.message = `Imported — ${result.sources_created ?? 0} sources created`;
-    } catch (err) {
-      item.status = "error";
-      item.message = err.message;
-    }
-
-    renderFileQueue();
-  }
-
-  $("btnImportAll").disabled = false;
-  $("btnImportAll").textContent = "💾 Import All Queued";
-
-  // Reload library
-  await actions.loadLibrary();
-  toast("Import complete", "success");
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CARD 02 — DRIVE SETUP
@@ -276,16 +177,16 @@ async function loadThesisFolders() {
     const activeThesis = theses.find(t => t.id === activeId);
     const activeTitle = activeThesis?.title;
 
+    const activeTitleLower = (activeTitle || "").trim().toLowerCase();
+
     let folders = data.thesis_folders ?? [];
     if (activeTitle) {
       folders = folders.filter(f => {
-        // In the backend, f.thesis_name is the immediate parent folder of the PDFs (the source group).
-        // If PDFs are inside a subfolder (e.g., .../new/SourceGroupA/), parts[-2] is "new" (the active thesis).
-        // If PDFs are directly inside the active thesis folder, parts[-1] is "new".
         const p = f.folder_path || f.level2_path || "";
         const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
-        if (parts.length >= 1 && parts[parts.length - 1] === activeTitle) return true;
-        if (parts.length >= 2 && parts[parts.length - 2] === activeTitle) return true;
+        
+        if (parts.length >= 1 && (parts[parts.length - 1] || "").trim().toLowerCase() === activeTitleLower) return true;
+        if (parts.length >= 2 && (parts[parts.length - 2] || "").trim().toLowerCase() === activeTitleLower) return true;
         return false;
       });
     }
@@ -1060,17 +961,7 @@ function onLibThesisChange(id) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function init() {
-  // ── Card 01: drag-drop + file select ──────────────────────────────────────
-  const dropZone = $("dropZone");
-  dropZone.addEventListener("dragover",  e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
-  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
-  dropZone.addEventListener("drop", e => {
-    e.preventDefault();
-    dropZone.classList.remove("drag-over");
-    onFileSelect(Array.from(e.dataTransfer.files));
-  });
-  $("fileInput").addEventListener("change", e => onFileSelect(Array.from(e.target.files)));
-  $("btnImportAll").addEventListener("click", importAllQueued);
+
 
   // ── Card 02: scan + drive ─────────────────────────────────────────────────
   $("btnScan").addEventListener("click", handleScan);
@@ -1081,7 +972,7 @@ async function init() {
   $("btnBatchConfirm").addEventListener("click", confirmBatch);
   $("btnBatchCancel").addEventListener("click", () => { $("batchConfirmModal").style.display = "none"; });
   $("btnRerunCancel").addEventListener("click", () => { $("rerunWarnModal").style.display = "none"; });
-  $("btnGoToCard03").onclick = () => {
+  $("btnGoToCard02").onclick = () => {
     $("rerunWarnModal").style.display = "none";
     $("card02").classList.add("active");
     setTimeout(() => {

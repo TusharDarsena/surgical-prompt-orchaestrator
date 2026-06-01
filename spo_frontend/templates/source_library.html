@@ -173,54 +173,7 @@
       </div>
     </div>
 
-    <!-- ══ CARD 03: IMPORT SOURCE JSON ══ -->
-    <div class="card active" id="card03">
-      <div class="card-header" data-card="card03">
-        <span class="card-num">03</span>
-        <span class="card-title">Import Source JSON</span>
-        <span class="pill pill-idle">Drop files to import</span>
-        <span class="chevron">▾</span>
-      </div>
-      <div class="card-body">
-        <div class="card-divider"></div>
 
-        <!-- Target folder selector -->
-        <div class="import-target-row">
-          <label class="form-label" for="importTargetFolder">
-            Import into existing work
-            <span class="opt"> — leave blank to create a new work from the JSON</span>
-          </label>
-          <select id="importTargetFolder">
-            <option value="">— Create a new work from this JSON —</option>
-            {# Options populated dynamically by JS after library loads #}
-          </select>
-          <div class="import-target-hint">
-            Select an existing work to add or replace chapters inside it,
-            or leave blank to create a new top-level work.
-          </div>
-        </div>
-
-        <!-- Drop zone -->
-        <div class="drop-zone" id="dropZone">
-          <input type="file" id="fileInput" accept=".json" multiple/>
-          <div class="drop-icon">📂</div>
-          <div class="drop-label">Drag &amp; drop source JSON files here</div>
-          <div class="drop-sub">Each JSON = one source group + all chapters + index cards</div>
-          <span class="drop-browse">Browse files</span>
-        </div>
-
-        <!-- File queue — populated by renderFileQueue() -->
-        <div class="file-queue" id="fileQueue"></div>
-
-        <div class="import-action-row">
-          <button class="btn btn-primary" id="btnImportAll" disabled>
-            💾 Import All Queued
-          </button>
-          <span class="import-note">SPO stores metadata only — PDFs go to NotebookLM, not here.</span>
-        </div>
-
-      </div>
-    </div>
 
   </main>
 {% endblock %}
@@ -254,7 +207,7 @@
         Source Library. Delete the old group from Card 02 first, then re-run.
       </div>
       <div class="modal-actions">
-        <button class="btn btn-secondary" id="btnGoToCard03">Go to Source Library →</button>
+        <button class="btn btn-secondary" id="btnGoToCard02">Go to Source Library →</button>
         <button class="btn btn-ghost"     id="btnRerunCancel">Cancel</button>
       </div>
     </div>

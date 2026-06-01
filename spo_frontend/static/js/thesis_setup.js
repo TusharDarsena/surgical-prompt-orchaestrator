@@ -186,11 +186,12 @@ async function loadThesesList() {
       author: t.author || "",
     }));
     _saveThesesIndex(mapped);
-    // If active id not in backend list, fall back to root ("")
-    const activeId = _activeThesisId();
-    if (activeId && !mapped.find(t => t.id === activeId)) {
-      _setActiveThesis("");
-    }
+    // Do not aggressively reset active thesis if missing from backend list.
+    // We trust localStorage so the user can stay in their draft workspace.
+    // const activeId = _activeThesisId();
+    // if (activeId && !mapped.find(t => t.id === activeId)) {
+    //   _setActiveThesis("");
+    // }
   } catch (_) {
     // Backend unavailable — keep whatever localStorage has
   }

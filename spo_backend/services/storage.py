@@ -204,11 +204,17 @@ def _ensure_groups_loaded(thesis_id: str) -> None:
 
 def _evict_group(group_id: str, thesis_id: str) -> None:
     """Remove one group entry from cache so it is re-read on next access."""
+    global _groups_cache_loaded
     if thesis_id == _groups_cache_thesis_id:
         _groups_cache.pop(group_id, None)
+        # Re-warm immediately if the full list is currently cached, 
+        # ensuring newly created groups are included in .values() iterations.
+        if _groups_cache_loaded:
+            entry = _load_group_from_disk(group_id, thesis_id)
+            if entry is not None:
+                _groups_cache[group_id] = entry
     else:
         # Writing to a different thesis than what's cached â€” full invalidation
-        global _groups_cache_loaded
         _groups_cache.clear()
         _groups_cache_loaded = False
 
