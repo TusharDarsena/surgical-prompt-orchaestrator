@@ -54,6 +54,7 @@ import spo_frontend.new_pages_already_migrated.app_home_page       as _mod_app_h
 import spo_frontend.new_pages_already_migrated.thesis_setup_page   as _mod_thesis
 import spo_frontend.new_pages_already_migrated.source_library_page as _mod_sources
 import spo_frontend.new_pages_already_migrated.write_section       as _mod_write
+import spo_frontend.new_pages_already_migrated.consistency_chain_page as _mod_cc
 
 # ── Patch the broken templates reference on every page router ─────────────────
 # Each router file computes FRONTEND_DIR from its own __file__ which resolves
@@ -64,6 +65,7 @@ _mod_app_home.templates = _templates
 _mod_thesis.templates   = _templates
 _mod_sources.templates  = _templates
 _mod_write.templates    = _templates
+_mod_cc.templates       = _templates
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -103,6 +105,7 @@ app.include_router(_mod_app_home.router)   # GET /app
 app.include_router(_mod_thesis.router)     # GET /thesis-setup
 app.include_router(_mod_sources.router)    # GET /source-library
 app.include_router(_mod_write.router)      # GET /write-section
+app.include_router(_mod_cc.router)         # GET /consistency-chain
 
 # ── Serve static files ────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Consistency Chain · SPO{% endblock %}
+
+{% block logo_suffix %}.chain{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="/static/css/consistency_chain.css"/>
+{% endblock %}
+
+{% block breadcrumb %}
+  <span>SPO</span>
+  <span class="sep">/</span>
+  <span class="crumb-active">Consistency Chain</span>
+{% endblock %}
+
+{% block shell_content %}
+<main class="workspace">
+
+  <!-- ── THESIS SELECTOR STRIP ── -->
+  <div class="cc-thesis-strip">
+    <span class="cc-strip-label">Thesis</span>
+    <div class="cc-select-wrap">
+      <select id="ccThesisSelect">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ── CHAPTER SELECTOR STRIP ── -->
+  <div class="cc-chapter-strip">
+    <span class="cc-strip-label">Chapter</span>
+    <div class="cc-select-wrap">
+      <select id="chapterSelect">
+        <option value="">— select —</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ── METRICS ROW ── -->
+  <div class="cc-metrics" id="metricsRow">
+    <div class="cc-metric-pill">
+      <div class="cc-metric-val" id="metricSubtopics">—</div>
+      <div class="cc-metric-key">Subtopics</div>
+    </div>
+    <div class="cc-metric-pill">
+      <div class="cc-metric-val" id="metricComplete">—</div>
+      <div class="cc-metric-key">Complete</div>
+    </div>
+    <div class="cc-metric-pill">
+      <div class="cc-metric-val" id="metricProgress">—</div>
+      <div class="cc-metric-key">Progress</div>
+    </div>
+    <div class="cc-progress-wrap">
+      <div class="cc-progress-track">
+        <div class="cc-progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── THREAD CONTAINER ── -->
+  <div id="threadContainer">
+    <div class="cc-empty-state">Select a chapter to view its argument thread.</div>
+  </div>
+
+  <!-- ── EXPORT SECTION (shown when chain has data) ── -->
+  <div class="cc-export" id="exportSection" style="display:none;">
+    <div class="cc-export-header">
+      <span class="cc-export-label">Export: Full Argument Thread</span>
+      <button class="btn btn-ghost" id="copyButton" type="button">📋 Copy Full Thread</button>
+    </div>
+    <textarea class="cc-export-area" id="threadExport" readonly
+      placeholder="Thread will appear here…"></textarea>
+  </div>
+
+</main>
+{% endblock %}
+
+{% block page_script %}
+  <script type="module" src="/static/js/consistency_chain.js"></script>
+{% endblock %}

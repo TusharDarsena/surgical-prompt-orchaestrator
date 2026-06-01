@@ -42,6 +42,9 @@ function _p(path) {
 export const listChapters = () =>
   _get(_p("/thesis/chapters"));
 
+export const getChapter = (chapterId) =>
+  _get(_p(`/thesis/chapters/${chapterId}`));
+
 // ── Compiler ──────────────────────────────────────────────────────────────────
 
 export const compilePrompt = (chapterId, subtopicId, wordCount, styleNotes) => {
@@ -114,6 +117,9 @@ export const nlmBatchState = (batchId) =>
 
 export const getChainForChapter = (chapterId) =>
   _get(_p(`/consistency/${chapterId}`));
+
+export const deleteConsistencySummary = (chapterId, subtopicId) =>
+  _delete(_p(`/consistency/${chapterId}/${subtopicId}`));
 
 export const saveConsistencySummary = (chapterId, subtopicId, data) =>
   _post(_p(`/consistency/${chapterId}/${subtopicId}`), data);
