@@ -130,10 +130,10 @@ async function handleScan() {
   // Without this, the cleanup step would consider ALL entries under the root as candidates
   // for deletion, which would wipe Drive links for theses you're not working on.
   const activeId = _activeThesisId();
-  if (!activeId) { toast("Select an active thesis first", "error"); return; }
   const theses = _loadThesesIndex();
   const activeThesis = theses.find(t => t.id === activeId);
-  if (!activeThesis?.title) { toast("Active thesis has no title — reload the page", "error"); return; }
+  if (!activeThesis) { toast("Select an active thesis first", "error"); return; }
+  if (!activeThesis.title) { toast("Active thesis has no title — reload the page", "error"); return; }
   const thesisFolderName = activeThesis.title;
 
   const btn = $("btnScan");
@@ -941,6 +941,16 @@ function _renderThesisSelect(theses) {
     sel.innerHTML = `<option value="">— No theses —</option>`;
     return;
   }
+  
+  if (!theses.find(t => t.id === activeId)) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "— Select a thesis —";
+    opt.selected = true;
+    opt.disabled = true;
+    sel.appendChild(opt);
+  }
+  
   for (const t of theses) {
     const opt = document.createElement("option");
     opt.value = t.id;

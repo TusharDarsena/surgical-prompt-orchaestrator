@@ -144,6 +144,15 @@ function renderThesisSelector() {
   if (!theses.length) {
     sel.innerHTML = `<option value="">— No theses yet —</option>`;
   } else {
+    if (!theses.find(t => t.id === activeId)) {
+      const defOpt = document.createElement("option");
+      defOpt.value = "";
+      defOpt.textContent = "— Select a thesis —";
+      defOpt.selected = true;
+      defOpt.disabled = true;
+      sel.appendChild(defOpt);
+    }
+    
     for (const t of theses) {
       const opt = document.createElement("option");
       opt.value = t.id;

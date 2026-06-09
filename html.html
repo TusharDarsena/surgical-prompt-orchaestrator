@@ -1,0 +1,902 @@
+html_prototype = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPO Source Library — Desktop Workspace Prototype</title>
+    <style>
+        :root {
+            --bg-main: #0b0d13;
+            --bg-card: #111420;
+            --bg-card-hover: #161a29;
+            --bg-header: #171c2f;
+            --border-color: #1f263e;
+            --text-main: #b9c3df;
+            --text-muted: #626d91;
+            --text-white: #ffffff;
+            --accent-blue: #3b82f6;
+            --accent-blue-glow: rgba(59, 130, 246, 0.25);
+            --accent-green: #10b981;
+            --accent-green-glow: rgba(16, 185, 129, 0.15);
+            --accent-yellow: #f59e0b;
+            --accent-red: #ef4444;
+            --sidebar-width: 240px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-size: 13px;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Bar */
+        .top-navbar {
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            z-index: 100;
+        }
+
+        .app-title {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: var(--text-white);
+            font-size: 15px;
+            letter-spacing: 0.5px;
+        }
+
+        .active-thesis-banner {
+            background-color: #121829;
+            border: 1px solid #223154;
+            padding: 6px 14px;
+            border-radius: 4px;
+            max-width: 600px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--accent-blue);
+            font-weight: 500;
+        }
+
+        .window-controls {
+            display: flex;
+            gap: 12px;
+        }
+
+        .win-btn {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .win-close { background-color: var(--accent-red); }
+        .win-min { background-color: var(--accent-yellow); }
+        .win-max { background-color: var(--accent-green); }
+
+        /* Main Workspace Scaffold */
+        .workspace-scaffold {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Sidebar Navigation */
+        .sidebar-nav {
+            width: var(--sidebar-width);
+            background-color: #0d101b;
+            border-right: 1px solid var(--border-color);
+            padding: 16px 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .nav-section-title {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            padding: 0 16px 8px 16px;
+            font-weight: 700;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            color: var(--text-main);
+            text-decoration: none;
+            gap: 10px;
+            font-weight: 500;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover {
+            background-color: rgba(255, 255, 255, 0.02);
+            color: var(--text-white);
+        }
+
+        .nav-item.active {
+            background-color: #13192b;
+            color: var(--accent-blue);
+            border-left-color: var(--accent-blue);
+        }
+
+        /* Split Screen Workspace Panel Architecture */
+        .split-workspace-panel {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            overflow: hidden;
+        }
+
+        /* Column Modules */
+        .workspace-column {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .workspace-column:last-child {
+            border-right: none;
+            background-color: #0a0c12;
+        }
+
+        .column-header {
+            height: 40px;
+            background-color: var(--bg-header);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            flex-shrink: 0;
+        }
+
+        .column-title {
+            font-weight: 600;
+            color: var(--text-white);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .column-badge {
+            background-color: #222a45;
+            color: var(--accent-blue);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .column-scroll-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        /* Global Parameter Configuration Strip */
+        .global-parameter-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+
+        .parameter-grid {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 10px;
+        }
+
+        .parameter-grid:last-child {
+            margin-bottom: 0;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input {
+            background-color: #090b12;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: var(--text-white);
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            width: 100%;
+        }
+
+        .btn {
+            background-color: var(--accent-blue);
+            color: var(--text-white);
+            border: none;
+            border-radius: 4px;
+            padding: 8px 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            height: 33px;
+            white-space: nowrap;
+        }
+
+        .btn:hover { background-color: #2563eb; }
+        .btn-secondary { background-color: #1e2538; border: 1px solid #2d3854; color: var(--text-main); }
+        .btn-secondary:hover { background-color: #262f47; color: var(--text-white); }
+        .btn-danger { background-color: var(--accent-red); }
+        .btn-danger:hover { background-color: #dc2626; }
+
+        /* Unified Table System */
+        .unified-row-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 12px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .unified-row-card:hover {
+            border-color: #2d395e;
+        }
+
+        .unified-row-card.open {
+            border-color: var(--accent-blue);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .unified-summary-strip {
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            gap: 12px;
+        }
+
+        .chevron-toggle {
+            color: var(--text-muted);
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+        .unified-row-card.open .chevron-toggle {
+            transform: rotate(90deg);
+            color: var(--accent-blue);
+        }
+
+        .row-thesis-title {
+            font-weight: 600;
+            color: var(--text-white);
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .row-thesis-title a {
+            color: var(--text-white);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .row-thesis-title a:hover {
+            color: var(--accent-blue);
+            text-decoration: underline;
+        }
+
+        .badge-count {
+            background-color: #1c233a;
+            color: #8fa4df;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        .status-badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .status-drive-active { background-color: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .status-local-only { background-color: rgba(245, 158, 11, 0.1); color: var(--accent-yellow); border: 1px solid rgba(245, 158, 11, 0.2); }
+        
+        .chip-state {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .chip-indexed { background-color: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+        .chip-idle { background-color: #1e2436; color: var(--text-main); }
+        .chip-running { background-color: rgba(59, 130, 246, 0.15); color: var(--accent-blue); animation: pulse 2s infinite; }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+
+        .action-button-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .arrow-scroll-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 14px;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .arrow-scroll-btn:hover {
+            color: var(--accent-blue);
+            background-color: #1e253c;
+        }
+
+        /* Expanded Subsection Tray Layout */
+        .expanded-tray-panel {
+            display: none;
+            background-color: #0d101a;
+            border-top: 1px solid var(--border-color);
+            padding: 14px;
+        }
+        .unified-row-card.open .expanded-tray-panel {
+            display: block;
+        }
+
+        .pdf-checkbox-matrix {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .pci-item {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .pci-box {
+            width: 14px;
+            height: 14px;
+            border: 1px solid var(--text-muted);
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: transparent;
+            background-color: #090b12;
+        }
+
+        /* Delta Visual Enforcements */
+        .pci-item.pci-uploaded { border-color: rgba(16, 185, 129, 0.3); color: var(--accent-green); }
+        .pci-item.pci-uploaded .pci-box { background-color: rgba(16, 185, 129, 0.1); border-color: var(--accent-green); color: var(--accent-green); }
+        
+        .pci-item.pci-checked { border-color: rgba(255, 255, 255, 0.15); color: var(--text-white); }
+        .pci-item.pci-checked .pci-box { background-color: var(--accent-blue); border-color: var(--accent-blue); color: var(--text-white); }
+        
+        .pci-item.pci-unchecked { border-color: var(--border-color); color: var(--text-muted); opacity: 0.6; }
+        .pci-item.pci-unchecked .pci-box { background-color: #090b12; border-color: var(--border-color); }
+
+        .telemetry-legend-box {
+            background-color: #121522;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+        }
+        .legend-count {
+            font-weight: bold;
+            background-color: #1c2238;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .lc-uploaded { color: var(--accent-green); }
+        .lc-new { color: var(--text-white); }
+        .lc-excluded { color: var(--text-muted); }
+
+        .tray-action-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #191f33;
+            padding-top: 10px;
+        }
+        .action-note { font-size: 11px; color: var(--text-muted); }
+
+        /* Card 03 - Parsed Reference Knowledge Base Display */
+        .hydrated-reference-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 16px;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        /* High-Contrast Scroll Flash Fix */
+        @keyframes highContrastFlash {
+            0% { border-color: var(--accent-blue); box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.5); background-color: #1d253f; }
+            100% { border-color: var(--border-color); box-shadow: none; background-color: var(--bg-card); }
+        }
+        .hydrated-reference-card.visual-flash-anchor {
+            animation: highContrastFlash 1.2s ease-out forwards;
+        }
+
+        .reference-header {
+            background-color: var(--bg-header);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .reference-meta-block {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .reference-main-title { font-weight: 600; color: var(--text-white); font-size: 13px; }
+        .reference-sub-title { font-size: 11px; color: var(--text-muted); }
+
+        .reference-body {
+            padding: 4px 0;
+        }
+
+        .chapter-data-row {
+            display: grid;
+            grid-template-columns: auto 100px 1fr auto;
+            align-items: center;
+            padding: 10px 14px;
+            border-bottom: 1px solid #171c2f;
+            gap: 12px;
+        }
+        .chapter-data-row:last-child { border-bottom: none; }
+        .chapter-data-row:hover { background-color: rgba(255,255,255,0.01); }
+
+        .chapter-indicator { color: var(--accent-green); font-weight: bold; width: 14px; }
+        .chapter-label { font-family: 'Courier New', monospace; font-weight: 600; color: #8fa4df; }
+        .chapter-title-text { color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .chapter-actions-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .mini-icon-btn {
+            background-color: #181d30;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .mini-icon-btn:hover { background-color: #222944; color: var(--text-white); }
+        .mini-icon-btn.json-tag { font-family: 'Courier New', monospace; font-weight: bold; color: var(--accent-blue); }
+
+        /* Floating Authentication Banner overlay */
+        .auth-banner-floating {
+            background: linear-gradient(90deg, #1e1b4b 0%, #0f172a 100%);
+            border: 1px solid #312e81;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-radius: 6px;
+            margin-bottom: 16px;
+        }
+        .auth-banner-text { font-weight: 500; color: #e0e7ff; display: flex; align-items: center; gap: 8px; }
+
+        /* Sticky Telemetry Shell Footer */
+        .sticky-telemetry-shell {
+            height: 26px;
+            background-color: #090b12;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+        .telemetry-cluster { display: flex; align-items: center; gap: 16px; }
+        .telemetry-node { display: flex; align-items: center; gap: 6px; }
+        .node-active { color: var(--accent-green); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <!-- Top Navigation Bar Header Container -->
+    <div class="top-navbar">
+        <div class="app-title">SPO.lib v1.4</div>
+        <div class="active-thesis-banner" title="Fusion of Historical Narrative and Fiction in Modern Indian English Literature — Jinendra Kumar">
+            Active Target: Fusion of Historical Narrative and Fiction in Modern Indian English Literature — Jinendra Kumar
+        </div>
+        <div class="window-controls">
+            <span class="win-btn win-min"></span>
+            <span class="win-btn win-max"></span>
+            <span class="win-btn win-close"></span>
+        </div>
+    </div>
+
+    <!-- Application Workspace Frame Layout -->
+    <div class="workspace-scaffold">
+        
+        <!-- Sidebar Shell Panel -->
+        <div class="sidebar-nav">
+            <div class="top-nav-cluster">
+                <div class="nav-section-title">Workspace Elements</div>
+                <a href="#app" class="nav-item">📊 App Dashboard</a>
+                <a href="#setup" class="nav-item">⚙️ Thesis Setup</a>
+                <a href="#library" class="nav-item active">📁 Source Library</a>
+                <a href="#write" class="nav-item">✏️ Write Section</a>
+                <a href="#consistency" class="nav-item">🔗 Consistency Chain</a>
+            </div>
+            <div class="bottom-nav-cluster" style="padding: 0 16px;">
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label class="form-label">Active Core Config</label>
+                    <select class="form-input" id="libThesisSelect" style="padding: 5px; height: 28px;">
+                        <option>Kumar (Dissertation 2026)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Split Screen Viewport Optimization Grid -->
+        <div class="split-workspace-panel">
+            
+            <!-- Left Workspace Pane: Ingestion Control Center -->
+            <div class="workspace-column">
+                <div class="column-header">
+                    <div class="column-title">⚙️ Ingestion Pipeline & Automation</div>
+                    <div class="column-badge" id="indexPill">2 / 13 Indexed</div>
+                </div>
+                
+                <div class="column-scroll-content">
+                    
+                    <!-- Integrated Authorization State Overlay Header -->
+                    <div class="auth-banner-floating" id="nlmAuthBanner">
+                        <div class="auth-banner-text">
+                            ⚠️ <span id="authBannerText">NotebookLM auth valid. Background service account synced.</span>
+                        </div>
+                        <button class="btn btn-secondary" style="height: 24px; padding: 2px 10px; font-size: 11px;">Re-verify</button>
+                    </div>
+
+                    <!-- Environment Filepath Directory Cards -->
+                    <div class="global-parameter-card">
+                        <div class="parameter-grid">
+                            <div class="form-group">
+                                <label class="form-label">Local Parent Folder Path</label>
+                                <input type="text" class="form-input" value="C:\\Users\\TUSHAR\\Downloads\\Shodhganga_Downloads" readonly>
+                            </div>
+                            <button class="btn btn-secondary">🔍 Scan</button>
+                        </div>
+                        <div class="parameter-grid">
+                            <div class="form-group">
+                                <label class="form-label">Google Drive Folder ID</label>
+                                <input type="text" class="form-input" value="1EZu_o1tt_vxmQ6hNpguOFPfavMTJQ51P" readonly>
+                            </div>
+                            <button class="btn btn-secondary">🔗 Link</button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div class="form-label" style="font-size: 12px; color: var(--text-white);">Reference Database Grid</div>
+                        <button class="btn" style="height: 26px; font-size: 11px; padding: 0 12px;">▶ Run All Unindexed</button>
+                    </div>
+
+                    <!-- Unified Ingestion Execution Core Table Framework -->
+                    <div id="unifiedTableBody">
+                        
+                        <!-- Row 1: Hydrated Post-Indexing State Layout -->
+                        <div class="unified-row-card open" id="row-Venkatesan">
+                            <div class="unified-summary-strip" onclick="toggleRow(this)">
+                                <span class="chevron-toggle">►</span>
+                                <span class="row-thesis-title">
+                                    <a href="https://notebooklm.google.com" target="_blank">M. VENKATESAN (2017) — A STUDY OF POSTMODERNIST OUTLOOK... ↗</a>
+                                </span>
+                                <span class="badge-count">14 PDFs</span>
+                                <span class="status-badge status-drive-active">🟢 Drive</span>
+                                <span class="chip-state chip-indexed">✓ Indexed</span>
+                                <div class="action-button-group">
+                                    <button class="btn btn-secondary" style="height: 24px; padding: 0 8px; font-size: 11px;">Re-run</button>
+                                    <button class="arrow-scroll-btn" title="Jump straight to structural JSON entries" onclick="scrollToAnchor(event, 'library-Venkatesan')">🔽</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Internal Surgical Selection Sub-file View Matrix Container -->
+                            <div class="expanded-tray-panel">
+                                <div class="telemetry-legend-box">
+                                    <div class="legend-row">✅ Already in notebook: <span class="legend-count lc-uploaded">3</span></div>
+                                    <div class="legend-row">⬆ Selected new upload: <span class="legend-count lc-new">4</span></div>
+                                    <div class="legend-row">☐ Excluded: <span class="legend-count lc-excluded">7</span></div>
+                                </div>
+                                <div class="pdf-checkbox-matrix">
+                                    <div class="pci-item pci-uploaded" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box">✓</span><span class="pci-name">01_title.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-uploaded" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box">✓</span><span class="pci-name">02_certi.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-uploaded" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box">✓</span><span class="pci-name">03_dec.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-checked" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box">✓</span><span class="pci-name">chap_1.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-checked" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box">✓</span><span class="pci-name">chap_2.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-checked" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box">✓</span><span class="pci-name">chap_3.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-checked" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box">✓</span><span class="pci-name">chap_4.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-unchecked" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box"></span><span class="pci-name">abstract.pdf</span>
+                                    </div>
+                                    <div class="pci-item pci-unchecked" onclick="toggleCheckbox(this)">
+                                        <span class="pci-box"></span><span class="pci-name">annexure.pdf</span>
+                                    </div>
+                                </div>
+                                <div class="tray-action-bar">
+                                    <button class="btn btn-secondary" style="height: 24px; padding: 0 10px; font-size: 11px;">📋 Copy Selected Drive Links</button>
+                                    <span class="action-note">Synchronized data directly maps context payloads automatically</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: In-flight Processing State Layout -->
+                        <div class="unified-row-card" id="row-Unknown">
+                            <div class="unified-summary-strip" onclick="toggleRow(this)">
+                                <span class="chevron-toggle">►</span>
+                                <span class="row-thesis-title">Unknown Author (?) — Communal Violence and Minority Identity...</span>
+                                <span class="badge-count">14 PDFs</span>
+                                <span class="status-badge status-local-only">🟡 Local</span>
+                                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                                    <span class="chip-state chip-running">⚙ Running…</span>
+                                    <span style="font-size: 9px; color: var(--accent-blue); font-weight: bold; font-family: monospace;">4/14 files</span>
+                                </div>
+                                <div class="action-button-group">
+                                    <button class="btn btn-danger" style="height: 24px; padding: 0 10px; font-size: 11px;">Stop</button>
+                                    <button class="arrow-scroll-btn" title="Jump straight to structural JSON entries" onclick="scrollToAnchor(event, 'library-Unknown')">🔽</button>
+                                </div>
+                            </div>
+                            <div class="expanded-tray-panel">
+                                <!-- Placeholders for expanded components -->
+                                <div class="pdf-checkbox-matrix">
+                                    <div class="pci-item pci-checked"><span class="pci-box">✓</span><span class="pci-name">Introduction.pdf</span></div>
+                                    <div class="pci-item pci-checked"><span class="pci-box">✓</span><span class="pci-name">Chapter_1.pdf</span></div>
+                                    <div class="pci-item pci-checked"><span class="pci-box">✓</span><span class="pci-name">Chapter_2.pdf</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Workspace Pane: Populated Reference Database Panel -->
+            <div class="workspace-column">
+                <div class="column-header">
+                    <div class="column-title">📁 Hydrated Knowledge Base (Card 03 Cache View)</div>
+                    <div class="column-badge" id="libraryPill" style="background-color: #111e1c; color: var(--accent-green);">2 works · 14 docs</div>
+                </div>
+                
+                <div class="column-scroll-content" id="libraryScrollContent">
+                    
+                    <!-- Reference Entry Block 1 -->
+                    <div class="hydrated-reference-card" id="library-Venkatesan">
+                        <div class="reference-header">
+                            <div class="reference-meta-block">
+                                <span class="reference-main-title">M. VENKATESAN (2017) — A STUDY OF POSTMODERNIST OUTLOOK AND TREATMENT OF POLITICS...</span>
+                                <span class="reference-sub-title">Thesis Reference Map Structure · Flat-File Location Cache Generated</span>
+                            </div>
+                            <button class="mini-icon-btn">✏️ Edit</button>
+                        </div>
+                        <div class="reference-body">
+                            <div class="chapter-data-row">
+                                <span class="chapter-indicator">✓</span>
+                                <span class="chapter-label">Chapter 1</span>
+                                <span class="chapter-title-text">Postmodernism: Philosophical Foundations and Core Definitions</span>
+                                <div class="chapter-actions-wrapper">
+                                    <button class="mini-icon-btn json-tag">JSON</button>
+                                    <button class="mini-icon-btn">...</button>
+                                </div>
+                            </div>
+                            <div class="chapter-data-row">
+                                <span class="chapter-indicator">✓</span>
+                                <span class="chapter-label">Chapter 2</span>
+                                <span class="chapter-title-text">Mythology and Religion as Postmodern Narrative Devices</span>
+                                <div class="chapter-actions-wrapper">
+                                    <button class="mini-icon-btn json-tag">JSON</button>
+                                    <button class="mini-icon-btn">...</button>
+                                </div>
+                            </div>
+                            <div class="chapter-data-row">
+                                <span class="chapter-indicator">✓</span>
+                                <span class="chapter-label">Chapter 3</span>
+                                <span class="chapter-title-text">Political Manifestations and Rhetorical Strategies in Shashi Tharoor</span>
+                                <div class="chapter-actions-wrapper">
+                                    <button class="mini-icon-btn json-tag">JSON</button>
+                                    <button class="mini-icon-btn">...</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reference Entry Block 2 -->
+                    <div class="hydrated-reference-card" id="library-Unknown">
+                        <div class="reference-header">
+                            <div class="reference-meta-block">
+                                <span class="reference-main-title">Unknown Author (?) — Communal Violence and Minority Identity: Reading Shashi Tharoor...</span>
+                                <span class="reference-sub-title">System Ingestion Fallback Array Layout · Pending Re-run Context Validation</span>
+                            </div>
+                            <button class="mini-icon-btn">✏️ Edit</button>
+                        </div>
+                        <div class="reference-body">
+                            <div class="chapter-data-row">
+                                <span class="chapter-indicator">✓</span>
+                                <span class="chapter-label">Introduction</span>
+                                <span class="chapter-title-text">Socio-Historical Context of Minority Representation in Modern Fiction</span>
+                                <div class="chapter-actions-wrapper">
+                                    <button class="mini-icon-btn json-tag">JSON</button>
+                                    <button class="mini-icon-btn">...</button>
+                                </div>
+                            </div>
+                            <div class="chapter-data-row">
+                                <span class="chapter-indicator">✓</span>
+                                <span class="chapter-label">Chapter 1</span>
+                                <span class="chapter-title-text">Communalism and Communal Violence in India: A Literary Exegesis</span>
+                                <div class="chapter-actions-wrapper">
+                                    <button class="mini-icon-btn json-tag">JSON</button>
+                                    <button class="mini-icon-btn">...</button>
+                                </div>
+                            </div>
+                            <div class="chapter-data-row">
+                                <span class="chapter-indicator">✓</span>
+                                <span class="chapter-label">Chapter 2</span>
+                                <span class="chapter-title-text">Minority Identity: Structural Problems and Narrative Perspectives</span>
+                                <div class="chapter-actions-wrapper">
+                                    <button class="mini-icon-btn json-tag">JSON</button>
+                                    <button class="mini-icon-btn">...</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Persistent Tracking Shell Dashboard Statusbar -->
+    <div class="sticky-telemetry-shell">
+        <div class="telemetry-cluster">
+            <div class="telemetry-node">System Container status: <span class="node-active">● RUNNING</span></div>
+            <div class="telemetry-node">Upload threads: <span style="color: var(--text-white);">[0/3 active concurrency locks]</span></div>
+            <div class="telemetry-node">Browser Chat instances: <span style="color: var(--text-white);">[0/5 automated channels]</span></div>
+        </div>
+        <div>Target Environment: C:/Users/TUSHAR/spo_data</div>
+    </div>
+
+    <script>
+        // Inline Accordion Row Expand/Collapse Handler
+        function toggleRow(headerElement) {
+            const card = headerElement.closest('.unified-row-card');
+            const isOpen = card.classList.contains('open');
+            
+            // Collapse all other siblings in table
+            document.querySelectorAll('.unified-row-card').forEach(c => c.classList.remove('open'));
+            
+            if (!isOpen) {
+                card.classList.add('open');
+            }
+        }
+
+        // Checklist State Cycle Manipulator
+        function toggleCheckbox(checkboxWrapper) {
+            if (checkboxWrapper.classList.contains('pci-uploaded')) return; // Skipped locks are static
+
+            if (checkboxWrapper.classList.contains('pci-checked')) {
+                checkboxWrapper.classList.remove('pci-checked');
+                checkboxWrapper.classList.add('pci-unchecked');
+                checkboxWrapper.querySelector('.pci-box').textContent = '';
+            } else {
+                checkboxWrapper.classList.remove('pci-unchecked');
+                checkboxWrapper.classList.add('pci-checked');
+                checkboxWrapper.querySelector('.pci-box').textContent = '✓';
+            }
+        }
+
+        // Viewport Scroll Anchoring Orientation Logic with Flash Indication
+        function scrollToAnchor(event, targetElementId) {
+            event.stopPropagation(); // Avoid firing base accordion toggle rules
+            const targetContainer = document.getElementById(targetElementId);
+            
+            if (targetContainer) {
+                targetContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Fire structural orientation eye-anchor animation highlight
+                targetContainer.classList.remove('visual-flash-anchor');
+                void targetContainer.offsetWidth; // Force element layout recalculation browser reflow trigger
+                targetContainer.classList.add('visual-flash-anchor');
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+with open("source_library_workspace.html", "w", encoding="utf-8") as f:
+    f.write(html_prototype)
+print("HTML generated successfully.")

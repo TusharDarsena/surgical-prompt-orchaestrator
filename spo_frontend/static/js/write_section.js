@@ -1156,6 +1156,16 @@ function _updateWordCount() {
   $("wordCount").textContent = `~${wc.toLocaleString()} words`;
 }
 
+// Returns the current run configuration from state (card-01 controls).
+// Called by runSubtopic() and runAllIdle() before every API call.
+function _getRunParams() {
+  return {
+    wordCount:    state.wordCount    || null,
+    styleNotes:   state.styleNotes   || null,
+    uploadMethod: state.uploadMethod || "drive",
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT  —  wire up DOM events and boot from server-rendered data
 // ─────────────────────────────────────────────────────────────────────────────
