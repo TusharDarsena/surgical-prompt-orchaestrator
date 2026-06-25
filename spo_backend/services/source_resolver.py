@@ -116,12 +116,26 @@ def resolve_source_files(
 
 # ── Thesis name matching ───────────────────────────────────────────────────────
 
+import re
+import os
+import difflib
+
+def _slugify(text: str) -> str:
+    # Basic slugification: lower case, replace non-alphanumeric with underscore
+    text = re.sub(r'[^a-zA-Z0-9]', '_', text)
+    # Collapse multiple underscores
+    text = re.sub(r'_+', '_', text)
+    return text.lower().strip('_')
+
 def _match_thesis_name(source_id: str, scan: dict) -> dict | None:
     """
     Matches source_id (from chapterization) to a key in the scan dictionary.
     Tries in order:
       1. Exact match — always hits when chapterization source_ids match folder names exactly
       2. Case-insensitive fallback — protects against accidental casing differences
+      3. Slugified match — handles standard formatting mismatches
+      4. Prefix match — handles truncated folder names
+      5. Fuzzy match — handles minor typos like 'woman' vs 'women' using difflib
     Returns the scan entry dict, or None if no match found.
     """
     # 1. Exact
@@ -133,6 +147,33 @@ def _match_thesis_name(source_id: str, scan: dict) -> dict | None:
     for k in scan:
         if k.lower() == lower_id:
             return scan[k]
+            
+    # 3. Slugified match
+    slug_id = _slugify(source_id)
+    for k in scan:
+        if _slugify(k) == slug_id:
+            return scan[k]
+            
+    # 4. Partial substring prefix match (for truncated names)
+    for k in scan:
+        if _slugify(k).startswith(slug_id):
+            return scan[k]
+    for k in scan:
+        if slug_id.startswith(_slugify(k)):
+            return scan[k]
+
+    # 5. Difflib fuzzy matching for typos (like "woman" vs "women") or severe truncation
+    scan_slugs = {_slugify(k): k for k in scan}
+    matches = difflib.get_close_matches(slug_id, scan_slugs.keys(), n=1, cutoff=0.8)
+    if matches:
+        return scan[scan_slugs[matches[0]]]
+
+    # Substring matching with very long truncated strings as a final fallback
+    for scan_slug, k in scan_slugs.items():
+        if len(scan_slug) > 20 and len(slug_id) > 20:
+            common_prefix = os.path.commonprefix([scan_slug, slug_id])
+            if len(common_prefix) > 30:
+                return scan[k]
 
     return None
 
