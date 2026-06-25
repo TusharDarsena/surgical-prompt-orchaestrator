@@ -34,7 +34,6 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
     for entry in source_ids:
         thesis_name = entry.get("source_id", "")
         chapter_id_raw = entry.get("chapter_id", "")
-        source_guidance = entry.get("source_guidance", "")
 
         resolved = storage.resolve_source_files(thesis_name, chapter_id_raw, scan=scan)
 
@@ -42,7 +41,6 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
             results.append({
                 "source_id": thesis_name,
                 "chapter_id": chapter_id_raw,
-                "source_guidance": source_guidance,
                 "file_name": None,
                 "drive_link": None,
                 "drive_file_id": None,
@@ -52,7 +50,6 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
                 results.append({
                     "source_id": thesis_name,
                     "chapter_id": r["segment"],
-                    "source_guidance": source_guidance,
                     "file_name": r["file_name"],
                     "drive_link": r["drive_link"],
                     "drive_file_id": r.get("drive_file_id"),
@@ -74,29 +71,24 @@ def _render_notebooklm_prompt(
     # -- Resolve dynamic values ------------------------------------------------
     subtopic_number = subtopic.get("number", "")
     subtopic_title  = subtopic.get("title", "Untitled")
-    estimated_pages = subtopic.get("estimated_pages")
 
     if word_count_override:
         wc = word_count_override
-    elif estimated_pages:
-        wc = estimated_pages * 250
     else:
         wc = 1500
 
     position_in_argument = subtopic.get("position_in_argument", "Not specified")
     goal                 = subtopic.get("goal", "Not specified")
 
-    # -- Build source block (key_claim preferred; first-sentence fallback) -----
+    # -- Build source block (key_claim preferred; chapter_id context added) -----
     source_ids   = subtopic.get("source_ids", [])
     source_lines = []
     for src in source_ids:
         src_label = src.get("source_id", "Unknown")
-        key_claim = src.get("key_claim", "")
-        if not key_claim:
-            # Fallback: extract first sentence of source_guidance
-            full_guidance = src.get("source_guidance", "Use as evidence.")
-            key_claim = full_guidance.split(".")[0].strip() + "."
-        source_lines.append(f"- {src_label}: {key_claim}")
+        chapter_ref = src.get("chapter_id", "")
+        key_claim = src.get("key_claim", "Use as evidence.")
+        label = f"{src_label} [{chapter_ref}]" if chapter_ref else src_label
+        source_lines.append(f"- {label}: {key_claim}")
     sources_block = "\n".join(source_lines) if source_lines else "No sources specified."
 
     # -- Chapter context (first 2 sentences of chapter_arc) -------------------
@@ -113,12 +105,20 @@ def _render_notebooklm_prompt(
         chapter_ctx_block = ""
 
     # -- Argument structure brief ----------------------------------------------
+    # In the new JSON format, argument_structure is a list[str] (one entry per phase).
+    # In legacy format it may be a plain string. Handle both.
     argument_structure = subtopic.get("argument_structure", "")
 
-    if argument_structure:
+    if isinstance(argument_structure, list):
+        # New format: join phases with blank lines for readability
+        arg_structure_text = "\n\n".join(argument_structure)
+    else:
+        arg_structure_text = argument_structure  # legacy plain string
+
+    if arg_structure_text:
         arg_structure_block = (
             "\n# ARGUMENT STRUCTURE\n"
-            f"{argument_structure}\n"
+            f"{arg_structure_text}\n"
         )
     else:
         arg_structure_block = ""

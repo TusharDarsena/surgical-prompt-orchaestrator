@@ -56,3 +56,22 @@ Each session: log what changed, what files were touched, and what was deliberate
 - LLM prompts — unchanged.
 
 ---
+
+## [2026-06-25] - Prompt Compilation & Consistency Chain Refactor
+
+### Added
+- `CHAPTER CONTEXT`: The first two sentences of the chapter's arc are now automatically extracted and injected into the Stage 1 prompt.
+- `CHAPTER_ID` for sources: Source citations in the prompt now append the chapter name/ID so NLM knows exactly which section of a document to reference.
+- Consistency Chain workflow on Write Page: A manual "Ask NLM for Summary" step was added. Users now copy a pre-built summary request prompt, paste it into their NLM session, and paste the returned JSON back into Card 04 to save to the consistency chain.
+
+### Changed
+- **Pipeline Strategy Shift**: The automated Stage 2 (Gemini expansion) has been officially removed from the pipeline. The NLM Stage 1 draft is now considered the final draft. The second interaction with NLM is strictly for generating the consistency summary.
+- `argument_structure` rendering: The compiler now correctly handles `argument_structure` as a JSON list, joining phases with newlines instead of rendering raw Python array strings.
+- Subtopic Word Count: The `estimated_pages * 250` calculation logic was removed. The default target length is now strictly hardcoded to `~1500 words` (unless overridden).
+
+### Removed
+- `source_guidance`: The deprecated fallback field has been completely removed from both `source_resolver` and `compiler_service.py`. The pipeline now strictly expects `key_claim`.
+
+### Fixed
+- Fixed an `Uncaught TypeError: Cannot read properties of null` crash on the Write page by adding optional chaining (`?.`) to initialization event listeners.
+- Fixed a NotebookLM auth crash by explicitly installing missing Playwright browser binaries (`playwright install chromium`).

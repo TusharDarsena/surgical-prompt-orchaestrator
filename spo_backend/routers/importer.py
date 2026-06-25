@@ -110,9 +110,9 @@ class SubtopicImport(BaseModel):
         None,
         description="How does this subtopic serve the chapter arc?"
     )
-    estimated_pages: Optional[int] = Field(
-        None,
-        description="Estimated page count for this subtopic."
+    argument_structure: list[str] = Field(
+        default_factory=list,
+        description="The phases of the subtopic argument."
     )
     source_ids: list[dict] = Field(
         default_factory=list,
@@ -174,7 +174,7 @@ def _build_chapter_record(chapter_id: str, data: ChapterizationImport) -> dict:
             "title": sub.title,
             "goal": sub.goal,
             "position_in_argument": sub.position_in_argument,
-            "estimated_pages": sub.estimated_pages,
+            "argument_structure": list(sub.argument_structure),
             "source_ids": list(sub.source_ids),
         }
         for sub in data.subtopics

@@ -129,6 +129,8 @@ class Subtopic(BaseModel):
     title: str
     goal: str
     position_in_argument: Optional[str] = None
+    argument_structure: list[str] = Field(default_factory=list)
+    source_ids: list[dict] = Field(default_factory=list)
 
 
 class Chapter(BaseModel):

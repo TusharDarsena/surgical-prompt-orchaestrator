@@ -502,6 +502,7 @@ function _buildChapterRow(ch) {
       <span class="ch-title ch-val">${esc(ch.title)}</span>
       <span class="arc-badge ${hasArc ? "ok" : "warn"}">${hasArc ? "Arc ✓" : "⚠ Arc missing"}</span>
       <div class="chapter-actions">
+        <button class="btn btn-ghost" style="padding:2px 8px;font-size:10px;margin-right:8px;" onclick="event.stopPropagation(); deleteChapter('${esc(cid)}')">✕ Delete</button>
         <span class="chapter-chevron">▾</span>
       </div>
     </div>
@@ -534,6 +535,17 @@ window.toggleChapterAccordion = function (cid) {
     row.classList.add("open");
   } else {
     row.classList.remove("open");
+  }
+};
+
+window.deleteChapter = async function (cid) {
+  if (!confirm(`Delete chapter ${cid} and all its subtopics? This cannot be undone.`)) return;
+  try {
+    await API.deleteChapter(cid);
+    toast(`Chapter ${cid} deleted`, "success");
+    await loadChapters();
+  } catch (err) {
+    toast(`Delete failed: ${err.message}`, "error");
   }
 };
 
