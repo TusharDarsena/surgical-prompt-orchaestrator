@@ -717,14 +717,15 @@ def resolve_source_files(
     thesis_name: str,
     chapter_id_raw: str,
     scan: Optional[dict] = None,
+    thesis_id: str = "",
 ) -> list[dict]:
     """
     Resolve source_ids and chapter references to local filenames and Drive links.
     Matching logic lives in services/source_resolver.py.
 
-    `scan` is accepted for call-site compatibility but ignored â€” the drive scan
+    `scan` is accepted for call-site compatibility but ignored — the drive scan
     result is held in _drive_scan_cache and read from disk at most once per
     process lifetime, so callers in a loop pay zero extra disk reads.
     """
     from services.source_resolver import resolve_source_files as _resolve
-    return _resolve(thesis_name, chapter_id_raw, _get_drive_scan())
+    return _resolve(thesis_name, chapter_id_raw, _get_drive_scan(), thesis_id)

@@ -24,6 +24,11 @@
     <button id="btnAuthAction" class="btn btn-primary" style="padding: 4px 12px; font-size: 13px;" data-action="start">Start Login</button>
   </div>
 
+  <!-- IMPORT INFO BANNER -->
+  <div class="info-banner" style="background: var(--surface); color: var(--text-dim); padding: 8px 20px; border-bottom: 1px solid var(--border-light); font-size: 13px; font-family: var(--font-ui); text-align: center;">
+    <strong>Notice:</strong> For full feature support, including accurate Drive Link resolution, ensure all external index cards are officially imported.
+  </div>
+
   <div class="thesis-strip">
     <div style="display:flex; justify-content:space-between; width:100%; align-items:center; flex-wrap:wrap; gap:12px;">
       <div class="ts-left" style="display:flex; align-items:center; gap:12px;">
@@ -123,6 +128,9 @@
 
         <!-- Register new work -->
         <div class="add-group-section">
+          <!-- Hidden file input for importing index card JSON files -->
+          <input type="file" id="importJsonInput" accept=".json" multiple style="display:none;"/>
+
           <div class="add-group-form" id="addGroupForm" style="display:none;">
             <div class="add-group-label">Register a New Work</div>
             <div class="add-group-grid">
@@ -165,9 +173,14 @@
               <button class="btn btn-ghost"   id="btnCancelAddGroup">Cancel</button>
             </div>
           </div>
-          <button class="btn btn-secondary" id="btnShowAddGroup">
-            + Register New Work
-          </button>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <button class="btn btn-secondary" id="btnShowAddGroup">
+              + Register New Work
+            </button>
+            <button class="btn btn-primary" id="btnImportJson" title="Import externally-generated index card JSON files into the Source Library">
+              📥 Import Index Card JSON
+            </button>
+          </div>
         </div>
 
       </div>

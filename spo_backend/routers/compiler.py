@@ -94,7 +94,7 @@ def compile_notebooklm_prompt(
         effective_wc = subtopic["estimated_pages"] * 250
 
     # ── Resolve source files from local scan ───────────────────────────────
-    required_sources = _resolve_required_sources(source_ids)
+    required_sources = _resolve_required_sources(source_ids, thesis_id=thesis_id)
 
     # ── Warnings ───────────────────────────────────────────────────────────
     warnings = []

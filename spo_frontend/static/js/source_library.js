@@ -542,7 +542,7 @@ function renderLibrary() {
   list.innerHTML = "";
 
   if (!state.groups.length) {
-    list.innerHTML = `<div class="lib-empty">No sources imported yet. Use Card 01 to import a source JSON.</div>`;
+    list.innerHTML = `<div class="lib-empty">No sources imported yet. Use the <strong>Import Index Card JSON</strong> button below to import external index cards, or register a new work manually.</div>`;
     _updateLibraryPill();
     return;
   }
@@ -999,9 +999,14 @@ async function init() {
   $("btnRegisterWork").addEventListener("click", registerNewWork);
   $("btnShowAddGroup").addEventListener("click", () => {
     $("addGroupForm").style.display = "block";
+    $("btnShowAddGroup").style.display = "none";
   });
   $("btnCancelAddGroup").addEventListener("click", () => {
     $("addGroupForm").style.display = "none";
+    $("btnShowAddGroup").style.display = "";
+  });
+  $("btnImportJson")?.addEventListener("click", () => {
+    $("importJsonInput").click();
   });
 
   // ── Card accordions ───────────────────────────────────────────────────────
@@ -1446,4 +1451,58 @@ function startAuthPoller() {
   }, 2000);
 }
 
+
+// ── Import Index Card JSON ────────────────────────────────────────────────────
+
+async function handleImportJsonFiles(files) {
+  if (!files || !files.length) return;
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const file of files) {
+    let data;
+    try {
+      const text = await file.text();
+      data = JSON.parse(text);
+    } catch (e) {
+      toast(`${file.name}: invalid JSON — ${e.message}`, "error", 5000);
+      failCount++;
+      continue;
+    }
+
+    try {
+      const result = await API.importSourceJson(data);
+      toast(`✓ Imported: ${result.title ?? file.name} (${result.sources_created} sources)`, "success", 4000);
+      successCount++;
+    } catch (err) {
+      toast(`✗ ${file.name}: ${err.message}`, "error", 6000);
+      failCount++;
+    }
+  }
+
+  if (successCount > 0) {
+    // Refresh the library view so newly imported groups appear immediately
+    try {
+      const libraryData = await API.getLibraryView();
+      state.groups = libraryData.groups ?? [];
+      renderLibrary();
+    } catch (e) {
+      // Non-fatal — user can refresh manually
+    }
+  }
+
+  if (files.length > 1) {
+    toast(`Done — ${successCount} imported, ${failCount} failed`, failCount ? "warn" : "success", 5000);
+  }
+}
+
+// Wire the hidden file input once the DOM is ready
+document.getElementById("importJsonInput")?.addEventListener("change", async function () {
+  // Convert FileList to a standard Array to prevent it from mutating if the input is cleared
+  const filesArray = Array.from(this.files);
+  await handleImportJsonFiles(filesArray);
+  // Reset so the same file can be re-imported again if needed
+  this.value = "";
+});
 

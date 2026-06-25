@@ -19,7 +19,7 @@ from services import storage
 
 # -- Source file resolver -------------------------------------------------------
 
-def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
+def _resolve_required_sources(source_ids: list[dict], thesis_id: str = "") -> list[dict]:
     """
     For each entry in source_ids, resolve the thesis name + chapter_id
     to a filename, Drive link, and Drive file ID.
@@ -35,7 +35,7 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
         thesis_name = entry.get("source_id", "")
         chapter_id_raw = entry.get("chapter_id", "")
 
-        resolved = storage.resolve_source_files(thesis_name, chapter_id_raw, scan=scan)
+        resolved = storage.resolve_source_files(thesis_name, chapter_id_raw, scan=scan, thesis_id=thesis_id)
 
         if not resolved:
             results.append({

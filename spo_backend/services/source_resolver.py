@@ -162,18 +162,15 @@ def _match_thesis_name(source_id: str, scan: dict) -> dict | None:
         if slug_id.startswith(_slugify(k)):
             return scan[k]
 
-    # 5. Difflib fuzzy matching for typos (like "woman" vs "women") or severe truncation
+    # 5. Difflib fuzzy matching for minor typos (like "woman" vs "women").
+    # Cutoff 0.85 is intentionally tight: loose matching risks cross-thesis false
+    # positives (e.g. a Bharti Devi source_id matching a Jitendra Kumar entry).
+    # If this step fails, the resolver returns None and the compiler emits a
+    # warning — the human sees it and can investigate via check_source_ids.
     scan_slugs = {_slugify(k): k for k in scan}
-    matches = difflib.get_close_matches(slug_id, scan_slugs.keys(), n=1, cutoff=0.8)
+    matches = difflib.get_close_matches(slug_id, scan_slugs.keys(), n=1, cutoff=0.85)
     if matches:
         return scan[scan_slugs[matches[0]]]
-
-    # Substring matching with very long truncated strings as a final fallback
-    for scan_slug, k in scan_slugs.items():
-        if len(scan_slug) > 20 and len(slug_id) > 20:
-            common_prefix = os.path.commonprefix([scan_slug, slug_id])
-            if len(common_prefix) > 30:
-                return scan[k]
 
     return None
 
@@ -204,10 +201,12 @@ def _split_chapter_references(chapter_id_raw: str) -> list[str]:
     if m:
         return [f"Chapter {m.group(1)}", f"Chapter {m.group(2)}"]
 
-    # First pass: always split on uppercase AND (explicit multi-chapter marker)
+    # First pass: split on uppercase AND only when both sides look like chapter refs.
+    # Unconditional splitting caused false positives on chapter titles like
+    # "CHAPTER III ... EMERGENCY AND HUMAN PSYCHE" where AND is part of the title.
     if ' AND ' in raw:
         parts = [p.strip() for p in raw.split(' AND ') if p.strip()]
-        if len(parts) > 1:
+        if len(parts) > 1 and _looks_like_chapter_ref(parts[0]) and _looks_like_chapter_ref(parts[-1]):
             return parts
 
     # Second pass: split on comma + "Chapter" pattern
