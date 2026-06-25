@@ -2,33 +2,34 @@
 Compiler Service
 ----------------
 Pure business logic for prompt compilation and source resolution.
-No FastAPI or HTTP concerns — zero imports from routers/.
+No FastAPI or HTTP concerns -- zero imports from routers/.
 
 Extracted from routers/compiler.py so that services/notebooklm_service.py
 can import these functions without reversing the dependency direction
-(services → routers is forbidden).
+(services -> routers is forbidden).
 
 routers/compiler.py re-exports these under the same names so every existing
 call-site outside the service layer remains unchanged.
 """
 
+import re
 from typing import Optional
 from services import storage
 
 
-# ── Source file resolver ───────────────────────────────────────────────────────
+# -- Source file resolver -------------------------------------------------------
 
 def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
     """
     For each entry in source_ids, resolve the thesis name + chapter_id
     to a filename, Drive link, and Drive file ID.
 
-    Primary path: source_resolver looks up source records by scan_key —
+    Primary path: source_resolver looks up source records by scan_key --
     Drive file IDs come directly from source records (no local scan needed).
     Fallback: scan dict (drive_scan_result.json) for legacy groups.
     """
     results = []
-    # Load the scan once as fallback — source_resolver uses it only for legacy groups
+    # Load the scan once as fallback -- source_resolver uses it only for legacy groups
     scan = storage.read_misc("drive_scan_result", thesis_id="") or {}
     for entry in source_ids:
         thesis_name = entry.get("source_id", "")
@@ -60,7 +61,7 @@ def _resolve_required_sources(source_ids: list[dict]) -> list[dict]:
     return results
 
 
-# ── Prompt renderer ────────────────────────────────────────────────────────────
+# -- Prompt renderer -----------------------------------------------------------
 
 def _render_notebooklm_prompt(
     chapter: dict,
@@ -70,7 +71,7 @@ def _render_notebooklm_prompt(
     academic_style_notes: Optional[str],
 ) -> dict[str, str]:
 
-    # ── Resolve dynamic values ─────────────────────────────────────────────
+    # -- Resolve dynamic values ------------------------------------------------
     subtopic_number = subtopic.get("number", "")
     subtopic_title  = subtopic.get("title", "Untitled")
     estimated_pages = subtopic.get("estimated_pages")
@@ -80,32 +81,60 @@ def _render_notebooklm_prompt(
     elif estimated_pages:
         wc = estimated_pages * 250
     else:
-        wc = 1000
+        wc = 1500
 
     position_in_argument = subtopic.get("position_in_argument", "Not specified")
     goal                 = subtopic.get("goal", "Not specified")
 
-    # Stage 2 length instruction — use pages if available, fall back to words
-    if estimated_pages:
-        stage2_length = f"{estimated_pages} pages"
-    else:
-        stage2_length = f"{wc} words"
-
-    # ── Build source block (chapter name + source_guidance only) ──────────
+    # -- Build source block (key_claim preferred; first-sentence fallback) -----
     source_ids   = subtopic.get("source_ids", [])
     source_lines = []
     for src in source_ids:
         src_label = src.get("source_id", "Unknown")
-        guidance  = src.get("source_guidance", "Use as evidence.")
-        source_lines.append(f"- {src_label}\n  {guidance}")
-    sources_block = "\n\n".join(source_lines) if source_lines else "No sources specified."
+        key_claim = src.get("key_claim", "")
+        if not key_claim:
+            # Fallback: extract first sentence of source_guidance
+            full_guidance = src.get("source_guidance", "Use as evidence.")
+            key_claim = full_guidance.split(".")[0].strip() + "."
+        source_lines.append(f"- {src_label}: {key_claim}")
+    sources_block = "\n".join(source_lines) if source_lines else "No sources specified."
 
-    # ── Previous section context ───────────────────────────────────────────
+    # -- Chapter context (first 2 sentences of chapter_arc) -------------------
+    chapter_arc_full = chapter.get("chapter_arc", "")
+    sentences = re.split(r"(?<=[.!?])\s+", chapter_arc_full.strip())
+    chapter_context = " ".join(sentences[:2]) if sentences else ""
+
+    if chapter_context:
+        chapter_ctx_block = (
+            "\n# CHAPTER CONTEXT\n"
+            f"{chapter_context}\n"
+        )
+    else:
+        chapter_ctx_block = ""
+
+    # -- Argument structure brief ----------------------------------------------
+    argument_structure = subtopic.get("argument_structure", "")
+
+    if argument_structure:
+        arg_structure_block = (
+            "\n# ARGUMENT STRUCTURE\n"
+            f"{argument_structure}\n"
+        )
+    else:
+        arg_structure_block = ""
+
+    # -- Style notes -----------------------------------------------------------
+    if academic_style_notes:
+        style_note_line = f"\n* Style notes: {academic_style_notes}"
+    else:
+        style_note_line = ""
+
+    # -- Previous section context ----------------------------------------------
     prev_lines = []
     if previous_summary:
         prev_lines += [
             "# PREVIOUS SECTION CONTEXT",
-            "Do NOT repeat. Build forward from what was established.",
+            "Do NOT repeat. Do not reopen arguments already settled. Build forward.",
             "",
             f"Section {previous_summary.get('subtopic_number')} established:",
             previous_summary.get("core_argument_made", ""),
@@ -113,90 +142,81 @@ def _render_notebooklm_prompt(
         if previous_summary.get("key_terms_established"):
             prev_lines += [
                 "",
-                f"Use these terms consistently (do not redefine): "
+                f"Terms already defined -- use consistently, do not redefine: "
                 f"{', '.join(previous_summary['key_terms_established'])}",
+            ]
+        if previous_summary.get("sources_used"):
+            prev_lines += [
+                "",
+                f"Scholars already named -- do not reintroduce them as if new: "
+                f"{', '.join(previous_summary['sources_used'])}",
             ]
         if previous_summary.get("what_next_section_must_build_on"):
             prev_lines += [
                 "",
-                "Build on:",
+                "This section must build on:",
                 previous_summary["what_next_section_must_build_on"],
             ]
         prev_lines.append("")
 
     prev_ctx_block = "\n".join(prev_lines)
 
-    # ── Style notes ────────────────────────────────────────────────────────
-    style_note_line = f"\n* {academic_style_notes}" if academic_style_notes else ""
+    # -- Assemble Prompt 1 -----------------------------------------------------
+    prompt_1_parts = [
+        "You are a research assistant synthesizing grounded claims from uploaded "
+        "academic sources into a PhD dissertation section. Every claim you make "
+        "must be traceable to the provided sources. Do not introduce scholars, "
+        "frameworks, or arguments that do not appear in the uploaded source texts.",
+        chapter_ctx_block,
+        f"# SECTION {subtopic_number}: {subtopic_title}",
+        f"* Target length: ~{wc} words",
+        f"* Section goal: {goal}",
+        f"* Role in chapter argument: {position_in_argument}{style_note_line}",
+        "",
+        "# SOURCES",
+        sources_block,
+        arg_structure_block,
+        prev_ctx_block,
+        "# STRICT RULES",
+        '- Begin directly with the argument. No "In this section" or "This section will" openers.',
+        "- Continuous analytical paragraphs only. No bullet points, bolding, or subheadings.",
+        "- Cite every claim with a bracketed inline citation tied to its source, "
+        "e.g. [Source Name, Chapter X]. Every paragraph must contain at least one citation.",
+        "- Name only scholars and theoretical concepts that appear explicitly in the "
+        "uploaded source texts. If a theorist is not named in the source, do not "
+        "introduce them -- refer to the argument, not the theorist.",
+        "- Each paragraph makes one distinct argumentative move. No two paragraphs restate the same point.",
+        "- The closing sentence must state the intellectual question this section's "
+        'argument opens -- the question that becomes askable because of what was '
+        'established here. Do NOT write "the next section will..." or "as this '
+        'analysis moves forward..." State it as a claim in motion.',
+    ]
+    prompt_1 = "\n".join(prompt_1_parts)
 
-    # ── Assemble Prompt 1 ──────────────────────────────────────────────────
-    prompt_1 = f"""\
-You are writing an academic section of a PhD dissertation in English \
-literature. Your job is structural execution: build the argument exactly \
-as instructed using only the provided sources.
+    # -- Prompt 2: Stage 2 Gemini expansion removed ----------------------------
+    # After reviewing the NLM draft, ask NLM for a plain-text summary using
+    # render_summary_prompt(), then save it via:
+    # POST /consistency/{chapter_id}/{subtopic_id}
+    return {"prompt_1": prompt_1}
 
-# {subtopic_number} {subtopic_title}
-* Target length: ~{wc} words
-* {position_in_argument}
-* {goal}{style_note_line}
 
-# SOURCES & DEPLOYMENT STRATEGY
-{sources_block}
+# -- Summary prompt renderer ---------------------------------------------------
 
-{prev_ctx_block}\
-# STRICT RULES
-- Begin directly with the argument. No "In this section" openers.
-- Continuous analytical paragraphs only. No bullet points, bolding, \
-or subheadings within the section.
-- Do not introduce outside arguments, sources, or scholars.
-- Write as a scholar would: establish the claim, acknowledge what the \
-existing approach achieves before critiquing it, name what the field \
-loses by maintaining this pattern, and close by signalling what becomes \
-possible once it is overcome."""
-
-    # ── Assemble Prompt 2 ──────────────────────────────────────────────────
-    prompt_2 = f"""\
-PROMPT 2 — Gemini (Stage Two: Scholarly Elaboration)
-You are a scholarly editor working on a PhD dissertation in 
-English literature. When given a draft section your job is 
-to expand it to genuine scholarly depth without adding new 
-sources, inventing citations, or padding with repetition.
-
-Execute the four tasks below in this order, inserting each 
-new paragraph at the most logically appropriate position within the existing 
-draft rather than appending them all at the end:
-
-INSTITUTIONALIZE — explain what disciplinary or structural 
-conditions produce and reproduce the pattern being diagnosed. 
-You may only develop arguments logically entailed by claims already present in the draft.
-
-STEELMAN — defend what the existing approach achieves before any critique lands. 
-If the draft already handles this, your paragraph must introduce a distinct sub-claim the existing paragraph does not make, not restate it at a different level of abstraction.
-
-CONSEQUENTIALIZE — develop what the field specifically loses by maintaining this pattern. 
-Be precise about the intellectual or methodological cost.
-
-PROSPECTIVE SIGNAL — gesture toward what becomes visible once the limitation is overcome. This must be the final paragraph and must not exceed three sentences.
-
-ALWAYS:
-
-Preserve all bracketed citations (e.g., [1, 2]) 
-- If the draft already handles one of the four tasks well, 
-  build around it rather than replacing it.
-
-Maintain a strictly analytical, non-evaluative register throughout—every sentence must advance a concrete claim, not ornament one already made.
-
-Ensure all arguments have a clear lexical anchor in the existing text
-
-NEVER:
-introduce outside conceptual frameworks, values, or paradigms (such as classical humanism) that conflict with the draft's theoretical foundation.
-Add new scholars, sources, or outside knowledge.
-
-Invent specific terms, jargon, or phrases inside quotation marks (no "ghost quotes") unless those exact words exist in the provided draft.
-
-Use bullet points, bolding, or subheadings.
-
-Let two consecutive paragraphs do the same argumentative work, add any paragraph after the PROSPECTIVE SIGNAL, or write a concluding synthesis.
-Expand this draft to {stage2_length}. All four tasks must be present."""
-
-    return {"prompt_1": prompt_1, "prompt_2": prompt_2}
+def render_summary_prompt(subtopic: dict) -> str:
+    """
+    Reads prompts/generate_subtopic_summary.txt and injects the subtopic's
+    number and title. The returned string is the message the user pastes into
+    the NLM notebook after the draft is written, asking NLM to summarise what
+    it argued. The plain-text response becomes core_argument_made in the
+    consistency chain.
+    """
+    import pathlib
+    template_path = pathlib.Path("prompts/generate_subtopic_summary.txt")
+    if not template_path.exists():
+        raise FileNotFoundError("prompts/generate_subtopic_summary.txt not found")
+    template = template_path.read_text(encoding="utf-8")
+    return (
+        template
+        .replace("{subtopic_number}", subtopic.get("number", ""))
+        .replace("{subtopic_title}", subtopic.get("title", ""))
+    )

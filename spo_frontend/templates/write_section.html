@@ -205,6 +205,23 @@
             </button>
           </div>
 
+          <!-- Prompt viewer — collapsed by default -->
+          <div style="margin-top:14px;">
+            <button class="btn btn-ghost" id="btnTogglePromptViewer" type="button"
+              style="font-size:11.5px;width:100%;text-align:left;padding:6px 10px;">
+              📄 View compiled prompt for active subtopic ▸
+            </button>
+            <div id="promptViewerPanel" style="display:none;margin-top:8px;">
+              <textarea id="promptViewerText" readonly
+                style="width:100%;height:260px;font-size:11px;font-family:var(--font-mono,monospace);resize:vertical;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);box-sizing:border-box;"
+                placeholder="Select a subtopic to load its compiled prompt…"></textarea>
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;">
+                <button class="btn btn-ghost" id="btnRefreshPromptViewer" type="button" style="font-size:11.5px;">⟳ Refresh</button>
+                <button class="btn btn-ghost" id="btnCopyPromptViewer" type="button" style="font-size:11.5px;">📋 Copy</button>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -235,22 +252,46 @@
         <div class="card-header" data-card="card04">
           <span class="card-num">04</span>
           <span class="card-title">Consistency Summary</span>
-          <span class="pill pill-idle">Pending</span>
+          <span class="pill pill-idle" id="card04Pill">Pending</span>
           <span class="chevron">▾</span>
         </div>
         <div class="card-body">
           <div class="card-divider"></div>
-          <p style="font-size:11.5px;color:var(--muted);margin-bottom:16px;">
-            Run via NotebookLM — generates a consistency summary and saves it to your summary doc.
+
+          <p style="font-size:11.5px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
+            After the draft is written, copy the summary request below and paste it into
+            the same NotebookLM notebook. Paste NLM’s plain-text response back here and save.
           </p>
-          <div style="display:flex;gap:10px;margin-bottom:14px;">
-            <button class="btn btn-primary btn-full" id="btnGenerateConsistency" type="button">
-              ⚡ Generate Summary via NotebookLM
+
+          <!-- Step 1: copy summary request to clipboard -->
+          <div style="margin-bottom:16px;">
+            <button class="btn btn-primary" id="btnCopySummaryPrompt" type="button"
+              style="width:100%;">
+              📋 Copy Summary Request → Paste into NLM
             </button>
           </div>
-          <div class="summary-saved-box" id="consistencySavedBox">
-            <div class="summary-saved-text">No summary saved yet for this subtopic.</div>
+
+          <!-- Step 2: paste NLM response (revealed after Step 1) -->
+          <div id="summaryPasteSection">
+            <label style="font-size:11.5px;color:var(--muted);display:block;margin-bottom:6px;">
+              Paste NLM’s response:
+            </label>
+            <textarea id="summaryPasteArea"
+              placeholder="Paste NLM’s 2–3 sentence summary here…"
+              style="width:100%;height:90px;resize:vertical;font-size:12.5px;font-family:var(--font-ui);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);box-sizing:border-box;"></textarea>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+              <button class="btn btn-success" id="btnSaveConsistency" type="button">💾 Save Summary</button>
+            </div>
           </div>
+
+          <!-- Saved summary display -->
+          <div class="summary-saved-box" id="consistencySavedBox" style="display:none;">
+            <div class="summary-saved-label" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Saved summary</div>
+            <div class="summary-saved-text" id="consistencySavedText" style="font-size:13px;line-height:1.6;"></div>
+            <button class="btn btn-ghost" id="btnDeleteConsistency" type="button"
+              style="font-size:11px;padding:3px 8px;margin-top:10px;">🗑️ Delete Summary</button>
+          </div>
+
         </div>
       </div>
 

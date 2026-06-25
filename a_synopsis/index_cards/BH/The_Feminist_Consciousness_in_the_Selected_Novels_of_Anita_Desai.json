@@ -1,0 +1,136 @@
+{
+  "title": "The Feminist Consciousness in the Selected Novels of Anita Desai",
+  "author": null,
+  "year": null,
+  "source_type": "thesis_chapter",
+  "chapters": [
+    {
+      "file": "abstrct.pdf",
+      "chapter_title": "ABSTRACT",
+      "key_claims": [
+        "Argues that feminism in Indian English fiction is a by-product of Western movements, yet focuses specifically on existential struggles for identity-assertion and self-affirmation.",
+        "Claims that Anita Desai's female protagonists highlight the effects of negligent, patriarchal family structures that drive sensitive women toward psychological neurosis.",
+        "Asserts that Desai utilizes botanical and zoological imagery, alongside narrative strategies like memory and flashback, to effectively portray the hidden inner sensibilities of women."
+      ],
+      "themes": [
+        "feminist_consciousness",
+        "patriarchal_subordination",
+        "psychological_turmoil",
+        "identity_assertion"
+      ],
+      "limitations": null,
+      "time_period": "1960–present",
+      "citations": [
+        "Anita Desai"
+      ]
+    },
+    {
+      "file": "chapter1.pdf",
+      "chapter_title": "CHAPTER-1: INTRODUCTION",
+      "key_claims": [
+        "Argues that Anita Desai pioneered the psychological novel genre in Indian English literature by prioritizing the inner emotional states of women over broader political or social plots.",
+        "Synthesizes various feminist models—including Marxist, radical, psychoanalytical, and post-modern—to contextualize the specific multi-layered nature of Indian feminism.",
+        "Asserts that Desai's feminism is humanistic and portrays women who suffer intensely under marital disharmony but refuse to be completely crushed by male-dominated environments."
+      ],
+      "themes": [
+        "feminist_theory",
+        "psychoanalytical_feminism",
+        "conjugal_disharmony",
+        "existentialism"
+      ],
+      "limitations": "The chapter notes that Desai's novels do not deal with the broader socio-political problems of Third World feminism, focusing exclusively on interior psychological landscapes.",
+      "time_period": "19th Century–20th Century",
+      "citations": [
+        "Mary Wollstonecraft",
+        "Simone De Beauvoir",
+        "Betty Friedan",
+        "Julia Kristeva",
+        "Judith Butler",
+        "Gayatri Chakravarty Spivak",
+        "Elaine Showalter",
+        "K.R. Srinivasa Iyengar"
+      ]
+    },
+    {
+      "file": "chapter2.pdf",
+      "chapter_title": "CHAPTER-2: REVIEW OF LITERATURE",
+      "key_claims": [
+        "Argues that Indian feminism differs markedly from Western feminism because it was initially founded by male social reformers and operates within deeply rooted hierarchical, caste, and religious structures.",
+        "Claims that post-colonial feminism challenges Western feminism's monolithic depiction of Third World women as eternally victimized, advocating instead for the recognition of local and cultural heterogeneity.",
+        "Highlights the shift in contemporary Indian women's fiction from portraying self-sacrificing traditional women to depicting rebellious individuals actively questioning marriage and motherhood."
+      ],
+      "themes": [
+        "indian_feminism",
+        "post_colonial_feminism",
+        "social_reform",
+        "patriarchal_tyranny"
+      ],
+      "limitations": null,
+      "time_period": "Vedic Period–20th Century",
+      "citations": [
+        "Suma Chitnis",
+        "Uma Narayan",
+        "Julia Kristeva",
+        "Rajeswari Sunder Rajan",
+        "Gail Omvedt",
+        "Sharmila Rege",
+        "Chandra Talpade Mohanty",
+        "Kamala Markandaya",
+        "Shashi Deshpande",
+        "Manju Kapur"
+      ]
+    },
+    {
+      "file": "chapter3.pdf",
+      "chapter_title": "CHAPTER-3: THEMES AND TECHNIQUES",
+      "key_claims": [
+        "Argues that alienation and existentialism form the backbone of Desai's novels, driven by her protagonists' emotional voids, lack of communication, and marital incompatibility.",
+        "Demonstrates how the 'Johari Window' psychological framework can be applied to effectively map the hidden, blind, and unknown facets of Desai's complex characters.",
+        "Asserts that Desai utilizes ecofeminist elements and nativistic settings, employing the city, isolated mountains, and flora as active mirrors to her characters' psychological trauma."
+      ],
+      "themes": [
+        "alienation",
+        "existentialism",
+        "ecofeminism",
+        "nativism",
+        "feminization_of_aging"
+      ],
+      "limitations": null,
+      "time_period": "1947–1980",
+      "citations": [
+        "Jan Mukarovsky",
+        "Sigmund Freud",
+        "Carl Rogers",
+        "Jean Paul Sartre",
+        "Simone de Beauvoir",
+        "D.H. Lawrence",
+        "T.S. Eliot"
+      ]
+    },
+    {
+      "file": "chapter4.pdf",
+      "chapter_title": "CHAPTER-4: DETAILED ANALYSIS",
+      "key_claims": [
+        "Argues that 'Cry, the Peacock' portrays how a father-fixated upbringing combined with a husband's rational detachment drives a sensitive woman to neurosis and murder.",
+        "Claims that 'Voices in the City' utilizes Calcutta as a destructive mother figure to emphasize the devastating psychological toll of marital hypocrisy and gender disparity on its characters.",
+        "Asserts that 'Fire on the Mountain' and 'Clear Light of Day' subvert the traditional Indian glorification of motherhood and marriage, illustrating women who either seek aggressive isolation or carve out an unconventional independence."
+      ],
+      "themes": [
+        "hypocrisy_of_marriage",
+        "gender_disparity",
+        "unhealthy_childhood",
+        "marital_discord",
+        "motherhood"
+      ],
+      "limitations": null,
+      "time_period": "1947–1980",
+      "citations": [
+        "Kate Millett",
+        "Simone de Beauvoir",
+        "Karen Horney",
+        "Sigmund Freud",
+        "Judith Butler"
+      ]
+    }
+  ]
+}

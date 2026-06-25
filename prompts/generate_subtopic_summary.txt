@@ -1,0 +1,4 @@
+﻿You just wrote the section "{subtopic_title}" ({subtopic_number}).
+
+In 2-3 sentences, summarise the central argument you established in this section.
+State what was proved, not what was covered. Past tense. Plain prose only -- no headings, no bullet points.

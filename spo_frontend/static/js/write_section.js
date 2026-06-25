@@ -672,14 +672,25 @@ function renderSources() {
 }
 
 function renderConsistencyCard() {
-  const saved = $("consistencySavedBox");
+  const savedBox   = $("consistencySavedBox");
+  const pasteSection = $("summaryPasteSection");
+  const savedText  = $("consistencySavedText");
+  const pill       = $("card04Pill");
   const text = state.consistencyText;
+
   if (text) {
-    saved.innerHTML = `
-      <div class="summary-saved-label">Saved summary</div>
-      <div class="summary-saved-text">${_esc(text)}</div>`;
+    // Summary exists — show saved box, hide paste section
+    if (savedText)  savedText.textContent = text;
+    if (savedBox)   savedBox.style.display = "block";
+    if (pasteSection) pasteSection.style.display = "none";
+    if (pill) { pill.textContent = "✅ Done"; pill.className = "pill pill-done"; }
   } else {
-    saved.innerHTML = `<div class="summary-saved-text">No summary saved yet for this subtopic.</div>`;
+    // No summary — show paste section, hide saved box
+    if (savedBox)   savedBox.style.display = "none";
+    if (pasteSection) pasteSection.style.display = "block";
+    const area = $("summaryPasteArea");
+    if (area) area.value = "";
+    if (pill) { pill.textContent = "Pending"; pill.className = "pill pill-idle"; }
   }
 }
 
@@ -807,6 +818,9 @@ const actions = {
     // Find in the already-loaded chain
     const entry = state.chain.find(e => e.subtopic_id === subtopicId);
     state.consistencyText = entry?.core_argument_made ?? null;
+    // Reset prompt viewer when subtopic changes
+    const viewer = $("promptViewerText");
+    if (viewer) viewer.value = "";
   },
 
   async runSubtopic(subtopicId) {
@@ -949,16 +963,63 @@ const actions = {
   },
 
   async generateConsistencyPrompt() {
+    // Now correctly: fetch the NLM summary request message and copy it
+    const sub = getActiveSubtopic();
+    if (!sub) { toast("Select a subtopic first.", "info"); return; }
+    const btn = $("btnCopySummaryPrompt");
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ Loading…"; }
     try {
-      const res = await API.compilePrompt(
-        state.chapterId, state.activeSubtopicId,
-        state.wordCount || null,
-        state.styleNotes || null,
-      );
-      const text = res.prompt_1 ?? res.prompt ?? "";
-      await copyToClipboard(text, "Consistency prompt copied");
+      const res = await API.getSummaryPrompt(state.chapterId, state.activeSubtopicId);
+      await copyToClipboard(res.summary_prompt, "Summary request copied — paste into NotebookLM");
     } catch (err) {
       toast(`Failed: ${err.message}`, "error");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "📋 Copy Summary Request → Paste into NLM"; }
+    }
+  },
+
+  async saveConsistencyText() {
+    const text = $("summaryPasteArea")?.value?.trim();
+    if (!text) { toast("Paste NLM’s response first.", "info"); return; }
+    const sub = getActiveSubtopic();
+    if (!sub) { toast("Select a subtopic first.", "info"); return; }
+    try {
+      await API.saveConsistencySummary(state.chapterId, state.activeSubtopicId, {
+        subtopic_number: sub.number,
+        subtopic_title:  sub.title,
+        core_argument_made: text,
+        key_terms_established: [],
+        sources_used: [],
+      });
+      // Update local state
+      state.consistencyText = text;
+      // Add/update entry in chain so context strip reflects it
+      const existing = state.chain.findIndex(e => e.subtopic_id === state.activeSubtopicId);
+      if (existing >= 0) {
+        state.chain[existing].core_argument_made = text;
+      } else {
+        state.chain.push({ subtopic_id: state.activeSubtopicId, core_argument_made: text });
+      }
+      renderConsistencyCard();
+      renderContextPills();
+      toast("✅ Summary saved — next subtopic will use this as context", "success", 4000);
+    } catch (err) {
+      toast(`Save failed: ${err.message}`, "error");
+    }
+  },
+
+  async deleteConsistencySummary() {
+    if (!confirm("Delete this consistency summary? The subtopic will revert to Pending.")) return;
+    try {
+      await API.deleteConsistencySummary(state.chapterId, state.activeSubtopicId);
+      state.consistencyText = null;
+      const idx = state.chain.findIndex(e => e.subtopic_id === state.activeSubtopicId);
+      if (idx >= 0) state.chain.splice(idx, 1);
+      renderConsistencyCard();
+      renderContextPills();
+      toast("Summary deleted", "info");
+    } catch (err) {
+      toast(`Delete failed: ${err.message}`, "error");
     }
   },
 
@@ -1185,18 +1246,18 @@ async function init() {
   });
 
   // ── Config (card-01) ──────────────────────────────────────────────────────
-  $("btnWcMinus").addEventListener("click", () => {
+  $("btnWcMinus")?.addEventListener("click", () => {
     state.wordCount = Math.max(0, state.wordCount - 100);
     $("wcValue").textContent = state.wordCount;
   });
-  $("btnWcPlus").addEventListener("click", () => {
+  $("btnWcPlus")?.addEventListener("click", () => {
     state.wordCount = Math.min(5000, state.wordCount + 100);
     $("wcValue").textContent = state.wordCount;
   });
-  $("styleNotesInput").addEventListener("input", e => {
+  $("styleNotesInput")?.addEventListener("input", e => {
     state.styleNotes = e.target.value;
   });
-  $("uploadMethodSelect").addEventListener("change", e => {
+  $("uploadMethodSelect")?.addEventListener("change", e => {
     state.uploadMethod = e.target.value;
   });
 
@@ -1209,7 +1270,7 @@ async function init() {
   });
 
   // ── Generate (card-02) ───────────────────────────────────────────────────
-  $("btnCheckCreds").addEventListener("click", async () => {
+  $("btnCheckCreds")?.addEventListener("click", async () => {
     const statusEl = $("credStatus");
     statusEl.textContent = "Checking...";
     try {
@@ -1226,12 +1287,12 @@ async function init() {
       statusEl.style.color = "#f87171";
     }
   });
-  $("btnRunAll").addEventListener("click", () => actions.runAllIdle());
+  $("btnRunAll")?.addEventListener("click", () => actions.runAllIdle());
 
   // ── Draft (card-03) ──────────────────────────────────────────────────────
-  $("draftTextarea").addEventListener("input", _updateWordCount);
-  $("btnSaveDraft").addEventListener("click", () => actions.saveDraft());
-  $("btnClearDraft").addEventListener("click", () => actions.clearDraft());
+  $("draftTextarea")?.addEventListener("input", _updateWordCount);
+  $("btnSaveDraft")?.addEventListener("click", () => actions.saveDraft());
+  $("btnClearDraft")?.addEventListener("click", () => actions.clearDraft());
 
   // ── Copy all source links ─────────────────────────────────────────────────
   $("btnCopyAllLinks")?.addEventListener("click", async () => {
@@ -1246,7 +1307,48 @@ async function init() {
   });
 
   // ── Consistency (card-04) ────────────────────────────────────────────────
-  $("btnGenerateConsistency").addEventListener("click", () => actions.generateConsistencyPrompt());
+  $("btnCopySummaryPrompt")?.addEventListener("click", () => actions.generateConsistencyPrompt());
+  $("btnSaveConsistency")?.addEventListener("click",   () => actions.saveConsistencyText());
+  $("btnDeleteConsistency")?.addEventListener("click", () => actions.deleteConsistencySummary());
+
+  // ── Prompt viewer (card-02) ───────────────────────────────────────────────
+  let _promptViewerOpen = false;
+  async function _loadPromptViewer() {
+    const ta = $("promptViewerText");
+    if (!ta || !state.chapterId || !state.activeSubtopicId) return;
+    ta.value = "Loading…";
+    try {
+      const res = await API.compilePrompt(
+        state.chapterId, state.activeSubtopicId,
+        state.wordCount || null, state.styleNotes || null,
+      );
+      ta.value = res.prompt_1 ?? res.prompt ?? "";
+      // Refresh sources panel too
+      state.sources = res.meta?.required_sources ?? [];
+      renderSources();
+    } catch (err) {
+      ta.value = `Error: ${err.message}`;
+    }
+  }
+
+  $("btnTogglePromptViewer")?.addEventListener("click", async () => {
+    const panel = $("promptViewerPanel");
+    const btn   = $("btnTogglePromptViewer");
+    if (!panel) return;
+    _promptViewerOpen = !_promptViewerOpen;
+    panel.style.display = _promptViewerOpen ? "block" : "none";
+    btn.textContent = _promptViewerOpen
+      ? "📄 View compiled prompt for active subtopic ▾"
+      : "📄 View compiled prompt for active subtopic ▸";
+    if (_promptViewerOpen) await _loadPromptViewer();
+  });
+
+  $("btnRefreshPromptViewer")?.addEventListener("click", () => _loadPromptViewer());
+
+  $("btnCopyPromptViewer")?.addEventListener("click", () => {
+    const text = $("promptViewerText")?.value;
+    if (text) copyToClipboard(text, "Prompt copied");
+  });
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   // ── Thesis selector ───────────────────────────────────────────────────────

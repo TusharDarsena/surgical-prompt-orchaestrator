@@ -124,6 +124,9 @@ export const deleteConsistencySummary = (chapterId, subtopicId) =>
 export const saveConsistencySummary = (chapterId, subtopicId, data) =>
   _post(_p(`/consistency/${chapterId}/${subtopicId}`), data);
 
+export const getSummaryPrompt = (chapterId, subtopicId) =>
+  _get(_p(`/compile/summary-prompt/${chapterId}/${subtopicId}`));
+
 export const generateConsistencyPrompt = (chapterId, subtopicId, wordCount, styleNotes) => {
   // Re-uses the compiler endpoint — consistency summary is Stage 1 driven the same way.
   const params = new URLSearchParams();

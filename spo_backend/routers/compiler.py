@@ -86,7 +86,7 @@ def compile_notebooklm_prompt(
         academic_style_notes=academic_style_notes,
     )
     prompt_1 = prompts["prompt_1"]
-    prompt_2 = prompts["prompt_2"]
+    # prompt_2 (Stage 2 Gemini expansion) has been retired — Option A from implementation plan
 
     # ── Effective word count ──────────────────────────────────────────────
     effective_wc = word_count
@@ -109,9 +109,8 @@ def compile_notebooklm_prompt(
 
     # ── Build response ─────────────────────────────────────────────────────
     return {
-        "prompt": f"{prompt_1}\n\n\n{prompt_2}",
+        "prompt": prompt_1,
         "prompt_1": prompt_1,
-        "prompt_2": prompt_2,
         "meta": {
             "chapter": f"{chapter['number']} — {chapter['title']}",
             "subtopic": f"{subtopic['number']} — {subtopic['title']}",
@@ -127,16 +126,57 @@ def compile_notebooklm_prompt(
         },
         "next_step": (
             f"1. Check required_sources — upload those PDFs to NotebookLM. "
-            f"2. Paste Prompt 1 into NotebookLM. "
-            f"3. Paste Prompt 2 into Gemini with Stage One output. "
+            f"2. Paste prompt_1 into NotebookLM and collect the draft. "
+            f"3. Use prompts/generate_subtopic_summary.txt with Claude to generate the consistency summary. "
             f"4. Save draft via POST /sections/{chapter_id}/{subtopic_id}/draft. "
             f"5. Save consistency summary via POST /consistency/{chapter_id}/{subtopic_id}."
         )
     }
 
 
-# ── Re-exported from service layer ────────────────────────────────────────────
+# ── Summary Prompt (for NLM consistency message) ─────────────────────────────
+
+@router.get(
+    "/summary-prompt/{chapter_id}/{subtopic_id}",
+    summary="Get the NLM summary request message for a subtopic"
+)
+def get_summary_prompt(
+    chapter_id: str,
+    subtopic_id: str,
+    thesis_id: str = Query(""),
+):
+    """
+    Returns the message to paste into the NotebookLM notebook after the draft
+    is written. NLM responds in plain text; the user pastes that response into
+    Card 04 on the Write Section page, which saves it as core_argument_made
+    in the consistency chain.
+    """
+    chapter = storage.read_chapter(chapter_id, thesis_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Chapter '{chapter_id}' not found.")
+
+    subtopics = chapter.get("subtopics", [])
+    subtopic = next((s for s in subtopics if s["subtopic_id"] == subtopic_id), None)
+    if not subtopic:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Subtopic '{subtopic_id}' not found."
+        )
+
+    try:
+        prompt_text = render_summary_prompt(subtopic)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "subtopic_number": subtopic.get("number", ""),
+        "subtopic_title": subtopic.get("title", ""),
+        "summary_prompt": prompt_text,
+    }
+
+
+# ── Re-exported from service layer ─────────────────────────────────────────────────────
 # Imported here so existing callers of routers.compiler._resolve_required_sources
 # and routers.compiler._render_notebooklm_prompt continue to work unchanged.
 
-from services.compiler_service import _resolve_required_sources, _render_notebooklm_prompt  # noqa: F401
+from services.compiler_service import _resolve_required_sources, _render_notebooklm_prompt, render_summary_prompt  # noqa: F401
