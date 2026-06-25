@@ -30,6 +30,7 @@ async def write_section_page(request: Request):
     All dynamic data (subtopics, run states, drafts) is fetched client-side.
     """
     return templates.TemplateResponse(
-        "write_section.html",
-        {"request": request, "chapters": [], "api_base": _BACKEND, "active_page": "write-section"},
+        request=request,
+        name="write_section.html",
+        context={"request": request, "chapters": [], "api_base": _BACKEND, "active_page": "write-section"},
     )

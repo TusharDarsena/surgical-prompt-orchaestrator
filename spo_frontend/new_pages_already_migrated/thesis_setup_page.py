@@ -45,6 +45,7 @@ async def thesis_setup_page(request: Request):
       GET /thesis/chapters    → Card 02 chapter list (then GET each for subtopics)
     """
     return templates.TemplateResponse(
-        "thesis_setup.html",
-        {"request": request, "api_base": _BACKEND, "active_page": "thesis-setup"},
+        request=request,
+        name="thesis_setup.html",
+        context={"request": request, "api_base": _BACKEND, "active_page": "thesis-setup"},
     )

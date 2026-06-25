@@ -28,8 +28,9 @@ _BACKEND = os.environ.get("SPO_API_URL", "http://localhost:8000")
 @router.get("/app", response_class=HTMLResponse)
 async def app_home(request: Request):
     return templates.TemplateResponse(
-        "app_home.html",
-        {"request": request, "api_base": _BACKEND, "active_page": "app"},
+        request=request,
+        name="app_home.html",
+        context={"request": request, "api_base": _BACKEND, "active_page": "app"},
     )
 
 

@@ -35,6 +35,7 @@ async def source_library_page(request: Request):
       - GET /drive/local-files     → Card 02 thesis folder list
     """
     return templates.TemplateResponse(
-        "source_library.html",
-        {"request": request, "api_base": _BACKEND, "active_page": "source-library"},
+        request=request,
+        name="source_library.html",
+        context={"request": request, "api_base": _BACKEND, "active_page": "source-library"},
     )

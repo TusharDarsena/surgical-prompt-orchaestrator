@@ -30,8 +30,9 @@ async def consistency_chain_page(request: Request):
     All data (chapters, chain, subtopics) is fetched client-side.
     """
     return templates.TemplateResponse(
-        "consistency_chain.html",
-        {
+        request=request,
+        name="consistency_chain.html",
+        context={
             "request": request,
             "api_base": _BACKEND,
             "active_page": "consistency-chain",
