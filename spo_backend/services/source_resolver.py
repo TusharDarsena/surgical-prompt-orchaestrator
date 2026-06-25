@@ -64,21 +64,35 @@ def resolve_source_files(
 
         results = []
         for segment in segments:
+            # Strategy 1-3: number/keyword/word-overlap match against filenames
             file_name = _match_chapter_to_file(segment, files)
-            drive_file_id = None
-            drive_link = None
+
+            src = None
             if file_name:
                 src = next(
                     (s for s in group_sources if s.get("file_name") == file_name),
                     None,
                 )
+
+            # Strategy 4: when chapterization uses raw chapter titles (not numbers),
+            # match the segment directly against source.chapter_or_section / source.title.
+            # This handles theses where chapter_id is e.g. "FEMINISM AND FEMINIST MOVEMENTS"
+            # instead of "Chapter 2" — common when the chapterization JSON was generated
+            # from a thesis with verbose chapter headings.
+            if src is None:
+                src = _match_segment_by_chapter_title(segment, group_sources)
                 if src:
-                    drive_file_id = src.get("drive_file_id")
-                    if drive_file_id:
-                        drive_link = f"https://drive.google.com/file/d/{drive_file_id}/view"
-                    elif src.get("drive_link"):
-                        # Preserve any manually set drive_link on the source record
-                        drive_link = src["drive_link"]
+                    file_name = src.get("file_name")
+
+            drive_file_id = None
+            drive_link = None
+            if src:
+                drive_file_id = src.get("drive_file_id")
+                if drive_file_id:
+                    drive_link = f"https://drive.google.com/file/d/{drive_file_id}/view"
+                elif src.get("drive_link"):
+                    # Preserve any manually set drive_link on the source record
+                    drive_link = src["drive_link"]
             results.append({
                 "segment": segment,
                 "file_name": file_name,
@@ -98,20 +112,99 @@ def resolve_source_files(
 
     files = thesis_entry.get("files", [])
 
+    # Pre-fetch the source group for Strategy 4 (chapter title matching).
+    # The scan entry key may differ from thesis_name (e.g. different casing),
+    # so look it up via find_group_by_scan_key with the matched scan key value.
+    # This gives us chapter_or_section / title fields to match against.
+    _fallback_group_sources: list = []
+    try:
+        _matched_scan_key = next(
+            k for k in scan
+            if scan[k] is thesis_entry  # identity compare — same dict object
+        )
+        _fb_group = _storage.find_group_by_scan_key(_matched_scan_key, thesis_id)
+        if _fb_group:
+            _fallback_group_sources = _fb_group.get("sources", [])
+    except StopIteration:
+        pass
+
     results = []
     for segment in segments:
         file_name = _match_chapter_to_file(segment, files)
         drive_link = None
+        drive_file_id = None
+
         if file_name and thesis_entry.get("drive_links"):
             drive_link = thesis_entry["drive_links"].get(file_name)
+
+        # Strategy 4 fallback: match by chapter_or_section / title on source records
+        if drive_link is None and _fallback_group_sources:
+            src4 = _match_segment_by_chapter_title(segment, _fallback_group_sources)
+            if src4:
+                file_name = src4.get("file_name") or file_name
+                drive_file_id = src4.get("drive_file_id")
+                if drive_file_id:
+                    drive_link = f"https://drive.google.com/file/d/{drive_file_id}/view"
+                elif src4.get("drive_link"):
+                    drive_link = src4["drive_link"]
+                elif file_name and thesis_entry.get("drive_links"):
+                    drive_link = thesis_entry["drive_links"].get(file_name)
+
         results.append({
             "segment": segment,
             "file_name": file_name,
             "drive_link": drive_link,
-            "drive_file_id": None,  # legacy path — raw ID not stored in scan dict
+            "drive_file_id": drive_file_id,
         })
 
     return results
+
+
+# ── Chapter title → source record matching (Strategy 4) ──────────────────────
+
+def _match_segment_by_chapter_title(segment: str, group_sources: list) -> dict | None:
+    """
+    Strategy 4 for source resolution: when the chapterization `chapter_id` is a
+    raw chapter title (e.g. "FEMINISM AND FEMINIST MOVEMENTS") rather than a
+    number ("Chapter 2"), match it directly against the `chapter_or_section`
+    and `title` fields stored on each source record.
+
+    Tries in order:
+      1. Exact case-insensitive match against chapter_or_section
+      2. Exact case-insensitive match against title
+      3. Slugified match against chapter_or_section
+      4. Slugified match against title
+    Returns the matching source dict, or None.
+    """
+    import re as _re
+
+    def _norm(s: str) -> str:
+        """Lowercase and collapse whitespace/punctuation to single spaces."""
+        s = _re.sub(r'[^a-z0-9]', ' ', s.lower())
+        return _re.sub(r'\s+', ' ', s).strip()
+
+    seg_norm = _norm(segment)
+    if not seg_norm:
+        return None
+
+    # Pass 1 & 2: normalised exact match
+    for src in group_sources:
+        for field in ("chapter_or_section", "title"):
+            val = src.get(field, "") or ""
+            if val and _norm(val) == seg_norm:
+                return src
+
+    # Pass 3 & 4: one is a prefix of the other (handles truncated titles)
+    for src in group_sources:
+        for field in ("chapter_or_section", "title"):
+            val = src.get(field, "") or ""
+            if not val:
+                continue
+            val_norm = _norm(val)
+            if val_norm.startswith(seg_norm) or seg_norm.startswith(val_norm):
+                return src
+
+    return None
 
 
 # ── Thesis name matching ───────────────────────────────────────────────────────

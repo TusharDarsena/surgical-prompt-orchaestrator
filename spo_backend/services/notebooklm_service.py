@@ -464,9 +464,8 @@ async def _run_sequence(
                 academic_style_notes=academic_style_notes,
                 thesis_id=thesis_id,
             )
-            prompt_1 = prompts["prompt_1"]
-            prompt_2 = prompts["prompt_2"]
-
+            prompt_1 = prompts.get("prompt_1")
+            prompt_2 = prompts.get("prompt_2")
             # ── Step 2: resolve absolute paths ────────────────────────────
             # Sync filesystem check — run in thread if not provided
             if resolved_paths is None:
@@ -640,6 +639,19 @@ async def _run_sequence(
                     },
                     thesis_id=thesis_id
                 )
+
+                if not prompt_2:
+                    state.update({
+                        "status": "done",
+                        "draft_preview": draft_1[:300] + ("..." if len(draft_1) > 300 else ""),
+                        "draft_source_title": None,
+                        "draft_source_id": None,
+                        "error": None,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    })
+                    storage.write_nlm_state(chapter_id, subtopic_id, state, thesis_id=thesis_id)
+                    logger.info(f"Single-stage run complete for '{subtopic_id}'")
+                    return
 
                 # Write a crash-safe title placeholder BEFORE add_text so the
                 # force-unlock endpoint can locate the source even if the ID

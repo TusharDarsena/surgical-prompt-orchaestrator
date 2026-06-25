@@ -75,3 +75,51 @@ Each session: log what changed, what files were touched, and what was deliberate
 ### Fixed
 - Fixed an `Uncaught TypeError: Cannot read properties of null` crash on the Write page by adding optional chaining (`?.`) to initialization event listeners.
 - Fixed a NotebookLM auth crash by explicitly installing missing Playwright browser binaries (`playwright install chromium`).
+
+---
+
+## [2026-06-26] - Copy All Links Fix (Bharti Devi) & Source Resolution Strategy 4
+
+### Root Cause Identified
+The "Copy All Links" button was silently returning `null` for most sources in Bharti Devi's thesis
+while working perfectly for Jitendra's. The asymmetry traced to a **`chapter_id` format difference**
+in the two chapterization JSONs:
+- **Jitendra**: `chapter_id = "History and Historiography in Fiction (Chapter 1)"` — the `(Chapter N)` suffix
+  is parseable by `_extract_chapter_number`, so the resolver finds `05_chapter 1.pdf` ✅
+- **Bharti Devi**: `chapter_id = "FEMINISM AND FEMINIST MOVEMENTS"` — a raw chapter heading with no number.
+  `_match_chapter_to_file` found nothing → `drive_link = null` → source skipped by Copy All Links ❌
+
+All three existing strategies (`_extract_chapter_number`, `_extract_keyword`, word-overlap) rely on
+chapter numbers or keywords appearing in the filename body. When the `chapter_id` is a verbose heading
+that doesn't map to a number, all three fail silently.
+
+### Added
+- **`_match_segment_by_chapter_title(segment, group_sources)`** in `source_resolver.py`:
+  Strategy 4 matches the raw `chapter_id` string directly against `source.chapter_or_section`
+  and `source.title` fields on source records. These fields are set during import from the
+  NLM index card JSON and reflect the actual chapter heading (e.g. `"FEMINISM AND FEMINIST MOVEMENTS"`).
+  Applied in **both** the primary path (group found via `find_group_by_scan_key`) and the legacy
+  fallback path (group looked up via the matched scan dict key).
+- **`scripts/fix_all_scan_keys.py`**: one-time repair script that fuzzy-matches group titles
+  to drive scan keys across all theses and directly injects `drive_file_id` + `drive_link`
+  into source records from the scan dict. Ran successfully: 31 scan_key fixes, 131 drive_file_id
+  injections across both `t_1782417138270` (Bharti Devi) and `t_1782418619566` (Jitendra).
+
+### Fixed
+- **`registerDriveLinks` not sending `thesis_id`** (`source_library_api.js`, `api.js`):
+  Both files called `_post("/drive/register-links", ...)` with a plain URL instead of `_p(...)`.
+  `thesis_id` was never appended, so the backend searched the root `source_groups/` directory
+  (empty — all theses are namespace-scoped under `theses/{thesis_id}/source_groups/`), injected
+  nothing, and returned silently. Fixed by changing to `_post(_p("/drive/register-links"), ...)`.
+- **All Jitendra source groups had `scan_key = ""`**: The previous session's `fix_null_scankeys.py`
+  script only ran against Bharti Devi. Fixed by `fix_all_scan_keys.py` above.
+- **5 Bharti Devi groups had no `drive_file_id`** on any source record despite having correct
+  `scan_key`: consequence of the `thesis_id` bug above. Fixed by same repair script.
+
+### Verified
+Live API test against `t_1782417138270`:
+```
+ch1/1_1 → ch1/1_7: 25/25 links  [ALL OK]
+ch2/2_1, 2_2, 2_3, 2_7: 17/17 links  [ALL OK]
+GRAND TOTAL: 42/42 drive links resolved
+```

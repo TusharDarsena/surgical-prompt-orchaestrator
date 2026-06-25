@@ -336,7 +336,7 @@ async def choose_folder(req: ChooseFolderRequest):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/register-links", summary="Recursively walk Drive parent folder and register shareable links for all thesis folders")
-def register_drive_links(req: RegisterLinksRequest):
+def register_drive_links(req: RegisterLinksRequest, thesis_id: str = Query("")):
     """
     Recursively walks the Drive parent folder at any depth. Any folder that
     directly contains files (not just subfolders) is treated as a thesis folder
@@ -368,6 +368,7 @@ def register_drive_links(req: RegisterLinksRequest):
         scan=scan,
         registered=registered,
         skipped=skipped,
+        thesis_id=thesis_id,
     )
 
     _write_scan(scan)
@@ -387,6 +388,7 @@ def _walk_drive_folder(
     scan: dict,
     registered: list,
     skipped: list,
+    thesis_id: str = "",
 ):
     """
     Recursively walks a Drive folder. For each folder encountered:
@@ -442,10 +444,12 @@ def _walk_drive_folder(
             # ── Write drive_file_id directly to source records ────────────────────────
             # This decouples Drive resolution from local folder names: source_resolver.py
             # can look up drive_file_id from source records without consulting the scan dict.
-            group = storage.find_group_by_scan_key(thesis_name, thesis_id="")
+            group = storage.find_group_by_scan_key(thesis_name, thesis_id=thesis_id)
+            print(f"DEBUG: thesis_name={thesis_name}, group_found={group is not None}")
             sources_linked = 0
             if group:
                 group_sources = group.get("sources", [])  # capture before any cache eviction
+                print(f"DEBUG: group_sources count={len(group_sources)}")
                 for source in group_sources:
                     fname = source.get("file_name")
                     if fname and fname in drive_file_ids:
@@ -455,7 +459,7 @@ def _walk_drive_folder(
                             group["group_id"],
                             source_data["source_id"],
                             source_data,
-                            thesis_id="",
+                            thesis_id=thesis_id,
                         )
                         sources_linked += 1
 
@@ -475,6 +479,7 @@ def _walk_drive_folder(
             scan=scan,
             registered=registered,
             skipped=skipped,
+            thesis_id=thesis_id,
         )
 
 

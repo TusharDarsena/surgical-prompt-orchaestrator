@@ -1472,7 +1472,9 @@ async function handleImportJsonFiles(files) {
     }
 
     try {
-      const result = await API.importSourceJson(data);
+      // The scan_key MUST exactly match the file name (without .json) so Drive links can resolve it
+      const scanKey = file.name.replace(/\.json$/i, "");
+      const result = await API.importSourceJson(data, scanKey);
       toast(`✓ Imported: ${result.title ?? file.name} (${result.sources_created} sources)`, "success", 4000);
       successCount++;
     } catch (err) {

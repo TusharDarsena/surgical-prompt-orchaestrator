@@ -108,3 +108,33 @@ When making a design choice, check here first.
 **14.6 Resolution Chain Fragility (Historical Context):** The old resolution chain was: `source_id` in chapterization JSON → scan dict key (local folder name) → `drive_links[filename]` → Drive URL → Drive file ID extracted by regex. This was fragile because three independent systems (local scan, Drive, chapterization JSON) were coupled by a single human-readable folder name string. Any rename of a local folder or Drive folder broke the entire chain: `register-links` would silently skip the thesis, and `source_resolver.py` would return nothing, causing the NotebookLM pipeline to fail with no uploadable sources. 
 
 **14.7 Pydantic Models & Dict Merge:** The `PATCH /sources/groups/{group_id}/sources/{source_id}` dict merge pattern (`data.update(updates)`) preserves extra fields not in the Pydantic model, so adding `drive_file_id` is safe on source records without requiring a model change.
+
+**14.8 Strategy 4 — Chapter Title Matching:** `source_resolver.py` now has a fourth resolution strategy: when Strategies 1–3 (chapter number extraction, keyword extraction, word-overlap) all fail, match the raw `chapter_id` string against `source.chapter_or_section` and `source.title` fields on the source records directly.
+
+**Why this exists:** Chapterization JSONs generated from different thesis PDFs produce different `chapter_id` formats. If the thesis has verbose chapter headings without embedded numbers (e.g. `"FEMINISM AND FEMINIST MOVEMENTS"` instead of `"Chapter 2"`), Strategies 1–3 return nothing. Source records always carry `chapter_or_section` (set during NLM index card import), which is the verbatim heading — an exact normalised match against this field is reliable.
+
+**Rule:** Never remove Strategy 4 on the assumption that "all theses will use chapter numbers." The format of `chapter_id` in the chapterization JSON is determined by how the LLM was prompted at chapterization time and is not under our control. Strategy 4 must remain active in **both** the primary path and the legacy scan fallback path.
+
+**Historical note:** Bharti Devi's thesis (`t_1782417138270`) was the case that exposed this gap. All subtopics failed silently until Strategy 4 was added. 42/42 links resolved after the fix.
+
+---
+
+## 15. Frontend API Calls — Always Use `_p()` for Thesis-Scoped Endpoints
+
+**Rule:** In all page-specific JS files, every `fetch`/`_post`/`_get` call that targets a
+thesis-scoped backend endpoint MUST use `_p("/path/to/endpoint")` instead of the raw string
+`"/path/to/endpoint"`. Never call `_post("/drive/register-links", ...)` — always `_post(_p("/drive/register-links"), ...)`.
+
+**Why:** `_p()` (defined in `api.js` and `source_library_api.js`) appends `?thesis_id={activeThesisId}`
+to the URL by reading from `localStorage.getItem("spo_active_thesis")`. Without it, `thesis_id`
+defaults to `""` on the backend, causing all multi-thesis storage lookups to search the root
+`source_groups/` directory (which is empty for thesis-namespaced setups). The failure is entirely
+silent — the backend returns 200, injected nothing, and the frontend never gets drive links.
+
+**Endpoints that are thesis-scoped and require `_p()`:** Everything under `/drive/`, `/sources/`,
+`/compile/`, `/sections/`, `/consistency/`, `/notes/`, `/import/`, `/notebooklm/`.
+
+**Enforcement:** Review any new frontend JS that calls a backend endpoint. If the endpoint
+path is one of the above families, it must go through `_p()`. The raw string form is only
+acceptable for truly global endpoints that have no `thesis_id` parameter (e.g. `/drive/local-files`
+with no thesis scope, health checks, auth callbacks).

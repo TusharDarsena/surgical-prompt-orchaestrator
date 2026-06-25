@@ -56,8 +56,11 @@ export const deleteSource = (groupId, sourceId) =>
   _delete(_p(`/sources/groups/${groupId}/sources/${sourceId}`));
 
 // ── Import ────────────────────────────────────────────────────────────────────
-export const importSourceJson = (data) =>
-  _post(_p("/import/source"), data);
+export const importSourceJson = (data, scanKey = "") => {
+  let url = _p("/import/source");
+  url += url.includes("?") ? `&scan_key=${encodeURIComponent(scanKey)}` : `?scan_key=${encodeURIComponent(scanKey)}`;
+  return _post(url, data);
+};
 
 // ── Drive / Scan ──────────────────────────────────────────────────────────────
 export const scanLocalFolder = (rootPath, thesisFolderName = null) => {
@@ -70,7 +73,7 @@ export const getLocalFiles = () =>
   _get("/drive/local-files");
 
 export const registerDriveLinks = (driveFolderId) =>
-  _post("/drive/register-links", { drive_parent_folder_id: driveFolderId });
+  _post(_p("/drive/register-links"), { drive_parent_folder_id: driveFolderId });
 
 export const copyDriveLinks = (thesisName) =>
   _get(`/drive/links/${thesisName}`);

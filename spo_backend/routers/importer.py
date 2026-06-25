@@ -249,7 +249,7 @@ def import_chapterization(chapter_id: str, data: ChapterizationImport, thesis_id
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/source", summary="Import source.json — creates group + all sources + index cards in one upload")
-def import_source(data: dict = Body(...), thesis_id: str = Query("")):
+def import_source(data: dict = Body(...), thesis_id: str = Query(""), scan_key: str = Query("")):
     """
     Imports a complete external work:
       1 SourceGroup + N Sources + N IndexCards in one request.
@@ -257,7 +257,7 @@ def import_source(data: dict = Body(...), thesis_id: str = Query("")):
     Delegates entirely to do_auto_import() in services/source_importer.py —
     the single authority for this logic, also used by drive.py's save_index_card.
     """
-    result, error = do_auto_import(data, thesis_id=thesis_id)
+    result, error = do_auto_import(data, thesis_id=thesis_id, scan_key=scan_key)
 
     if error:
         raise HTTPException(status_code=422, detail=error)

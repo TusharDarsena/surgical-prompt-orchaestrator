@@ -22,7 +22,7 @@ const state = {
   activeSubtopicId: null,
 
   // config (card-01) — shared by all runs in the chapter
-  wordCount: 750,
+  wordCount: 1500,
   styleNotes: "",
   uploadMethod: "drive",
 
@@ -46,7 +46,7 @@ const state = {
 
   // pre-flight source ID check result
   preflight: null,  // { total_checked, resolved, mismatch_count, mismatches }
-  
+
   // chosen resolutions for mismatches: oldId -> { chapterId, newId }
   preflightResolutions: {},
 };
@@ -383,19 +383,19 @@ function renderRunTable() {
       stopBtn.textContent = "Stop";
       stopBtn.addEventListener("click", () => actions.stopSubtopic(sub.subtopic_id));
       actCol.appendChild(stopBtn);
-      
+
       // Force Unlock button logic
       if (status === "expanding" && rs.updated_at) {
         const updatedTime = new Date(rs.updated_at).getTime();
         const tenMins = 10 * 60 * 1000;
         if (Date.now() - updatedTime > tenMins) {
-           const unlockBtn = document.createElement("button");
-           unlockBtn.className = "btn btn-danger";
-           unlockBtn.style.cssText = "padding:4px 10px;font-size:11px; margin-left: 4px;";
-           unlockBtn.textContent = "Force Unlock";
-           unlockBtn.title = "Stage 2 seems stuck. Click to unlock and use Draft 1.";
-           unlockBtn.addEventListener("click", () => actions.forceUnlockSubtopic(sub.subtopic_id));
-           actCol.appendChild(unlockBtn);
+          const unlockBtn = document.createElement("button");
+          unlockBtn.className = "btn btn-danger";
+          unlockBtn.style.cssText = "padding:4px 10px;font-size:11px; margin-left: 4px;";
+          unlockBtn.textContent = "Force Unlock";
+          unlockBtn.title = "Stage 2 seems stuck. Click to unlock and use Draft 1.";
+          unlockBtn.addEventListener("click", () => actions.forceUnlockSubtopic(sub.subtopic_id));
+          actCol.appendChild(unlockBtn);
         }
       }
     }
@@ -467,18 +467,18 @@ function renderPreflightCard() {
 
     // Left: source_id info
     const info = document.createElement("div");
-    
+
     const titleContainer = document.createElement("div");
     titleContainer.style.cssText = "display:flex;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px;";
 
     const badId = document.createElement("div");
     badId.style.cssText = "font-size:13px;color:var(--text);word-break:break-word;font-weight:500;";
     badId.textContent = toTitleCase(m.source_id);
-    
+
     const badge = document.createElement("span");
     badge.style.cssText = "background:#d9770633;color:#d97706;padding:2px 6px;border-radius:4px;font-size:10px;white-space:nowrap;display:inline-flex;align-items:center;height:fit-content;";
     badge.textContent = "⚠️ Mismatch";
-    
+
     titleContainer.appendChild(badId);
     titleContainer.appendChild(badge);
     info.appendChild(titleContainer);
@@ -503,7 +503,7 @@ function renderPreflightCard() {
       opt.textContent = cand;
       sel.appendChild(opt);
     }
-    
+
     // Divider logic inside select isn't great, so just append special options
     const optSkip = document.createElement("option");
     optSkip.value = "__SKIP__";
@@ -519,7 +519,7 @@ function renderPreflightCard() {
 
     sel.addEventListener("change", (e) => {
       let chosen = e.target.value;
-      
+
       if (chosen === "__MANUAL__") {
         chosen = prompt("Enter exact scan key:");
         if (chosen) {
@@ -568,7 +568,7 @@ function renderPreflightCard() {
     row.appendChild(controls);
     container.appendChild(row);
   }
-  
+
   const bottomBar = document.createElement("div");
   bottomBar.style.cssText = "margin-top:16px;display:flex;justify-content:flex-end;";
   const applyBtn = document.createElement("button");
@@ -582,7 +582,7 @@ function renderPreflightCard() {
   });
   bottomBar.appendChild(applyBtn);
   container.appendChild(bottomBar);
-  
+
   _updateApplyAllButton();
 }
 
@@ -672,21 +672,21 @@ function renderSources() {
 }
 
 function renderConsistencyCard() {
-  const savedBox   = $("consistencySavedBox");
+  const savedBox = $("consistencySavedBox");
   const pasteSection = $("summaryPasteSection");
-  const savedText  = $("consistencySavedText");
-  const pill       = $("card04Pill");
+  const savedText = $("consistencySavedText");
+  const pill = $("card04Pill");
   const text = state.consistencyText;
 
   if (text) {
     // Summary exists — show saved box, hide paste section
-    if (savedText)  savedText.textContent = text;
-    if (savedBox)   savedBox.style.display = "block";
+    if (savedText) savedText.textContent = text;
+    if (savedBox) savedBox.style.display = "block";
     if (pasteSection) pasteSection.style.display = "none";
     if (pill) { pill.textContent = "✅ Done"; pill.className = "pill pill-done"; }
   } else {
     // No summary — show paste section, hide saved box
-    if (savedBox)   savedBox.style.display = "none";
+    if (savedBox) savedBox.style.display = "none";
     if (pasteSection) pasteSection.style.display = "block";
     const area = $("summaryPasteArea");
     if (area) area.value = "";
@@ -986,7 +986,7 @@ const actions = {
     try {
       await API.saveConsistencySummary(state.chapterId, state.activeSubtopicId, {
         subtopic_number: sub.number,
-        subtopic_title:  sub.title,
+        subtopic_title: sub.title,
         core_argument_made: text,
         key_terms_established: [],
         sources_used: [],
@@ -1044,14 +1044,14 @@ const actions = {
   async applyAllSourceIdFixes() {
     const resolutions = Object.entries(state.preflightResolutions);
     if (resolutions.length === 0) return;
-    
+
     const thesisId = _activeThesisId();
     const btn = $("btnApplyPreflightResolutions");
     if (btn) { btn.disabled = true; btn.textContent = "Applying..."; }
-    
+
     let successCount = 0;
     let failCount = 0;
-    
+
     for (const [oldId, { chapterId, newId }] of resolutions) {
       try {
         await API.fixSourceId(thesisId, chapterId, oldId, newId);
@@ -1065,7 +1065,7 @@ const actions = {
         failCount++;
       }
     }
-    
+
     if (successCount > 0) {
       toast(`✓ Applied ${successCount} resolution(s)`, "success");
       await actions.checkSourceIds();
@@ -1221,8 +1221,8 @@ function _updateWordCount() {
 // Called by runSubtopic() and runAllIdle() before every API call.
 function _getRunParams() {
   return {
-    wordCount:    state.wordCount    || null,
-    styleNotes:   state.styleNotes   || null,
+    wordCount: state.wordCount || null,
+    styleNotes: state.styleNotes || null,
     uploadMethod: state.uploadMethod || "drive",
   };
 }
@@ -1308,7 +1308,7 @@ async function init() {
 
   // ── Consistency (card-04) ────────────────────────────────────────────────
   $("btnCopySummaryPrompt")?.addEventListener("click", () => actions.generateConsistencyPrompt());
-  $("btnSaveConsistency")?.addEventListener("click",   () => actions.saveConsistencyText());
+  $("btnSaveConsistency")?.addEventListener("click", () => actions.saveConsistencyText());
   $("btnDeleteConsistency")?.addEventListener("click", () => actions.deleteConsistencySummary());
 
   // ── Prompt viewer (card-02) ───────────────────────────────────────────────
@@ -1333,7 +1333,7 @@ async function init() {
 
   $("btnTogglePromptViewer")?.addEventListener("click", async () => {
     const panel = $("promptViewerPanel");
-    const btn   = $("btnTogglePromptViewer");
+    const btn = $("btnTogglePromptViewer");
     if (!panel) return;
     _promptViewerOpen = !_promptViewerOpen;
     panel.style.display = _promptViewerOpen ? "block" : "none";
@@ -1460,7 +1460,7 @@ function _gdocsPollConnection() {
         _setGDocsConnected(true);
         toast("Google account connected!", "success");
       }
-    } catch (_) {}
+    } catch (_) { }
     if (tries >= 30) clearInterval(interval); // stop after ~60s
   }, 2000);
 }
@@ -1523,7 +1523,7 @@ actions.exportToGDocs = async function exportToGDocs(force = false) {
         // err.message format from api.js: "409: {...json...}"
         const jsonPart = err.message.replace(/^\d+:\s*/, "");
         detail = JSON.parse(jsonPart);
-      } catch (_) {}
+      } catch (_) { }
       _showConflictModal(detail);
     } else {
       toast(`Export failed: ${err.message}`, "error");
@@ -1555,9 +1555,9 @@ function showAuthBanner(phase, msg = "") {
   if (!banner) return;
   const text = $("authBannerText");
   const btn = $("btnAuthAction");
-  
+
   banner.style.display = "flex";
-  
+
   if (phase === "login") {
     text.textContent = "NotebookLM auth missing or expired. You must log in before running generating drafts.";
     btn.textContent = "Start Login";
@@ -1589,23 +1589,23 @@ function hideAuthBanner() {
 async function handleAuthAction() {
   const btn = $("btnAuthAction");
   const action = btn.dataset.action;
-  
+
   try {
     if (action === "start") {
       btn.disabled = true;
       btn.textContent = "Starting...";
-      
+
       const res = await API.nlmAuthStart();
       if (!res.ok) throw new Error(res.error || "Failed to start auth process");
-      
+
       showAuthBanner("confirm");
       startAuthPoller();
     } else if (action === "confirm") {
       showAuthBanner("polling");
-      
+
       const res = await API.nlmAuthConfirm();
       if (!res.ok) throw new Error(res.error || "Failed to confirm login");
-      
+
       if (authPollTimer) clearInterval(authPollTimer);
       await checkAuthOnLoad();
       toast("Login complete", "success");
