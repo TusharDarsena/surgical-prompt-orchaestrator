@@ -64,25 +64,20 @@ def resolve_source_files(
 
         results = []
         for segment in segments:
-            # Strategy 1-3: number/keyword/word-overlap match against filenames
-            file_name = _match_chapter_to_file(segment, files)
-
-            src = None
-            if file_name:
-                src = next(
-                    (s for s in group_sources if s.get("file_name") == file_name),
-                    None,
-                )
-
-            # Strategy 4: when chapterization uses raw chapter titles (not numbers),
-            # match the segment directly against source.chapter_or_section / source.title.
+            # Strategy 4: match segment directly against source.chapter_or_section / source.title.
             # This handles theses where chapter_id is e.g. "FEMINISM AND FEMINIST MOVEMENTS"
-            # instead of "Chapter 2" — common when the chapterization JSON was generated
-            # from a thesis with verbose chapter headings.
-            if src is None:
-                src = _match_segment_by_chapter_title(segment, group_sources)
-                if src:
-                    file_name = src.get("file_name")
+            # instead of "Chapter 2". We try this EXACT database match FIRST to avoid Strategy 3 false positives.
+            src = _match_segment_by_chapter_title(segment, group_sources)
+            file_name = src.get("file_name") if src else None
+
+            # Strategy 1-3: number/keyword/word-overlap match against filenames
+            if not file_name:
+                file_name = _match_chapter_to_file(segment, files)
+                if file_name:
+                    src = next(
+                        (s for s in group_sources if s.get("file_name") == file_name),
+                        None,
+                    )
 
             drive_file_id = None
             drive_link = None
@@ -130,25 +125,28 @@ def resolve_source_files(
 
     results = []
     for segment in segments:
-        file_name = _match_chapter_to_file(segment, files)
+        file_name = None
         drive_link = None
         drive_file_id = None
 
-        if file_name and thesis_entry.get("drive_links"):
-            drive_link = thesis_entry["drive_links"].get(file_name)
-
         # Strategy 4 fallback: match by chapter_or_section / title on source records
-        if drive_link is None and _fallback_group_sources:
+        # Try this FIRST to prevent loose filename guessing from hijacking the match
+        if _fallback_group_sources:
             src4 = _match_segment_by_chapter_title(segment, _fallback_group_sources)
             if src4:
-                file_name = src4.get("file_name") or file_name
+                file_name = src4.get("file_name")
                 drive_file_id = src4.get("drive_file_id")
                 if drive_file_id:
                     drive_link = f"https://drive.google.com/file/d/{drive_file_id}/view"
                 elif src4.get("drive_link"):
                     drive_link = src4["drive_link"]
-                elif file_name and thesis_entry.get("drive_links"):
-                    drive_link = thesis_entry["drive_links"].get(file_name)
+
+        # Strategy 1-3 fallback
+        if not file_name:
+            file_name = _match_chapter_to_file(segment, files)
+
+        if file_name and drive_link is None and thesis_entry.get("drive_links"):
+            drive_link = thesis_entry["drive_links"].get(file_name)
 
         results.append({
             "segment": segment,
@@ -201,7 +199,8 @@ def _match_segment_by_chapter_title(segment: str, group_sources: list) -> dict |
             if not val:
                 continue
             val_norm = _norm(val)
-            if val_norm.startswith(seg_norm) or seg_norm.startswith(val_norm):
+            # Require a substantial length to prevent short prefixes like "a" or "the" from matching
+            if len(val_norm) > 10 and len(seg_norm) > 10 and (val_norm.startswith(seg_norm) or seg_norm.startswith(val_norm)):
                 return src
 
     return None
@@ -249,10 +248,12 @@ def _match_thesis_name(source_id: str, scan: dict) -> dict | None:
             
     # 4. Partial substring prefix match (for truncated names)
     for k in scan:
-        if _slugify(k).startswith(slug_id):
+        slug_k = _slugify(k)
+        if slug_k and len(slug_k) > 10 and len(slug_id) > 5 and slug_k.startswith(slug_id):
             return scan[k]
     for k in scan:
-        if slug_id.startswith(_slugify(k)):
+        slug_k = _slugify(k)
+        if slug_k and len(slug_k) > 10 and len(slug_id) > 5 and slug_id.startswith(slug_k):
             return scan[k]
 
     # 5. Difflib fuzzy matching for minor typos (like "woman" vs "women").
@@ -286,13 +287,18 @@ def _split_chapter_references(chapter_id_raw: str) -> list[str]:
     """
     raw = chapter_id_raw.strip()
 
-    # Zero pass: "Chapters N and M" / "Chapters N & M" — plural with bare numbers/words
-    m = re.match(
-        r'chapters?\s+(\w+)\s+(?:and|&)\s+(\w+)\s*$',
-        raw, re.IGNORECASE
-    )
+    # Zero pass: lists of bare numbers/words (e.g. "Chapters 1, 2 and 3")
+    m = re.match(r'^chapters?\s+([\w\s,&]+)$', raw, re.IGNORECASE)
     if m:
-        return [f"Chapter {m.group(1)}", f"Chapter {m.group(2)}"]
+        rest = m.group(1)
+        # Split by comma, 'and', '&'
+        parts = re.split(r',?\s+(?:and|&)\s+|,', rest, flags=re.IGNORECASE)
+        parts = [p.strip() for p in parts if p.strip()]
+        
+        valid_num_pattern = re.compile(r'^(\d+|' + '|'.join(_WORD_TO_NUM.keys()) + '|' + '|'.join(_ROMAN_TO_NUM.keys()) + r')$', re.IGNORECASE)
+        
+        if len(parts) > 1 and all(valid_num_pattern.match(p) for p in parts):
+            return [f"Chapter {p}" for p in parts]
 
     # First pass: split on uppercase AND only when both sides look like chapter refs.
     # Unconditional splitting caused false positives on chapter titles like
@@ -440,10 +446,17 @@ def _match_chapter_to_file(segment: str, files: list[str]) -> str | None:
         if w not in {'chapter', 'section', 'selected', 'novels', 'about', 'which', 'their'}
     )
     if seg_words:
+        best_match = None
+        best_score = 0
         for pf in parsed_files:
             body_words = set(re.findall(r'[a-z]{5,}', pf['body']))
-            if seg_words & body_words:
-                return pf['original']
+            score = len(seg_words & body_words)
+            if score > best_score:
+                best_score = score
+                best_match = pf['original']
+        
+        if best_match:
+            return best_match
 
     return None
 
@@ -500,7 +513,7 @@ def _extract_keyword(text: str) -> str | None:
 
     # Multi-word first (longer matches take priority)
     for phrase in sorted(_KEYWORD_MAP.keys(), key=len, reverse=True):
-        if phrase in t:
+        if re.search(r'\b' + re.escape(phrase) + r'\b', t):
             return _KEYWORD_MAP[phrase]
 
     return None
@@ -521,23 +534,17 @@ def _parse_filename(filename: str) -> dict:
     base = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE)
     # Strip leading NN_ prefix
     body = re.sub(r'^\d+_', '', base).strip().lower()
+    # Normalize remaining underscores/hyphens to spaces to catch multi-word keywords
+    body = re.sub(r'[-_]+', ' ', body)
 
-    number = None
+    # Use robust extraction rather than simplistic digit matching
+    number = _extract_chapter_number(body)
     keyword = None
-
-    # Try to extract chapter number from body
-    m = re.search(r'(?:chapter|chap\.?|ch\.?|section|part)\s*-?\s*(\d+)', body)
-    if m:
-        number = m.group(1)
-    else:
-        m = re.fullmatch(r'(\d+)', body.strip())
-        if m:
-            number = m.group(1)
 
     # Try keyword
     if not number:
         for phrase in sorted(_KEYWORD_MAP.keys(), key=len, reverse=True):
-            if phrase in body:
+            if re.search(r'\b' + re.escape(phrase) + r'\b', body):
                 keyword = _KEYWORD_MAP[phrase]
                 break
 

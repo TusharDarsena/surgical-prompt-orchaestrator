@@ -118,6 +118,7 @@ that doesn't map to a number, all three fail silently.
 
 ### Verified
 Live API test against `t_1782417138270`:
+
 ```
 ch1/1_1 → ch1/1_7: 25/25 links  [ALL OK]
 ch2/2_1, 2_2, 2_3, 2_7: 17/17 links  [ALL OK]
