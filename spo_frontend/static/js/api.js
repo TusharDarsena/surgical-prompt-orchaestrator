@@ -57,6 +57,7 @@ export const compilePrompt = (chapterId, subtopicId, wordCount, styleNotes) => {
   return _get(`/compile/notebooklm-prompt/${chapterId}/${subtopicId}${qs}`);
 };
 
+
 // ── Section Drafts ────────────────────────────────────────────────────────────
 
 export const getDraft = (chapterId, subtopicId) =>

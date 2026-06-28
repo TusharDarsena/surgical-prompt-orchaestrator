@@ -141,6 +141,8 @@ def _build_prompt_fields(
         "word_count": wc,
         "academic_style_notes": academic_style_notes,
         "source_ids": source_ids,
+        "subtopic_number": subtopic.get("number", ""),
+        "subtopic_title": subtopic.get("title", "Untitled"),
     }
 
 
@@ -170,21 +172,10 @@ def _render_source_document(fields: dict) -> str:
         "## Chapter Goal Statement",
         ch.get("chapter_goal_statement") or "Not specified",
         "",
-        "# CURRENT SUBTOPIC CONTEXT",
-        "NOTE: You are ONLY writing the subtopic below.",
-        "",
-        f"Subtopic {st.get('number', '')}: {st.get('title', 'Untitled')}",
-        "",
-        "## Subtopic Goal",
-        st.get("goal") or "Not specified",
-        "",
-        "## Position in Argument",
-        st.get("position_in_argument") or "Not specified",
-        "",
         "# PREVIOUS SECTION SUMMARY",
         "[PASTE PREVIOUS SECTION SUMMARY HERE — not part of the chapterization JSON]",
         "",
-        "# CHAPTER OUTLINE (ALL SUBTOPICS)",
+        "# CHAPTER OUTLINE",
     ]
 
     for s_data in all_st:
@@ -207,6 +198,8 @@ def _render_prompt_1(fields: dict) -> str:
     wc = fields["word_count"]
     academic_style_notes = fields["academic_style_notes"]
     source_ids = fields["source_ids"]
+    subtopic_num = fields.get("subtopic_number", "")
+    subtopic_title = fields.get("subtopic_title", "Untitled")
 
     # ── Build source block (chapter name + source_guidance only) ──────────
     source_lines = []
@@ -222,7 +215,7 @@ def _render_prompt_1(fields: dict) -> str:
 You are an academic writing assistant drafting a PhD dissertation section in English literature.
 I have uploaded a Context Document (source_document) and several academic sources.
 
-Your task is to write ONLY the specific subtopic designated as the "CURRENT SUBTOPIC" in the Context Document. Read the Context Document carefully to understand the chapter's overarching argument and how this specific subtopic fits into it.
+Your task is to write ONLY Subtopic {subtopic_num}: {subtopic_title}. Read the Context Document carefully to understand the chapter's overarching argument and how this specific subtopic fits into the Chapter Outline.
 * Target length: ~{wc} words{style_note_line}
 
 # SOURCES & DEPLOYMENT STRATEGY

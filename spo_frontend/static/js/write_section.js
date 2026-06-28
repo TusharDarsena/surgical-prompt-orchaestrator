@@ -341,7 +341,7 @@ function renderRunTable() {
     const cpBtn = document.createElement("button");
     cpBtn.className = "copy-icon-btn";
     cpBtn.title = "Copy Instruction (Prompt 1)";
-    cpBtn.textContent = "📋 Inst";
+    cpBtn.textContent = "📋 Instruction";
     cpBtn.addEventListener("click", () => actions.copyPromptForSubtopic(sub.subtopic_id));
     actCol.appendChild(cpBtn);
 
@@ -349,10 +349,19 @@ function renderRunTable() {
     const cpCtxBtn = document.createElement("button");
     cpCtxBtn.className = "copy-icon-btn";
     cpCtxBtn.title = "Copy Context (Source Doc)";
-    cpCtxBtn.textContent = "📋 Ctx";
+    cpCtxBtn.textContent = "📋 Context";
     cpCtxBtn.style.marginLeft = "4px";
     cpCtxBtn.addEventListener("click", () => actions.copyContextForSubtopic(sub.subtopic_id));
     actCol.appendChild(cpCtxBtn);
+
+    // copy summary request icon
+    const cpSumBtn = document.createElement("button");
+    cpSumBtn.className = "copy-icon-btn";
+    cpSumBtn.title = "Copy Summary Request (Prompt 2)";
+    cpSumBtn.textContent = "📋 Summary";
+    cpSumBtn.style.marginLeft = "4px";
+    cpSumBtn.addEventListener("click", () => actions.copySummaryForSubtopic(sub.subtopic_id));
+    actCol.appendChild(cpSumBtn);
 
     if (status === "idle" || status === "error" || status === "stage2_error") {
       // run button
@@ -974,6 +983,16 @@ const actions = {
       }
     } catch (err) {
       toast(`Compile failed: ${err.message}`, "error");
+    }
+  },
+
+  async copySummaryForSubtopic(subtopicId) {
+    try {
+      const res = await API.getSummaryPrompt(state.chapterId, subtopicId);
+      const text = res.summary_prompt ?? "No summary prompt returned.";
+      await copyToClipboard(text, "Summary Prompt copied");
+    } catch (err) {
+      toast(`Failed to fetch summary prompt: ${err.message}`, "error");
     }
   },
 

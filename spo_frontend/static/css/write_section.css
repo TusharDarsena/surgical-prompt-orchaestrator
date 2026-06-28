@@ -174,16 +174,25 @@
 
 /* ── COPY ICON BUTTON ── */
 .copy-icon-btn {
-  background: none;
-  border: none;
-  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
   color: var(--muted);
-  padding: 4px;
-  transition: color 0.15s;
-  line-height: 1;
+  padding: 5px 10px;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.copy-icon-btn:hover { color: var(--accent); }
+.copy-icon-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
 
 /* ── GEMINI BADGE ── */
 .gemini-badge {
