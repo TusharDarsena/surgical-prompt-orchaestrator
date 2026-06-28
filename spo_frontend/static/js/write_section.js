@@ -337,25 +337,22 @@ function renderRunTable() {
     const actCol = document.createElement("div");
     actCol.className = "run-action-cell";
 
-    if (status === "done" && rs.prompt_2) {
-      const badge = document.createElement("span");
-      badge.className = "gemini-badge";
-      badge.textContent = "📋 Gemini";
-      badge.title = "Copy Stage 2 Gemini prompt";
-      badge.dataset.prompt2 = rs.prompt_2;
-      badge.addEventListener("click", () => {
-        copyToClipboard(rs.prompt_2, "Stage 2 Gemini prompt copied");
-      });
-      actCol.appendChild(badge);
-    }
-
-    // copy prompt icon — always visible
+    // copy instruction icon
     const cpBtn = document.createElement("button");
     cpBtn.className = "copy-icon-btn";
-    cpBtn.title = "Copy prompt manually";
-    cpBtn.textContent = "📋";
+    cpBtn.title = "Copy Instruction (Prompt 1)";
+    cpBtn.textContent = "📋 Inst";
     cpBtn.addEventListener("click", () => actions.copyPromptForSubtopic(sub.subtopic_id));
     actCol.appendChild(cpBtn);
+
+    // copy context icon
+    const cpCtxBtn = document.createElement("button");
+    cpCtxBtn.className = "copy-icon-btn";
+    cpCtxBtn.title = "Copy Context (Source Doc)";
+    cpCtxBtn.textContent = "📋 Ctx";
+    cpCtxBtn.style.marginLeft = "4px";
+    cpCtxBtn.addEventListener("click", () => actions.copyContextForSubtopic(sub.subtopic_id));
+    actCol.appendChild(cpCtxBtn);
 
     if (status === "idle" || status === "error" || status === "stage2_error") {
       // run button
@@ -962,6 +959,24 @@ const actions = {
     }
   },
 
+  async copyContextForSubtopic(subtopicId) {
+    try {
+      const res = await API.compilePrompt(
+        state.chapterId, subtopicId,
+        state.wordCount || null,
+        state.styleNotes || null,
+      );
+      const text = res.source_document ?? "No source document returned from server.";
+      await copyToClipboard(text, "Source Document (Context) copied");
+      if (subtopicId === state.activeSubtopicId) {
+        state.sources = res.meta?.required_sources ?? [];
+        renderSources();
+      }
+    } catch (err) {
+      toast(`Compile failed: ${err.message}`, "error");
+    }
+  },
+
   async generateConsistencyPrompt() {
     // Now correctly: fetch the NLM summary request message and copy it
     const sub = getActiveSubtopic();
@@ -1315,19 +1330,23 @@ async function init() {
   let _promptViewerOpen = false;
   async function _loadPromptViewer() {
     const ta = $("promptViewerText");
+    const ts = $("sourceViewerText");
     if (!ta || !state.chapterId || !state.activeSubtopicId) return;
     ta.value = "Loading…";
+    if (ts) ts.value = "Loading…";
     try {
       const res = await API.compilePrompt(
         state.chapterId, state.activeSubtopicId,
         state.wordCount || null, state.styleNotes || null,
       );
       ta.value = res.prompt_1 ?? res.prompt ?? "";
+      if (ts) ts.value = res.source_document ?? "No source document returned from server.";
       // Refresh sources panel too
       state.sources = res.meta?.required_sources ?? [];
       renderSources();
     } catch (err) {
       ta.value = `Error: ${err.message}`;
+      if (ts) ts.value = `Error: ${err.message}`;
     }
   }
 
@@ -1338,17 +1357,50 @@ async function init() {
     _promptViewerOpen = !_promptViewerOpen;
     panel.style.display = _promptViewerOpen ? "block" : "none";
     btn.textContent = _promptViewerOpen
-      ? "📄 View compiled prompt for active subtopic ▾"
+      ? "📄 Hide compiled prompt for active subtopic ▾"
       : "📄 View compiled prompt for active subtopic ▸";
     if (_promptViewerOpen) await _loadPromptViewer();
   });
 
-  $("btnRefreshPromptViewer")?.addEventListener("click", () => _loadPromptViewer());
+  document.querySelectorAll(".btnRefreshViewer").forEach(btn => {
+    btn.addEventListener("click", () => _loadPromptViewer());
+  });
 
   $("btnCopyPromptViewer")?.addEventListener("click", () => {
     const text = $("promptViewerText")?.value;
-    if (text) copyToClipboard(text, "Prompt copied");
+    if (text) copyToClipboard(text, "Instruction Prompt copied");
   });
+
+  $("btnCopySourceViewer")?.addEventListener("click", () => {
+    const text = $("sourceViewerText")?.value;
+    if (text) copyToClipboard(text, "Source Document copied");
+  });
+
+  // Tab switching logic
+  const tabPrompt = $("btnTabPrompt");
+  const tabSource = $("btnTabSource");
+  const panelPrompt = $("panelPrompt");
+  const panelSource = $("panelSource");
+
+  if (tabPrompt && tabSource && panelPrompt && panelSource) {
+    tabPrompt.addEventListener("click", () => {
+      tabPrompt.style.color = "var(--text)";
+      tabPrompt.style.background = "var(--border)";
+      tabSource.style.color = "var(--muted)";
+      tabSource.style.background = "transparent";
+      panelPrompt.style.display = "block";
+      panelSource.style.display = "none";
+    });
+
+    tabSource.addEventListener("click", () => {
+      tabSource.style.color = "var(--text)";
+      tabSource.style.background = "var(--border)";
+      tabPrompt.style.color = "var(--muted)";
+      tabPrompt.style.background = "transparent";
+      panelSource.style.display = "block";
+      panelPrompt.style.display = "none";
+    });
+  }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   // ── Thesis selector ───────────────────────────────────────────────────────

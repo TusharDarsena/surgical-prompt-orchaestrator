@@ -1,18 +1,23 @@
 """
 Prompt Compiler Router
 ----------------------
-Compiles the NotebookLM writing prompt directly from chapterization data.
+Compiles the NotebookLM source document + writing prompt directly from
+chapterization data.
 
 The chapterization JSON contains everything needed:
-  - subtopic.goal            → Core Objective
-  - subtopic.source_ids[]    → Focus Points (with source_guidance)
-  - subtopic.position_in_argument → Scope Control
-  - chapter.sources_reserved → Do Not Include
-  - subtopic.estimated_pages → Word count target
-  - chapter.chapter_arc      → Chapter-level context
+  - chapter.{number,title,goal,chapter_arc,chapter_goal_statement} → source_document context
+  - subtopic.{number,title,goal,position_in_argument}              → source_document context
+  - subtopic.source_ids[] (source_guidance)                        → prompt_1 instructions
 
-Previous section context is preserved via the consistency chain
-(storage.read_section_summary).
+Output is now split in two, per the source/prompt decoupling
+(see services/compiler_service.py header for the full rationale):
+  - source_document → uploaded to NotebookLM as a text source (context only)
+  - prompt_1        → pasted into NotebookLM chat (instruction only)
+
+Previous section summaries are no longer auto-included anywhere — that
+data lives outside the chapterization JSON and is pasted manually into
+the source document's placeholder section. storage.read_section_summary
+is still consulted only to decide whether to surface a reminder warning.
 """
 
 from fastapi import APIRouter, HTTPException, Query
@@ -77,21 +82,21 @@ def compile_notebooklm_prompt(
             prev_id = ids_in_order[idx - 1]
             previous_summary = storage.read_section_summary(chapter_id, prev_id, thesis_id=thesis_id)
 
-    # ── Render prompt ──────────────────────────────────────────────────────
-    prompts = _render_notebooklm_prompt(
+    # ── Render source document + prompts ────────────────────────────────────
+    rendered = _render_notebooklm_prompt(
         chapter=chapter,
         subtopic=subtopic,
         previous_summary=previous_summary,
         word_count_override=word_count,
         academic_style_notes=academic_style_notes,
     )
-    prompt_1 = prompts["prompt_1"]
-    # prompt_2 (Stage 2 Gemini expansion) has been retired — Option A from implementation plan
+    source_document = rendered["source_document"]
+    prompt_1 = rendered["prompt_1"]
 
     # ── Effective word count ──────────────────────────────────────────────
     effective_wc = word_count
-    if not effective_wc and subtopic.get("estimated_pages"):
-        effective_wc = subtopic["estimated_pages"] * 250
+    if not effective_wc:
+        effective_wc = 1500
 
     # ── Resolve source files from local scan ───────────────────────────────
     required_sources = _resolve_required_sources(source_ids, thesis_id=thesis_id)
@@ -99,7 +104,10 @@ def compile_notebooklm_prompt(
     # ── Warnings ───────────────────────────────────────────────────────────
     warnings = []
     if not previous_summary and ids_in_order.index(subtopic_id) > 0:
-        warnings.append("No previous section summary found. Save one after writing the previous subtopic.")
+        warnings.append(
+            "No previous section summary found in storage. Paste it manually into the "
+            "[PASTE PREVIOUS SECTION SUMMARY HERE] placeholder in source_document before uploading."
+        )
     unresolved = [r for r in required_sources if r["file_name"] is None]
     if unresolved:
         warnings.append(
@@ -109,7 +117,7 @@ def compile_notebooklm_prompt(
 
     # ── Build response ─────────────────────────────────────────────────────
     return {
-        "prompt": prompt_1,
+        "source_document": source_document,
         "prompt_1": prompt_1,
         "meta": {
             "chapter": f"{chapter['number']} — {chapter['title']}",
@@ -125,9 +133,10 @@ def compile_notebooklm_prompt(
             "warnings": warnings,
         },
         "next_step": (
-            f"1. Check required_sources — upload those PDFs to NotebookLM. "
-            f"2. Paste prompt_1 into NotebookLM and collect the draft. "
-            f"3. Use prompts/generate_subtopic_summary.txt with Claude to generate the consistency summary. "
+            f"1. Check required_sources — upload those PDFs to NotebookLM as sources. "
+            f"2. Upload source_document to NotebookLM as an additional text source "
+            f"(paste in the previous section summary first if you have one). "
+            f"3. Paste Prompt 1 into the NotebookLM chat box. "
             f"4. Save draft via POST /sections/{chapter_id}/{subtopic_id}/draft. "
             f"5. Save consistency summary via POST /consistency/{chapter_id}/{subtopic_id}."
         )

@@ -220,14 +220,35 @@ window.SPO_CHAPTERS = [];
             📄 View compiled prompt for active subtopic ▸
           </button>
           <div id="promptViewerPanel" style="display:none;margin-top:8px;">
-            <textarea id="promptViewerText" readonly
-              style="width:100%;height:260px;font-size:11px;font-family:var(--font-mono,monospace);resize:vertical;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);box-sizing:border-box;"
-              placeholder="Select a subtopic to load its compiled prompt…"></textarea>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;">
-              <button class="btn btn-ghost" id="btnRefreshPromptViewer" type="button" style="font-size:11.5px;">⟳
-                Refresh</button>
-              <button class="btn btn-ghost" id="btnCopyPromptViewer" type="button" style="font-size:11.5px;">📋
-                Copy</button>
+            <div style="display:flex; gap: 8px; margin-bottom: 8px;">
+               <button class="btn btn-ghost" id="btnTabPrompt" style="background: var(--border); color: var(--text);">Instruction (Prompt 1)</button>
+               <button class="btn btn-ghost" id="btnTabSource" style="color: var(--muted);">Context (Source Doc)</button>
+            </div>
+            
+            <div id="panelPrompt">
+              <textarea id="promptViewerText" readonly
+                style="width:100%;height:260px;font-size:11px;font-family:var(--font-mono,monospace);resize:vertical;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);box-sizing:border-box;"
+                placeholder="Select a subtopic to load its compiled prompt…"></textarea>
+              <div style="display:flex;justify-content:space-between;margin-top:6px;">
+                <span style="font-size: 11px; color: var(--muted); align-self: center;">Paste this into the NotebookLM chat box.</span>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn btn-ghost btnRefreshViewer" type="button" style="font-size:11.5px;">⟳ Refresh</button>
+                  <button class="btn btn-ghost" id="btnCopyPromptViewer" type="button" style="font-size:11.5px;">📋 Copy Instruction</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="panelSource" style="display:none;">
+              <textarea id="sourceViewerText" readonly
+                style="width:100%;height:260px;font-size:11px;font-family:var(--font-mono,monospace);resize:vertical;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);box-sizing:border-box;"
+                placeholder="Select a subtopic to load its source document…"></textarea>
+              <div style="display:flex;justify-content:space-between;margin-top:6px;">
+                <span style="font-size: 11px; color: var(--muted); align-self: center;">Upload this as a new text source in NotebookLM.</span>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn btn-ghost btnRefreshViewer" type="button" style="font-size:11.5px;">⟳ Refresh</button>
+                  <button class="btn btn-ghost" id="btnCopySourceViewer" type="button" style="font-size:11.5px;">📋 Copy Source Doc</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
