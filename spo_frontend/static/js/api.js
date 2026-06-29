@@ -57,6 +57,9 @@ export const compilePrompt = (chapterId, subtopicId, wordCount, styleNotes) => {
   return _get(`/compile/notebooklm-prompt/${chapterId}/${subtopicId}${qs}`);
 };
 
+export const getChapterSourceMap = (chapterId) =>
+  _get(_p(`/compile/chapter-source-map/${chapterId}`));
+
 
 // ── Section Drafts ────────────────────────────────────────────────────────────
 

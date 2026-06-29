@@ -20,6 +20,7 @@ the source document's placeholder section. storage.read_section_summary
 is still consulted only to decide whether to surface a reminder warning.
 """
 
+import asyncio
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from services import storage
@@ -184,8 +185,29 @@ def get_summary_prompt(
     }
 
 
+# ── Chapter Source Map ────────────────────────────────────────────────────────
+
+@router.get(
+    "/chapter-source-map/{chapter_id}",
+    summary="Get a deduplicated map of chapter sources"
+)
+async def chapter_source_map(
+    chapter_id: str,
+    thesis_id: str = Query(""),
+):
+    """
+    Returns a deduplicated list of source mappings for the entire chapter.
+    Delegates to compiler_service to avoid business logic in the router,
+    wrapped in asyncio.to_thread to prevent blocking the event loop with
+    synchronous file operations.
+    """
+    from services.compiler_service import get_chapter_source_map
+    result = await asyncio.to_thread(get_chapter_source_map, chapter_id, thesis_id)
+    return result
+
+
 # ── Re-exported from service layer ─────────────────────────────────────────────────────
 # Imported here so existing callers of routers.compiler._resolve_required_sources
 # and routers.compiler._render_notebooklm_prompt continue to work unchanged.
 
-from services.compiler_service import _resolve_required_sources, _render_notebooklm_prompt, render_summary_prompt  # noqa: F401
+from services.compiler_service import _resolve_required_sources, _render_notebooklm_prompt, render_summary_prompt, get_chapter_source_map  # noqa: F401

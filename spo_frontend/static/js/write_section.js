@@ -1397,6 +1397,58 @@ async function init() {
     }
   });
 
+  $("btnCopyChapterSourceMap")?.addEventListener("click", async () => {
+    if (!state.chapterId) return;
+    const btn = $("btnCopyChapterSourceMap");
+    const originalText = btn.textContent;
+    btn.textContent = "⏳ Fetching...";
+    btn.disabled = true;
+
+    try {
+      const res = await API.getChapterSourceMap(state.chapterId);
+      if (res && res.length) {
+        const groups = {};
+        for (const r of res) {
+          const f = r.file_name || "Unresolved";
+          const source = r.source_id || "Unknown";
+          const key = `${source}::${f}`;
+          if (!groups[key]) groups[key] = { file: f, source: source, items: [] };
+          groups[key].items.push(r);
+        }
+
+        const textLines = [];
+        textLines.push(`📁 SOURCE MAP FOR CHAPTER ${state.chapterId}`);
+        textLines.push("========================================");
+        textLines.push("This map lists all source files required for this chapter.");
+        textLines.push("To prevent upload conflicts, files are prefixed with a bracketed tag");
+        textLines.push("representing their source thesis. You can use these tags to rename");
+        textLines.push("your local files before uploading them to your LLM.");
+        textLines.push("");
+
+        for (const [key, group] of Object.entries(groups)) {
+          // Truncate source_id for a clean prefix
+          const prefix = group.source.length > 20 ? group.source.substring(0, 20) + "..." : group.source;
+          textLines.push(`📄 [${prefix}] ${group.file}`);
+          textLines.push(`   ├─ Source:  ${group.source}`);
+          
+          group.items.forEach((item, index) => {
+            const branch = index === group.items.length - 1 ? "   └─" : "   ├─";
+            textLines.push(`${branch} Chapter: ${item.chapter_id}`);
+          });
+          textLines.push("");
+        }
+        await copyToClipboard(textLines.join("\n").trim(), `Chapter source map copied`);
+      } else {
+        toast("No source map available for this chapter", "info");
+      }
+    } catch (err) {
+      toast(`Failed to copy chapter source map: ${err.message}`, "error");
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  });
+
   // ── Consistency (card-04) ────────────────────────────────────────────────
   $("btnCopySummaryPrompt")?.addEventListener("click", () => actions.generateConsistencyPrompt());
   $("btnSaveConsistency")?.addEventListener("click", () => actions.saveConsistencyText());

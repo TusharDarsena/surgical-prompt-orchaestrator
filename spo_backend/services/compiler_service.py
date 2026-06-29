@@ -280,3 +280,45 @@ def render_summary_prompt(subtopic: dict) -> str:
         .replace("{subtopic_number}", subtopic.get("number", ""))
         .replace("{subtopic_title}", subtopic.get("title", ""))
     )
+
+
+# ── Chapter Source Map ────────────────────────────────────────────────────────
+
+def get_chapter_source_map(chapter_id: str, thesis_id: str = "") -> list[dict]:
+    """
+    Returns a deduplicated list of source mappings for the entire chapter.
+    Each mapping contains chapter_id, source_id, and file_name.
+    """
+    chapter = storage.read_chapter(chapter_id, thesis_id)
+    if not chapter:
+        return []
+
+    # Aggregate all source_ids from all subtopics
+    all_source_ids = []
+    for subtopic in chapter.get("subtopics", []):
+        for src in subtopic.get("source_ids", []):
+            all_source_ids.append(src)
+
+    if not all_source_ids:
+        return []
+
+    # Resolve to filenames and links
+    resolved = _resolve_required_sources(all_source_ids, thesis_id=thesis_id)
+
+    # Deduplicate based on exact match of chapter_id, source_id, and file_name
+    seen = set()
+    deduped = []
+    for r in resolved:
+        cid = r.get("chapter_id", "")
+        sid = r.get("source_id", "")
+        fname = r.get("file_name", "")
+        key = (cid, sid, fname)
+        if key not in seen:
+            seen.add(key)
+            deduped.append({
+                "chapter_id": cid,
+                "source_id": sid,
+                "file_name": fname
+            })
+
+    return deduped
