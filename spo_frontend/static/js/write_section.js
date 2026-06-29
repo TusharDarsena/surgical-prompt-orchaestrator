@@ -1331,13 +1331,70 @@ async function init() {
   // ── Copy all source links ─────────────────────────────────────────────────
   $("btnCopyAllLinks")?.addEventListener("click", async () => {
     if (!state.chapterId || !state.activeSubtopicId) return;
-    const res = await API.compilePrompt(state.chapterId, state.activeSubtopicId, state.wordCount || null, state.styleNotes || null);
-    const sources = res.meta?.required_sources ?? [];
-    state.sources = sources;
-    renderSources();
-    const links = sources.filter(s => s.drive_link).map(s => s.drive_link);
-    if (links.length) copyToClipboard(links.join("\n"), `${links.length} link(s) copied`);
-    else toast("No links found", "info");
+    const btn = $("btnCopyAllLinks");
+    const originalText = btn.textContent;
+    btn.textContent = "⏳...";
+    btn.disabled = true;
+    try {
+      const res = await API.compilePrompt(state.chapterId, state.activeSubtopicId, state.wordCount || null, state.styleNotes || null);
+      const sources = res.meta?.required_sources ?? [];
+      state.sources = sources;
+      renderSources();
+      const links = sources.filter(s => s.drive_link).map(s => s.drive_link);
+      if (links.length) copyToClipboard(links.join("\n"), `${links.length} link(s) copied`);
+      else toast("No links found", "info");
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  });
+
+  $("btnCopyChapterLinks")?.addEventListener("click", async () => {
+    if (!state.chapterId) return;
+    if (!state.subtopics || state.subtopics.length === 0) {
+      toast("No subtopics in this chapter", "info");
+      return;
+    }
+    
+    const btn = $("btnCopyChapterLinks");
+    const originalText = btn.textContent;
+    btn.textContent = "⏳ Fetching...";
+    btn.disabled = true;
+
+    try {
+      const allLinks = new Set();
+      let errorCount = 0;
+      
+      await Promise.all(state.subtopics.map(async (sub) => {
+        try {
+          const res = await API.compilePrompt(state.chapterId, sub.subtopic_id, state.wordCount || null, state.styleNotes || null);
+          const sources = res.meta?.required_sources ?? [];
+          sources.forEach(s => {
+            if (s.drive_link) {
+              allLinks.add(s.drive_link);
+            }
+          });
+        } catch (err) {
+          errorCount++;
+          console.error(`Failed to compile prompt for subtopic ${sub.subtopic_id}:`, err);
+        }
+      }));
+
+      const linksArray = Array.from(allLinks);
+      if (linksArray.length) {
+        await copyToClipboard(linksArray.join("\n"), `${linksArray.length} chapter link(s) copied`);
+        if (errorCount > 0) {
+           toast(`Copied, but failed to fetch ${errorCount} subtopic(s)`, "error");
+        }
+      } else {
+        toast("No links found in chapter", "info");
+      }
+    } catch (err) {
+      toast(`Failed to copy chapter links: ${err.message}`, "error");
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
   });
 
   // ── Consistency (card-04) ────────────────────────────────────────────────

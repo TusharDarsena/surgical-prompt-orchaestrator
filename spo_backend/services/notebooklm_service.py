@@ -339,11 +339,29 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
     scan = storage.read_misc("drive_scan_result", thesis_id="") or {}
     seen: set[str] = set()
     result = []
+    unresolvable_count = 0
+    dedup_dropped_count = 0
 
     for entry in required_sources:
         file_name = entry.get("file_name")
         if not file_name:
+            unresolvable_count += 1
+            logger.info(
+                f"Unresolvable source dropped (no file_name from source_resolver): "
+                f"source_id='{entry.get('source_id')}', segment='{entry.get('segment')}'. "
+                "This means upstream chapter-to-filename matching failed — "
+                "investigate source_resolver.py for this source, not this function."
+            )
             continue
+
+        # Moved up: extract drive_file_id before dedup key computation
+        drive_file_id = entry.get("drive_file_id")
+        if not drive_file_id:
+            link = entry.get("drive_link")
+            if link:
+                match = re.search(r'/d/([a-zA-Z0-9_-]+)', link)
+                if match:
+                    drive_file_id = match.group(1)
 
         thesis_name = entry.get("source_id", "")
         abs_path = None
@@ -370,16 +388,6 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
                         "Re-run POST /drive/scan-local if files have moved."
                     )
 
-        # Prefer the raw drive_file_id written directly by register-links (new path).
-        # Fall back to extracting the ID from the URL for legacy entries.
-        drive_file_id = entry.get("drive_file_id")
-        if not drive_file_id:
-            link = entry.get("drive_link")
-            if link:
-                match = re.search(r'/d/([a-zA-Z0-9_-]+)', link)
-                if match:
-                    drive_file_id = match.group(1)
-
         # Warn only when the entry is completely unresolvable (no abs_path AND no drive_file_id).
         # For Drive-mode groups this is normal if scan-local was never run — abs_path stays
         # None but drive_file_id is set, so the upload still succeeds.
@@ -392,8 +400,22 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
             )
 
         # Deduplicate — same PDF from multiple source_id entries
-        dedup_key = abs_path if abs_path else f"unresolved::{file_name}"
+        drive_link = entry.get("drive_link")
+        if abs_path:
+            dedup_key = abs_path
+        elif drive_file_id:
+            dedup_key = f"drive_id::{drive_file_id}"
+        elif drive_link:
+            dedup_key = f"drive_link::{drive_link}"
+        else:
+            dedup_key = f"unresolved::{file_name}"
+
         if dedup_key in seen:
+            dedup_dropped_count += 1
+            logger.info(
+                f"Dedup collision: '{file_name}' (drive_file_id={drive_file_id}, "
+                f"drive_link={drive_link}) collided with key '{dedup_key}' — entry dropped."
+            )
             continue
         seen.add(dedup_key)
 
@@ -409,6 +431,10 @@ def _resolve_absolute_paths(required_sources: list[dict]) -> list[dict]:
             "drive_link": entry.get("drive_link"),
         })
 
+    logger.info(
+        f"_resolve_absolute_paths: {len(required_sources)} in → {len(result)} out "
+        f"(unresolvable={unresolvable_count}, dedup_dropped={dedup_dropped_count})"
+    )
     return result
 
 

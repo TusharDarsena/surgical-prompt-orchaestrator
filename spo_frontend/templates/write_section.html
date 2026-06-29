@@ -339,8 +339,14 @@ window.SPO_CHAPTERS = [];
       <button id="btnCopyAllLinks" class="btn btn-ghost" title="Copy all source links"
         style="font-size:11px;padding:3px 8px;margin-top:6px;">📋 Copy All Links</button>
     </div>
-    <div class="sp-list" id="sourcesList">
-      <p class="sp-empty">Compile a prompt to resolve sources.</p>
+    <div class="sp-list" style="padding: 0; display: flex; flex-direction: column;">
+      <div id="sourcesList" style="padding: 10px 14px 0;">
+        <p class="sp-empty">Compile a prompt to resolve sources.</p>
+      </div>
+      <div style="padding: 16px 14px 24px;">
+        <button id="btnCopyChapterLinks" class="btn btn-ghost" title="Copy all source links for the entire chapter"
+          style="width:100%; font-size:11px; padding:6px 8px; justify-content: center; background: var(--surface2); border: 1px dashed var(--border);">📋 Copy Chapter Links</button>
+      </div>
     </div>
   </aside>
 
